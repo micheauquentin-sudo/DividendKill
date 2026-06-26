@@ -152,7 +152,7 @@ tbody td{padding:9px 6px;vertical-align:middle}
   <div class="logo">port<em>folio</em><span class="logo-tag">BETA</span></div>
   <div class="nav-status" id="navStatus">
     <div class="status-dot" id="statusDot"></div>
-    <span id="statusTxt">23 juin 2026</span>
+    <span id="statusTxt">Sync...</span>
   </div>
   <button class="sync-btn" onclick="syncIBKR()">&#8635; Sync</button>
 </nav>
@@ -247,21 +247,36 @@ const MarketData = (() => {
   }
 
   /* ── Fetch batch Yahoo Finance ── */
-  async function _fetchYahooQuotes(tickers) {
-    const symbols = tickers.join(',');
-    const fields  = [
-      'regularMarketPrice','regularMarketChange','regularMarketChangePercent',
-      'regularMarketPreviousClose','regularMarketVolume',
-      'trailingPE','forwardPE','dividendYield',
-      'trailingAnnualDividendRate','exDividendDate','marketState'
-    ].join(',');
-    const url = `${Config.YF_BASE}?symbols=${encodeURIComponent(symbols)}&fields=${fields}&lang=en-US&region=US`;
+  async function _fetchOneBatch(batchTickers) {
+    const symbols = batchTickers.join(',');
+    const url = `${Config.YF_BASE}?symbols=${encodeURIComponent(symbols)}`;
     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-    if (!res.ok) throw new Error(`Yahoo Finance HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`Worker HTTP ${res.status}`);
     const json = await res.json();
+    if (json.error) throw new Error(`Worker: ${json.error}`);
     const results = json?.quoteResponse?.result;
-    if (!results || results.length === 0) throw new Error('Yahoo: aucun résultat');
-    return results;
+    if (!results || results.length === 0) throw new Error('Worker: aucun résultat');
+    return results.filter(Boolean);
+  }
+
+  async function _fetchYahooQuotes(tickers) {
+    // Twelvedata plan gratuit : max 8 symboles par requête
+    const BATCH = 8;
+    const batches = [];
+    for (let i = 0; i < tickers.length; i += BATCH) {
+      batches.push(tickers.slice(i, i + BATCH));
+    }
+    const allResults = [];
+    for (const batch of batches) {
+      try {
+        const res = await _fetchOneBatch(batch);
+        allResults.push(...res);
+      } catch(e) {
+        console.warn('[MarketData] batch error:', batch.join(','), e.message);
+      }
+    }
+    if (allResults.length === 0) throw new Error('Aucun résultat reçu du worker');
+    return allResults;
   }
 
   function _normalize(q) {
@@ -335,7 +350,7 @@ const MarketData = (() => {
     }
 
     _status = errors === tickers.length ? 'error' : 'ok';
-    _setNavStatus(_status === 'error' ? 'err' : 'ok', `Prix mis à jour (${success}/${tickers.length})`);
+    _setNavStatus(_status === 'error' ? 'err' : 'ok', '');
     _scheduleRefresh(tickers, onUpdate);
     return { success, errors };
   }
@@ -356,11 +371,14 @@ const MarketData = (() => {
   }
 
   function _setNavStatus(type, msg) {
-    // Met à jour le dot + texte dans la nav
-    const dot  = document.querySelector('.status-dot');
-    const text = document.querySelector('.nav-status span') || document.querySelector('.nav-status');
-    if (dot) { dot.className = 'status-dot' + (type === 'loading' ? ' load' : type === 'err' ? ' err' : ''); }
-    if (text) { const el = text.tagName === 'SPAN' ? text : text.querySelector('span'); if(el) el.textContent = msg; }
+    const dot = document.getElementById('statusDot');
+    const txt = document.getElementById('statusTxt');
+    if (dot) dot.className = 'status-dot' + (type === 'loading' ? ' load' : type === 'err' ? ' err' : '');
+    if (txt) {
+      if (type === 'loading') txt.textContent = 'Sync...';
+      else if (type === 'err') txt.textContent = 'Sync ERR';
+      else txt.textContent = 'Sync OK';
+    }
   }
 
   function getStatus() { return _status; }
@@ -399,21 +417,9 @@ const MarketData = (() => {
 const Data = (() => {
 
   /* ── Fallback prices (statiques — utilisés si pas de données marché en cache) ── */
-  const _fallbackPrices = {
-    ACN:126.81, ADP:220.75, APD:282.45, BMY:55.60,  CMCSA:22.89,
-    CTBI:70.08, HRL:24.53,  HTO:57.54,  JNJ:239.00, MDT:80.58,
-    MMM:161.84, NEE:86.79,  NFG:77.07,  NNN:46.02,  NWN:49.91,
-    O:61.45,    PPG:118.00, SON:50.79,  TGT:134.71, TSN:57.40,
-    UGI:34.72,  UNM:91.34
-  };
+  const _fallbackPrices = {}; // Prices viennent de Twelvedata via MarketData
 
-  const _fallbackChange = {
-    ACN:1.984, ADP:6.150, APD:-0.660, BMY:0.900, CMCSA:0.570,
-    CTBI:1.120, HRL:0.420, HTO:0.840, JNJ:7.710, MDT:1.310,
-    MMM:-1.380, NEE:0.710, NFG:0.950, NNN:0.860, NWN:1.210,
-    O:0.870,   PPG:-0.920, SON:0.330, TGT:4.980, TSN:1.890,
-    UGI:0.930, UNM:0.760
-  };
+  const _fallbackChange = {}; // Variations viennent de Twelvedata
 
   /* ── Proxy dynamique : lit MarketData si dispo, sinon fallback statique ── */
   const currentPrices = new Proxy(_fallbackPrices, {
@@ -432,116 +438,14 @@ const Data = (() => {
     }
   });
 
-  const assets = {
-    ACN:  {name:"Accenture",          sector:"Tech",      country:"IE", currency:"USD",
-           d:5.16, safe:80, streak:20, pe_cur:11.6, pe_5y:23.0,
-           div_freq:"quarterly", payout_ratio:0.52, fcf_payout:0.48, debt_equity:0.3,
-           div_cagr_5y:0.10, fcf_yield:0.043},
-    ADP:  {name:"ADP",                sector:"Tech",      country:"US", currency:"USD",
-           d:6.20, safe:84, streak:50, pe_cur:25.4, pe_5y:34.8,
-           div_freq:"quarterly", payout_ratio:0.68, fcf_payout:0.62, debt_equity:1.1,
-           div_cagr_5y:0.115, fcf_yield:0.026},
-    APD:  {name:"Air Products",       sector:"Mat.",      country:"US", currency:"USD",
-           d:7.08, safe:75, streak:42, pe_cur:20.8, pe_5y:26.4,
-           div_freq:"quarterly", payout_ratio:0.62, fcf_payout:0.71, debt_equity:1.4,
-           div_cagr_5y:0.08, fcf_yield:0.031},
-    BMY:  {name:"Bristol-Myers",      sector:"Santé",     country:"US", currency:"USD",
-           d:2.48, safe:62, streak:16, pe_cur:7.2,  pe_5y:11.8,
-           div_freq:"quarterly", payout_ratio:0.56, fcf_payout:0.52, debt_equity:2.1,
-           div_cagr_5y:0.09, fcf_yield:0.094},
-    CMCSA:{name:"Comcast",            sector:"Médias",    country:"US", currency:"USD",
-           d:1.24, safe:78, streak:14, pe_cur:6.8,  pe_5y:9.4,
-           div_freq:"quarterly", payout_ratio:0.32, fcf_payout:0.28, debt_equity:1.8,
-           div_cagr_5y:0.095, fcf_yield:0.071},
-    CTBI: {name:"CTBI",               sector:"Finance",   country:"US", currency:"USD",
-           d:2.20, safe:70, streak:22, pe_cur:13.1, pe_5y:14.2,
-           div_freq:"quarterly", payout_ratio:0.48, fcf_payout:0.44, debt_equity:0.8,
-           div_cagr_5y:0.05, fcf_yield:0.052},
-    HRL:  {name:"Hormel Foods",       sector:"Conso.",    country:"US", currency:"USD",
-           d:1.16, safe:67, streak:58, pe_cur:14.2, pe_5y:17.0,
-           div_freq:"quarterly", payout_ratio:0.72, fcf_payout:0.68, debt_equity:0.6,
-           div_cagr_5y:0.06, fcf_yield:0.039},
-    HTO:  {name:"H2O Retailing",      sector:"Finance",   country:"JP", currency:"USD",
-           d:1.68, safe:74, streak:58, pe_cur:10.2, pe_5y:11.5,
-           div_freq:"quarterly", payout_ratio:0.44, fcf_payout:0.40, debt_equity:0.5,
-           div_cagr_5y:0.07, fcf_yield:0.061},
-    JNJ:  {name:"Johnson & Johnson",  sector:"Santé",     country:"US", currency:"USD",
-           d:5.12, safe:97, streak:62, pe_cur:15.8, pe_5y:17.2,
-           div_freq:"quarterly", payout_ratio:0.45, fcf_payout:0.48, debt_equity:0.5,
-           div_cagr_5y:0.062, fcf_yield:0.063},
-    MDT:  {name:"Medtronic",          sector:"Santé",     country:"IE", currency:"USD",
-           d:2.80, safe:75, streak:46, pe_cur:14.1, pe_5y:15.2,
-           div_freq:"quarterly", payout_ratio:0.51, fcf_payout:0.47, debt_equity:0.7,
-           div_cagr_5y:0.055, fcf_yield:0.052},
-    MMM:  {name:"3M",                 sector:"Industrie", country:"US", currency:"USD",
-           d:2.80, safe:72, streak:66, pe_cur:14.5, pe_5y:17.3,
-           div_freq:"quarterly", payout_ratio:0.55, fcf_payout:0.51, debt_equity:2.3,
-           div_cagr_5y:0.03, fcf_yield:0.038},
-    NEE:  {name:"NextEra Energy",     sector:"Utilities", country:"US", currency:"USD",
-           d:2.22, safe:78, streak:28, pe_cur:17.4, pe_5y:22.6,
-           div_freq:"quarterly", payout_ratio:0.60, fcf_payout:0.58, debt_equity:1.5,
-           div_cagr_5y:0.10, fcf_yield:0.028},
-    NFG:  {name:"National Fuel",      sector:"Utilities", country:"US", currency:"USD",
-           d:2.00, safe:74, streak:54, pe_cur:13.8, pe_5y:16.2,
-           div_freq:"quarterly", payout_ratio:0.52, fcf_payout:0.48, debt_equity:1.2,
-           div_cagr_5y:0.035, fcf_yield:0.052},
-    NNN:  {name:"NNN REIT",           sector:"Immo.",     country:"US", currency:"USD",
-           d:1.84, safe:76, streak:35, pe_cur:15.2, pe_5y:13.8,
-           div_freq:"monthly",   payout_ratio:0.70, fcf_payout:0.68, debt_equity:0.9,
-           div_cagr_5y:0.034, fcf_yield:0.064},
-    NWN:  {name:"NW Natural",         sector:"Utilities", country:"US", currency:"USD",
-           d:1.96, safe:72, streak:67, pe_cur:18.2, pe_5y:20.1,
-           div_freq:"quarterly", payout_ratio:0.70, fcf_payout:0.68, debt_equity:1.6,
-           div_cagr_5y:0.015, fcf_yield:0.031},
-    O:    {name:"Realty Income",      sector:"Immo.",     country:"US", currency:"USD",
-           d:3.36, safe:85, streak:30, pe_cur:14.8, pe_5y:18.2,
-           div_freq:"monthly",   payout_ratio:0.75, fcf_payout:0.72, debt_equity:0.8,
-           div_cagr_5y:0.04, fcf_yield:0.057},
-    PPG:  {name:"PPG Industries",     sector:"Mat.",      country:"US", currency:"USD",
-           d:2.64, safe:79, streak:52, pe_cur:12.4, pe_5y:13.5,
-           div_freq:"quarterly", payout_ratio:0.42, fcf_payout:0.39, debt_equity:1.1,
-           div_cagr_5y:0.065, fcf_yield:0.058},
-    SON:  {name:"Sonoco Products",    sector:"Industrie", country:"US", currency:"USD",
-           d:2.12, safe:66, streak:41, pe_cur:11.8, pe_5y:15.4,
-           div_freq:"quarterly", payout_ratio:0.58, fcf_payout:0.54, debt_equity:1.4,
-           div_cagr_5y:0.045, fcf_yield:0.049},
-    TGT:  {name:"Target",             sector:"Conso.",    country:"US", currency:"USD",
-           d:4.48, safe:84, streak:57, pe_cur:11.2, pe_5y:16.8,
-           div_freq:"quarterly", payout_ratio:0.51, fcf_payout:0.46, debt_equity:1.2,
-           div_cagr_5y:0.12, fcf_yield:0.072},
-    TSN:  {name:"Tyson Foods",        sector:"Conso.",    country:"US", currency:"USD",
-           d:2.24, safe:61, streak:12, pe_cur:13.2, pe_5y:15.6,
-           div_freq:"quarterly", payout_ratio:0.46, fcf_payout:0.42, debt_equity:0.9,
-           div_cagr_5y:0.05, fcf_yield:0.052},
-    UGI:  {name:"UGI Corp",           sector:"Utilities", country:"US", currency:"USD",
-           d:1.50, safe:60, streak:36, pe_cur:10.8, pe_5y:13.2,
-           div_freq:"quarterly", payout_ratio:0.65, fcf_payout:0.62, debt_equity:1.8,
-           div_cagr_5y:0.04, fcf_yield:0.058},
-    UNM:  {name:"Unum Group",         sector:"Finance",   country:"US", currency:"USD",
-           d:1.80, safe:69, streak:15, pe_cur:7.8,  pe_5y:9.4,
-           div_freq:"quarterly", payout_ratio:0.28, fcf_payout:0.25, debt_equity:0.6,
-           div_cagr_5y:0.10, fcf_yield:0.082}
-  };
+  /* ── Fondamentaux (auto-enrichis depuis Twelvedata + import CSV) ── */
+  const assets = {};
 
   /* ── Transactions source de vérité ──────────────────────────────
      BUY/SELL : importer via CSV IBKR (onglet Import) ou saisie manuelle.
      Dividendes sample conservés pour démonstration — à remplacer par import réel.
   ─────────────────────────────────────────────────────────────── */
-  let transactions = [
-    /* Dividendes sample (à remplacer/compléter via import IBKR) */
-    {id:"d001",ticker:"JNJ",  type:"dividend",quantity:15, price:1.24,   fees:0,   currency:"USD",tax_withheld:2.79,date:"2025-03-11"},
-    {id:"d002",ticker:"JNJ",  type:"dividend",quantity:15, price:1.24,   fees:0,   currency:"USD",tax_withheld:2.79,date:"2025-06-10"},
-    {id:"d003",ticker:"TGT",  type:"dividend",quantity:27, price:1.12,   fees:0,   currency:"USD",tax_withheld:4.54,date:"2025-03-01"},
-    {id:"d004",ticker:"TGT",  type:"dividend",quantity:27, price:1.12,   fees:0,   currency:"USD",tax_withheld:4.54,date:"2025-06-01"},
-    {id:"d005",ticker:"ADP",  type:"dividend",quantity:8,  price:1.55,   fees:0,   currency:"USD",tax_withheld:1.86,date:"2025-04-01"},
-    {id:"d006",ticker:"NEE",  type:"dividend",quantity:25, price:0.5275, fees:0,   currency:"USD",tax_withheld:1.99,date:"2025-03-15"},
-    {id:"d007",ticker:"HRL",  type:"dividend",quantity:98, price:0.2875, fees:0,   currency:"USD",tax_withheld:4.22,date:"2025-02-15"},
-    {id:"d008",ticker:"O",    type:"dividend",quantity:21, price:0.2630, fees:0,   currency:"USD",tax_withheld:0.83,date:"2025-01-15"},
-    {id:"d009",ticker:"O",    type:"dividend",quantity:21, price:0.2630, fees:0,   currency:"USD",tax_withheld:0.83,date:"2025-02-15"},
-    {id:"d010",ticker:"O",    type:"dividend",quantity:21, price:0.2630, fees:0,   currency:"USD",tax_withheld:0.83,date:"2025-03-15"},
-    {id:"d011",ticker:"O",    type:"dividend",quantity:21, price:0.2640, fees:0,   currency:"USD",tax_withheld:0.83,date:"2025-04-15"},
-    {id:"d012",ticker:"O",    type:"dividend",quantity:21, price:0.2640, fees:0,   currency:"USD",tax_withheld:0.83,date:"2025-05-15"},
-  ];
+  let transactions = [];
 
   const PERF = {
     '1Y' : {g:1940,p:8.41,nav:[23260,23287,22855,22918,22951,22858,23347,23404,23494,23456,23392,23419,23428,23556,23286,23449,23154,23355,23583,23428,23244,23566,23496,23359,23289,23334,23451,23453,23159,22676,22960,22973,22860,22951,23060,23050,23053,23299,23217,23208,23250,23494,23392,23449,23513,23430,23303,23444,22882,23011,22960,22878,22803,22844,22814,22591,22637,22531,22723,22532,22289,21997,22146,22186,22182,21966,21967,22207,22161,22322,22321,22463,22490,22430,22502,22529,22655,22710,22628,22249,22394,22515,22470,22262,22503,22665,22913,22849,22783,22706,22810,22573,22014,22100,22217,22059,22130,22247,22062,22243,22320,22570,22581,22531,22408,22343,22360,22268,22213,22651,22662,22906,23000,23000,23107,23099,22980,23145,23131,23176,22853,22796,23034,23190,23327,23413,23315,23456,23411,23255,23190,23008,23191,23190,23254,23219,23261,23141,23143,23237,23319,23568,23551,23832,23942,24052,24261,24698,24878,24767,24667,24218,24468,24445,24268,24195,23921,23867,23895,24316,24598,24544,24998,25001,25166,24777,24910,24918,24838,25072,25109,25072,25280,25264,25323,25194,25321,25139,25125,25303,25467,25706,25720,25451,25447,25355,25208,25135,25116,25466,25383,25175,25013,24672,24367,24503,24620,24912,25096,25152,25477,25411,25308,25474,25523,25400,25158,25340,25329,25069,24832,24804,24832,25034,25287,25224,25147,24973,25366,24972,24938,24985,24884,25007,24906,24852,25004,24858,24648,24506,24268,24431,24409,24573,24385,24618,24823,24791,25056,25139,25064,24945,25027,24998,24842,24671,24698,24531,24700,25013,24761,25128,25152,25152,25491,25218,25191,24969,24849,24826,24924,25000]},
