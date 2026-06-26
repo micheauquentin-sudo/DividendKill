@@ -3362,19 +3362,32 @@ function renderNews(el) {
     el.innerHTML = _emptyState('📰', 'Aucune alerte', 'Les alertes et actualités apparaîtront une fois des actions ajoutées au portefeuille.');
     return;
   }
-  var divRaises = [
-    {t:'JNJ',  oldD:4.96, newD:5.24, pct:5.6,  qty:15, date:'Avr 2026'},
-    {t:'ADP',  oldD:5.64, newD:6.16, pct:9.2,  qty:8,  date:'Nov 2025'},
-    {t:'MMM',  oldD:4.00, newD:5.16, pct:29.0, qty:6,  date:'F\u00e9v 2026'},
-    {t:'NEE',  oldD:1.87, newD:2.06, pct:10.2, qty:25, date:'F\u00e9v 2026'},
-    {t:'TGT',  oldD:4.40, newD:4.44, pct:0.9,  qty:27, date:'Jun 2026'},
-    {t:'CTBI', oldD:1.72, newD:1.76, pct:2.3,  qty:13, date:'Jul 2025'},
+  /* Tickers actuellement en portefeuille */
+  var portMap = {};
+  for (var ri=0; ri<raw.length; ri++) { if (raw[ri].qty > 0) portMap[raw[ri].ticker] = raw[ri]; }
+  var portSet = Object.keys(portMap);
+
+  /* Hausses de dividendes \u2014 qty dynamique depuis le vrai portefeuille, filtr\u00e9s sur positions ouvertes */
+  var divRaisesAll = [
+    {t:'JNJ',  oldD:4.96, newD:5.24, pct:5.6,  date:'Avr 2026'},
+    {t:'ADP',  oldD:5.64, newD:6.16, pct:9.2,  date:'Nov 2025'},
+    {t:'MMM',  oldD:4.00, newD:5.16, pct:29.0, date:'F\u00e9v 2026'},
+    {t:'NEE',  oldD:1.87, newD:2.06, pct:10.2, date:'F\u00e9v 2026'},
+    {t:'TGT',  oldD:4.40, newD:4.44, pct:0.9,  date:'Jun 2026'},
+    {t:'CTBI', oldD:1.72, newD:1.76, pct:2.3,  date:'Jul 2025'},
+    {t:'NNN',  oldD:2.16, newD:2.24, pct:3.7,  date:'Mar 2026'},
+    {t:'O',    oldD:3.08, newD:3.17, pct:2.9,  date:'Jan 2026'},
+    {t:'HRL',  oldD:1.10, newD:1.14, pct:3.6,  date:'Nov 2025'},
+    {t:'NFG',  oldD:1.80, newD:1.88, pct:4.4,  date:'Nov 2025'},
   ];
+  var divRaises = divRaisesAll.filter(function(dr){ return portMap[dr.t]; }).map(function(dr){ return Object.assign({}, dr, {qty: portMap[dr.t].qty}); });
   var totalGainAn = 0;
   for (var di=0; di<divRaises.length; di++) {
     totalGainAn += (divRaises[di].newD - divRaises[di].oldD) * divRaises[di].qty;
   }
-  var items = [
+
+  /* Actualit\u00e9s \u2014 filtr\u00e9es sur les positions ouvertes uniquement */
+  var itemsAll = [
     {t:'JNJ',  tag:'Dividende',     tc:'#22d47a', date:'18 juin 2026', title:'62e ann\u00e9e cons\u00e9cutive de hausse du dividende',
      body:'JNJ confirme 1.31$/action trimestriel (+5.6% vs N-1). Payout ratio 42%. Dividend King incontestable. Yield 3.37% au cours actuel.'},
     {t:'ACN',  tag:'IA',            tc:'#6c63ff', date:'16 juin 2026', title:'Accenture: 3.2 Mds$ de contrats IA au T3 FY2026',
@@ -3387,7 +3400,12 @@ function renderNews(el) {
      body:'PPA long terme s\u00e9curis\u00e9s avec 3 grandes utilities am\u00e9ricaines. Objectif de croissance dividende +10%/an maintenu jusqu\u2019en 2028.'},
     {t:'MMM',  tag:'Restructuration',tc:'#a78bfa', date:'20 juin 2026', title:'3M: s\u00e9paration Solventum finalis\u00e9e, dividende confirm\u00e9',
      body:'3M recentr\u00e9 sur 3 divisions (Industrial, Safety, Consumer). Dividende 5.16$/an maintenu. +58% vs PRU apr\u00e8s recapitalisation post-Solventum.'},
+    {t:'O',    tag:'Dividende',     tc:'#22d47a', date:'15 juin 2026', title:'Realty Income: 30 ans cons\u00e9cutifs de hausse, mensualit\u00e9s stables',
+     body:'O confirme 0.264$/action mensuel. REIT triple-net, 15\u00a0000 propri\u00e9t\u00e9s. Yield >5%. Flux de tr\u00e9sorerie r\u00e9silients.'},
+    {t:'ADP',  tag:'R\u00e9sultats', tc:'#f59e0b', date:'2 mai 2026', title:'ADP FY2026: b\u00e9n\u00e9fices records, 50 ans de hausse du dividende',
+     body:'Chiffre d\u2019affaires +7%. Marges SaaS en expansion. 50e ann\u00e9e de hausse cons\u00e9cutive du dividende. Yield 2.4%, P/E 25x vs 30x historique.'},
   ];
+  var items = itemsAll.filter(function(n){ return portMap[n.t]; });
   /* ── Smart Alerts ── */
   var portfolio = {};
   for (var ri=0; ri<raw.length; ri++) {
@@ -3529,6 +3547,17 @@ function renderImpots(el) {
     pays_compte:   'Irlande'
   };
 
+  /* ── Tickers US (hors ACN+MDT domiciliés en Irlande) pour case 2DC ── */
+  var IE_TICKERS = ['ACN', 'MDT'];
+  var usTickers = raw.filter(function(r){ return r.qty > 0 && IE_TICKERS.indexOf(r.ticker) === -1; })
+                     .map(function(r){ return r.ticker; })
+                     .filter(function(t, i, a){ return a.indexOf(t) === i; })
+                     .sort().join(', ');
+  var ieTickers = raw.filter(function(r){ return r.qty > 0 && IE_TICKERS.indexOf(r.ticker) !== -1; })
+                     .map(function(r){ return r.ticker; })
+                     .filter(function(t, i, a){ return a.indexOf(t) === i; })
+                     .sort().join(' + ') || 'ACN + MDT';
+
   /* ── Calculs dérivés ─────────────────────────────────────────── */
 
   /* Valeurs EUR issues directement du Dividend Report IBKR (taux BCE par versement) */
@@ -3610,20 +3639,15 @@ function renderImpots(el) {
     + '<div style="background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:11px 13px">'
     + '<div style="font-size:11.5px;line-height:1.55">'
     + '<span style="font-size:14px">&#9888;</span> <strong style="color:#f59e0b">Return of Capital ' + eur(roc_eur, 0) + '</strong>'
-    + ' (NNN + O = REITs) \u2014 remboursement de capital, non imposable. D\u00e9j\u00e0 exclu des chiffres ci-dessus. R\u00e9duit ton PRU.'
+    + ' (REITs du portefeuille \u2014 NNN, O\u2026) \u2014 remboursement de capital, non imposable. D\u00e9j\u00e0 exclu des chiffres ci-dessus. R\u00e9duit ton PRU.'
     + '</div></div>'
 
     + '<div style="background:rgba(244,63,94,.07);border:1px solid rgba(244,63,94,.18);border-radius:10px;padding:11px 13px">'
     + '<div style="font-size:11.5px;line-height:1.55">'
     + '<span style="font-size:14px">&#9888;</span> <strong style="color:#f43f5e">' + eur(perte_ie, 2) + ' perdus</strong>'
-    + ' (DWT irlandaise 25% sur ACN+MDT \u2014 convention France-Irlande\u00a0: cr\u00e9dit max 15%). D\u00e9pose le formulaire <strong>2VA</strong> aupr\u00e8s d\u2019IBKR Ireland pour r\u00e9duire \u00e0 15%.'
+    + ' (DWT irlandaise 25% sur ' + ieTickers + ' \u2014 convention France-Irlande\u00a0: cr\u00e9dit max 15%). D\u00e9pose le formulaire <strong>2VA</strong> aupr\u00e8s d\u2019IBKR Ireland pour r\u00e9duire \u00e0 15%.'
     + '</div></div>'
 
-    + '<div style="background:rgba(107,114,128,.07);border:1px solid rgba(107,114,128,.18);border-radius:10px;padding:11px 13px">'
-    + '<div style="font-size:11.5px;line-height:1.55">'
-    + '<span style="font-size:14px">&#9888;</span> <strong style="color:var(--muted2)">KMB vendu en 2025</strong>'
-    + ' \u2014 v\u00e9rifier la plus/moins-value dans \u00abRealized Gains &amp; Losses\u00bb IBKR. Si gain \u2192 case <strong>3VG</strong>. Si perte \u2192 case <strong>3VH</strong>.'
-    + '</div></div>'
     + '</div>';
 
   /* ── TITRE SECTION ─────────────────────────────────────────── */
@@ -3670,7 +3694,7 @@ function renderImpots(el) {
 
     /* Ligne Irlande */
     + '<div style="background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.15);border-radius:10px;padding:11px">'
-    + '<div style="font-size:11px;font-weight:700;color:#f59e0b;margin-bottom:8px">\uD83C\uDDEE\uD83C\uDDEA Ligne 2 \u2014 Pays\u00a0: Irlande (ACN + MDT)</div>'
+    + '<div style="font-size:11px;font-weight:700;color:#f59e0b;margin-bottom:8px">\uD83C\uDDEE\uD83C\uDDEA Ligne 2 \u2014 Pays : Irlande (' + ieTickers + ')</div>'
     + row('201', 'Pays', 'Irlande', '#f59e0b', null)
     + row('203', 'Montant net encaiss\u00e9', (TAX.div_ie_usd - TAX.rts_ie_usd).toFixed(2) + '\u00a0$ \u2192 \u20ac au taux BCE', '#f59e0b', 'Convertir au taux du jour de chaque versement')
     + row('204', 'Taux', '15\u00a0%', '#f59e0b', 'Convention France-Irlande (\u2260 USA)')
@@ -3682,10 +3706,10 @@ function renderImpots(el) {
   /* ── FORMULAIRE 2042 ─────────────────────────────────────── */
   var cases2042 = [
     {cas:'2DC', titre:'Dividendes bruts actions US',                        val:eur(div_us_eur),   col:'#22d47a',
-     desc:'ADP, APD, BMY, CMCSA, CTBI, HRL, HTO, JNJ, MMM, NEE, NFG, NWN, SON, TGT, TSN, UGI, UNM \u2014 Source\u00a0: \u00abTotal Ordinary Dividends\u00bb du rapport'},
+     desc:(usTickers||'actions US du portefeuille') + ' \u2014 Source\u00a0: \u00abTotal Ordinary Dividends\u00bb du rapport'},
     {cas:'2CG', titre:'Revenus soumis aux pr\u00e9l\u00e8vements sociaux (r\u00e9gime PFU)', val:eur(div_us_eur), col:'#22d47a',
      desc:'Identique \u00e0 2DC en flat tax. Si tu coches la case 2OP (option bar\u00e8me progressif) \u2192 utiliser 2BH \u00e0 la place'},
-    {cas:'2TS', titre:'Dividendes source irlandaise (ACN + MDT)',             val:eur(div_ie_eur),   col:'#f59e0b',
+    {cas:'2TS', titre:'Dividendes source irlandaise (' + ieTickers + ')',     val:eur(div_ie_eur),   col:'#f59e0b',
      desc:'Pas d\u2019abattement 40\u00a0% possible sur ces revenus. Source\u00a0: \u00abTotal non-US Ordinary Dividends\u00bb du rapport'},
     {cas:'3VG', titre:'Plus-values de cession',                              val:'\u00c0 v\u00e9rifier', col:'#6b7280',
      desc:'KMB vendu en 2025\u00a0: v\u00e9rifier le gain net dans \u00abRealized Gains & Losses\u00bb IBKR \u2192 reporter ici si gain. Si perte \u2192 case 3VH'},
