@@ -851,26 +851,24 @@ const AstraDB = (() => {
   async function putAll(storeName, items) {
     const db  = await open();
     const enc = ENC_STORES.has(storeName);
-    return new Promise((res, rej) => {
-      const tx    = db.transaction(storeName,'readwrite');
-      const store = tx.objectStore(storeName);
-      const go = async i => {
-        if (i >= items.length) return;
-        let item = items[i];
-        if (enc) {
+    // Pre-encrypt all items BEFORE opening the transaction — an async gap
+    // inside a transaction causes IndexedDB to auto-commit before any put.
+    const storedItems = enc
+      ? await Promise.all(items.map(async item => {
           const payload = await _AES.encrypt(item);
-          // Preserve id and source outside the encrypted payload so IndexedDB
-          // can use the keyPath and clearBySource can filter without decryption
           const outer = { __enc:true, payload };
           if (item.id     !== undefined) outer.id     = item.id;
           if (item.source !== undefined) outer.source = item.source;
-          item = outer;
-        }
+          return outer;
+        }))
+      : items;
+    return new Promise((res, rej) => {
+      const tx    = db.transaction(storeName,'readwrite');
+      const store = tx.objectStore(storeName);
+      for (const item of storedItems) {
         const r = store.put(item);
-        r.onsuccess = () => go(i+1);
-        r.onerror   = e  => rej(e.target.error);
-      };
-      go(0);
+        r.onerror = e => rej(e.target.error);
+      }
       tx.oncomplete = () => res(true);
       tx.onerror    = e  => rej(e.target.error);
     });
