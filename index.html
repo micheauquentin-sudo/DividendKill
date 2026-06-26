@@ -1566,10 +1566,11 @@ function renderRendement(el) {
   var data = raw.map(function(d) {
     var div = meta[d.ticker] && meta[d.ticker].d || 0;
     var yd  = d.price > 0 ? div/d.price*100 : 0;
+    var yoc = d.avg   > 0 ? div/d.avg*100   : 0;
     var pp  = d.avg > 0 ? (d.price - d.avg)/d.avg*100 : 0;
     var cost = d.avg * d.qty;
     return {ticker:d.ticker,name:d.name,qty:d.qty,price:d.price,avg:d.avg,
-            mv:d.mv,pnl:d.pnl,dpnl:d.dpnl,sec:d.sec,yd:yd,pp:pp,cost:cost};
+            mv:d.mv,pnl:d.pnl,dpnl:d.dpnl,sec:d.sec,yd:yd,yoc:yoc,pp:pp,cost:cost};
   }).sort(function(a, b) {
     var va = a[sk] !== undefined ? a[sk] : 0;
     var vb = b[sk] !== undefined ? b[sk] : 0;
@@ -1581,6 +1582,7 @@ function renderRendement(el) {
     {k:'mv',    lbl:'Valeur'},
     {k:'cost',  lbl:'Investi'},
     {k:'yd',    lbl:'Yield'},
+    {k:'yoc',   lbl:'YoC'},
     {k:'ticker',lbl:'A\u2192Z'},
   ];
   var toggleHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center">'
@@ -1635,10 +1637,23 @@ function renderRendement(el) {
       +'<div><div style="font-size:8.5px;color:var(--muted)">Investi</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+Math.round(toE(d.cost))+'\u20ac</div></div>'
       +'<div><div style="font-size:8.5px;color:var(--muted)">Poids</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600;color:'+(w>12?'#f43f5e':w>8?'#f5a623':'var(--text)')+'">'+w.toFixed(1)+'%</div></div>'
       +'</div>'
-      +(div2>0?'<div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.05);display:flex;gap:14px">'
-        +'<div><span style="font-size:9px;color:var(--muted)">Yield </span><span style="font-size:11px;font-weight:700;color:#22d47a">'+d.yd.toFixed(1)+'%</span></div>'
+      +(div2>0?'<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.05)">'
+        +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">'
+        +'<div style="background:rgba(34,212,122,.07);border:1px solid rgba(34,212,122,.15);border-radius:9px;padding:7px 10px;text-align:center">'
+        +'<div style="font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Yield actuel</div>'
+        +'<div style="font-size:17px;font-weight:700;font-family:DM Mono,monospace;color:#22d47a">'+d.yd.toFixed(2)+'%</div>'
+        +'<div style="font-size:8px;color:var(--muted);margin-top:1px">sur '+d.price.toFixed(2)+'$</div>'
+        +'</div>'
+        +'<div style="background:rgba(134,239,172,.06);border:1px solid rgba(134,239,172,.15);border-radius:9px;padding:7px 10px;text-align:center">'
+        +'<div style="font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Yield on Cost</div>'
+        +'<div style="font-size:17px;font-weight:700;font-family:DM Mono,monospace;color:#86efad">'+d.yoc.toFixed(2)+'%</div>'
+        +'<div style="font-size:8px;color:var(--muted);margin-top:1px">sur PRU '+d.avg.toFixed(2)+'$</div>'
+        +'</div>'
+        +'</div>'
+        +'<div style="display:flex;gap:16px">'
         +'<div><span style="font-size:9px;color:var(--muted)">Div/an </span><span style="font-size:11px;font-weight:700;color:#22d47a">'+Math.round(div2*d.qty)+'$</span></div>'
         +'<div><span style="font-size:9px;color:var(--muted)">Qt\u00e9 </span><span style="font-size:11px;font-weight:700">'+d.qty+'</span></div>'
+        +'</div>'
         +'</div>':'')
       +'</div>';
   }
