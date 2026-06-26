@@ -71,19 +71,24 @@ tbody tr:last-child{border-bottom:none}
 tbody tr:hover{background:rgba(124,109,255,.04)}
 tbody td{padding:9px 6px;vertical-align:middle}
 /* ── ACCUEIL ─────────────────────────────────────────────── */
-.home-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:5px}
-.home-nav{font-size:36px;font-weight:700;letter-spacing:-2px;line-height:1;margin-bottom:8px;font-family:"DM Mono",monospace}
-.home-sub{display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-.home-pnl{font-size:16px;font-weight:700;font-family:"DM Mono",monospace}
+#panel-accueil.on{display:flex;flex-direction:column}
+.home-wrap{flex:1;display:flex;flex-direction:column;min-height:0}
+.home-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px}
+.home-nav{font-size:38px;font-weight:700;letter-spacing:-2px;line-height:1;margin-bottom:6px;font-family:"DM Mono",monospace}
+.home-daily{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.home-daily-amt{font-size:20px;font-weight:700;font-family:"DM Mono",monospace}
+.home-daily-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px}
+.home-sub{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.home-pnl{font-size:14px;font-weight:700;font-family:"DM Mono",monospace}
 .badge-up{background:rgba(16,185,129,.15);color:#10b981;padding:3px 10px;border-radius:9px;font-size:11px;font-weight:700;font-family:"DM Mono",monospace}
 .badge-dn{background:rgba(244,63,94,.15);color:#f43f5e;padding:3px 10px;border-radius:9px;font-size:11px;font-weight:700;font-family:"DM Mono",monospace}
-.home-chart{background:var(--surface2);border-radius:10px;overflow:hidden;margin:0 -2px 10px}
-.chart-toggle{display:flex;gap:6px;justify-content:center;margin-bottom:16px}
+.home-chart{background:var(--surface2);border-radius:12px;overflow:hidden;margin:0 -2px 10px;flex:1;min-height:120px}
+.chart-toggle{display:flex;gap:6px;justify-content:center;margin-bottom:14px}
 .ctbtn{padding:5px 14px;border-radius:14px;font-size:11px;font-weight:600;border:1px solid var(--border);background:transparent;color:var(--muted);transition:all .15s}
 .ctbtn.on{border-color:var(--violet);background:rgba(124,109,255,.12);color:var(--violet)}
-.movers{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.movers{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .mover-t{font-size:10px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
-.mrow{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.mrow{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04)}
 .mrow:last-child{border-bottom:none}
 .mrow-tk{font-size:12px;font-weight:700}
 .mrow-v{font-size:11.5px;font-family:"DM Mono",monospace;font-weight:600}
@@ -1378,6 +1383,10 @@ function _drawAccueil(el) {
   var pp  = cost > 0 ? pnl/cost*100 : 0;
   var dpnl = 0;
   for (var k = 0; k < raw.length; k++) dpnl += raw[k].dpnl || 0;
+  var dpnlEur = toE(dpnl);
+  var mv = getMV();
+  var dpnlPct = (mv - dpnlEur) > 0 ? dpnlEur / (mv - dpnlEur) * 100 : 0;
+  var dCol = dpnlEur >= 0 ? '#10b981' : '#f43f5e';
   var pts = pd.nav;
   var hIdx = (_hoverIdx >= 0 && _hoverIdx < pts.length) ? _hoverIdx : pts.length - 1;
   var hVal = pts[hIdx], hVal0 = pts[0];
@@ -1451,30 +1460,35 @@ function _drawAccueil(el) {
   function ctbtn(v, lbl) {
     return '<button class="ctbtn' + (_mode === v ? ' on' : '') + '" data-m="' + v + '">' + lbl + '</button>';
   }
-  var mv = getMV();
   var yld = mv > 0 ? getDivA()/mv*100 : 0;
   var yoc = cost > 0 ? getDivA()/cost*100 : 0;
-  var sc  = Math.max(0, Math.min(100, Math.round(50 + yld*2.5 + pp*0.3 + yoc*2)));
+  var sc  = DividendSafety.getPortfolioDSE();
+  var scCol = sc >= 80 ? '#10b981' : sc >= 65 ? '#86efad' : sc >= 50 ? '#f5a623' : '#f43f5e';
   var hLabel = hIdx === pts.length-1 ? 'Actuel' : 'J-' + (pts.length-1-hIdx);
-  el.innerHTML = ''
+  el.innerHTML = '<div class="home-wrap">'
     + '<div class="home-label">Portefeuille \u00b7 IBKR \u00b7 ' + new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'}) + '</div>'
     + '<div class="home-nav" id="accNav">' + Math.round(hVal/eu()).toLocaleString('fr-FR') + ' \u20ac</div>'
+    + '<div class="home-daily">'
+    +   '<span class="home-daily-amt" style="color:' + dCol + '">' + (dpnlEur >= 0 ? '+' : '') + Math.round(dpnlEur).toLocaleString('fr-FR') + ' \u20ac</span>'
+    +   '<span class="' + (dpnlEur >= 0 ? 'badge-up' : 'badge-dn') + '">' + (dpnlPct >= 0 ? '+' : '') + dpnlPct.toFixed(2) + '%</span>'
+    +   '<span class="home-daily-lbl">aujourd\u2019hui</span>'
+    + '</div>'
     + '<div class="home-sub">'
     +   '<span class="home-pnl" id="accPnl" style="color:' + hCol + '">' + (hG >= 0 ? '+' : '') + Math.round(hG/eu()).toLocaleString('fr-FR') + ' \u20ac</span>'
     +   '<span class="' + (hG >= 0 ? 'badge-up' : 'badge-dn') + '" id="accPct">' + (hG >= 0 ? '+' : '') + hP.toFixed(2) + '%</span>'
     +   '<span class="mu" style="font-size:11px" id="accLabel">' + hLabel + '</span>'
-    +   '<span class="mu" style="font-size:11px">\u00b7 Auj. ' + (dpnl >= 0 ? '+' : '') + Math.round(toE(dpnl)) + '\u20ac</span>'
     + '</div>'
     + '<div class="home-chart" id="accChart"></div>'
     + '<div class="chart-toggle">' + ctbtn('1Y','1 an') + ctbtn('MTD','Mois') + ctbtn('7D','7 j') + ctbtn('1D','Auj.') + '</div>'
     + '<div class="row3">'
     +   '<div class="mini-k"><div class="mini-k-l">Yield</div><div class="mini-k-v up">' + yld.toFixed(2) + '%</div><div class="mini-k-s">' + Math.round(getDivA()/eu()) + '\u20ac/an</div></div>'
     +   '<div class="mini-k"><div class="mini-k-l">YoC</div><div class="mini-k-v" style="color:#86efad">' + yoc.toFixed(2) + '%</div><div class="mini-k-s">Sur co\u00fbt</div></div>'
-    +   '<div class="mini-k"><div class="mini-k-l">Score</div><div class="mini-k-v" style="color:#f5a623">' + sc + '</div><div class="mini-k-s">/100</div></div>'
+    +   '<div class="mini-k"><div class="mini-k-l">Score</div><div class="mini-k-v" style="color:' + scCol + '">' + sc + '</div><div class="mini-k-s">/100</div></div>'
     + '</div>'
     + '<div class="movers">'
     +   '<div><div class="mover-t">\u25b2 Top ' + (_mode==='1D'?'Auj.':_mode) + '</div>' + gH + '</div>'
     +   '<div><div class="mover-t">\u25bc Flop ' + (_mode==='1D'?'Auj.':_mode) + '</div>' + lH + '</div>'
+    + '</div>'
     + '</div>';
   var chartEl = document.getElementById('accChart');
   if (chartEl) _buildInteractiveChart(chartEl, pts, col, hIdx);
@@ -1489,7 +1503,7 @@ function _drawAccueil(el) {
 }
 
 function _buildInteractiveChart(container, pts, col, activeIdx) {
-  var W = 360, H = 115;
+  var W = 360, H = Math.max(115, container.offsetHeight || 130);
   var mn = pts[0], mx = pts[0];
   for (var i=1;i<pts.length;i++){if(pts[i]<mn)mn=pts[i];if(pts[i]>mx)mx=pts[i];}
   var rng = mx - mn || 1;
@@ -1501,7 +1515,7 @@ function _buildInteractiveChart(container, pts, col, activeIdx) {
   var gid='gc'+(col.replace('#',''));
   var aIdx = activeIdx >= 0 ? activeIdx : pts.length-1;
   var ax = parseFloat(px(aIdx)), ay = parseFloat(py(pts[aIdx]));
-  container.innerHTML = '<svg id="accSvg" viewBox="0 0 '+W+' '+H+'" style="width:100%;display:block;height:'+H+'px;touch-action:pan-y;cursor:crosshair" preserveAspectRatio="none">'
+  container.innerHTML = '<svg id="accSvg" viewBox="0 0 '+W+' '+H+'" style="width:100%;display:block;height:100%;min-height:'+H+'px;touch-action:pan-y;cursor:crosshair" preserveAspectRatio="none">'
     +'<defs><linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1">'
     +'<stop offset="0%" stop-color="'+col+'" stop-opacity="0.28"/>'
     +'<stop offset="100%" stop-color="'+col+'" stop-opacity="0.02"/>'
