@@ -844,12 +844,13 @@ const DividendSafety = (() => {
   const color = sc => sc>=80?'#22d47a':sc>=65?'#86efad':sc>=50?'#f5a623':sc>=35?'#fb923c':'#f43f5e';
   const label = rl => ({SAFE:'Sûr',MODERATE:'Modéré',CAUTION:'Prudence',RISKY:'Risqué',DANGER:'Danger'}[rl]||rl);
 
+  const getStockDSE = m => m.payout_ratio != null ? calculate(m).score : (m.safe || calculate(m).score);
+
   const getPortfolioDSE = () => {
     let totalMV = 0, weightedDSE = 0;
     for (const pos of Calc.raw) {
       const m = Data.assets[pos.ticker] || {};
-      const dse = calculate(m).score;
-      weightedDSE += dse * pos.mv;
+      weightedDSE += getStockDSE(m) * pos.mv;
       totalMV += pos.mv;
     }
     return totalMV > 0 ? Math.round(weightedDSE / totalMV) : 0;
@@ -1602,10 +1603,10 @@ function renderRendement(el) {
     var pnlC = d.pnl >= 0 ? '#22d47a' : '#f43f5e';
     var div2 = meta[d.ticker] && meta[d.ticker].d || 0;
     var rndMeta = meta[d.ticker] || {};
-    var rndDSE = calculateDividendSafety(rndMeta);
-    var rndDseScore = rndDSE.safetyScore;
+    var rndDSEResult = rndMeta.payout_ratio != null ? calculateDividendSafety(rndMeta) : null;
+    var rndDseScore = rndDSEResult ? rndDSEResult.safetyScore : (rndMeta.safe || calculateDividendSafety(rndMeta).safetyScore);
     var rndDseCol = dseColor(rndDseScore);
-    var rndDseLbl = dseLabel(rndDSE.riskLevel);
+    var rndDseLbl = dseLabel(rndDSEResult ? rndDSEResult.riskLevel : rndDseScore>=80?'SAFE':rndDseScore>=65?'MODERATE':rndDseScore>=50?'CAUTION':rndDseScore>=35?'RISKY':'DANGER');
     rows += '<div style="background:var(--surface);border-radius:12px;padding:13px;margin-bottom:8px;border-left:3px solid '+(d.pnl>=0?'#22d47a':'#f43f5e')+'">'
       +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
       +'<div>'
@@ -2438,6 +2439,7 @@ function seedAssetsFromDB() {
     if (!a.pe_cur)                          a.pe_cur = info.pe_cur;
     if (!a.beta)                            a.beta   = info.beta;
     if ((!a.d || a.d === 0) && info.d > 0) a.d      = info.d;
+    if (!a.safe  && info.safe)              a.safe   = info.safe;
   }
 }
 
@@ -4328,7 +4330,8 @@ const App = (() => {
 function showDSESheet(ticker) {
   const stock = Data.assets[ticker] || {};
   const r = DividendSafety.calculate(stock);
-  const col = dseColor(r.score);
+  const displayScore = stock.payout_ratio != null ? r.score : (stock.safe || r.score);
+  const col = dseColor(displayScore);
   const CRIT_MAP = [
     {k:'payout_ratio',lbl:'Payout',w:'25%'},{k:'fcf_payout',lbl:'FCF Payout',w:'20%'},
     {k:'debt_ebitda',lbl:'Dette/EBITDA',w:'15%'},{k:'interest_cov',lbl:'Int. Coverage',w:'10%'},
@@ -4345,7 +4348,7 @@ function showDSESheet(ticker) {
   if (r.weakPoints.length) { wpHtml='<div style="margin-bottom:12px"><div style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#f43f5e;margin-bottom:6px">⚠ Points faibles</div>'+r.weakPoints.map(w=>`<div style="font-size:11px;color:#e2e2ec;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">· ${w.label} <span style="color:#52527a">(${w.weight})</span></div>`).join('')+'</div>'; }
   if (r.strengths.length)  { stHtml='<div><div style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#22d47a;margin-bottom:6px">✓ Points forts</div>'+r.strengths.map(s=>`<div style="font-size:11px;color:#e2e2ec;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">· ${s.label} <span style="color:#52527a">(${s.weight})</span></div>`).join('')+'</div>'; }
   document.getElementById('dse-sheet-inner').innerHTML =
-    `<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px"><div><div style="font-size:20px;font-weight:700">${ticker}</div>${r.sectorNote?`<div style="font-size:9.5px;color:#f5a623;margin-top:3px">${r.sectorNote}</div>`:''}</div><div style="text-align:right"><div style="font-size:32px;font-weight:700;font-family:DM Mono,monospace;color:${col}">${r.score}</div><div style="font-size:11px;font-weight:700;color:${col}">${dseLabel(r.riskLevel)}</div></div></div><div style="height:5px;background:#1a1a2e;border-radius:3px;overflow:hidden"><div style="height:100%;width:${r.score}%;background:${col};border-radius:3px;transition:width .6s ease"></div></div>${breakHtml}${wpHtml}${stHtml}`;
+    `<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px"><div><div style="font-size:20px;font-weight:700">${ticker}</div>${r.sectorNote?`<div style="font-size:9.5px;color:#f5a623;margin-top:3px">${r.sectorNote}</div>`:''}</div><div style="text-align:right"><div style="font-size:32px;font-weight:700;font-family:DM Mono,monospace;color:${col}">${displayScore}</div><div style="font-size:11px;font-weight:700;color:${col}">${dseLabel(displayScore>=80?'SAFE':displayScore>=65?'MODERATE':displayScore>=50?'CAUTION':displayScore>=35?'RISKY':'DANGER')}</div></div></div><div style="height:5px;background:#1a1a2e;border-radius:3px;overflow:hidden"><div style="height:100%;width:${displayScore}%;background:${col};border-radius:3px;transition:width .6s ease"></div></div>${breakHtml}${wpHtml}${stHtml}`;
   const sheet = document.getElementById('dse-sheet');
   sheet.style.display = 'flex';
   requestAnimationFrame(() => sheet.classList.add('dse-open'));
