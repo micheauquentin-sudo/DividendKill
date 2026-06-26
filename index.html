@@ -211,6 +211,26 @@ tbody td{padding:9px 6px;vertical-align:middle}
 @keyframes ripple{to{transform:scale(4);opacity:0}}
 .anim-success{animation:successBurst .55s cubic-bezier(.34,1.56,.64,1)}
 .anim-num{animation:numIn .3s ease both}
+
+/* ── Ticker autocomplete dropdown ────────────────────────── */
+#fab-suggestions{background:#12122a;border:1px solid var(--border);border-radius:12px;
+  overflow:hidden;margin-bottom:8px;display:none;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+#fab-suggestions:not(:empty){display:block}
+.fab-sug-item{display:flex;align-items:center;gap:10px;padding:12px 14px;
+  cursor:pointer;border-bottom:1px solid rgba(255,255,255,.05);
+  -webkit-tap-highlight-color:transparent;transition:background .1s}
+.fab-sug-item:last-child{border-bottom:none}
+.fab-sug-item:active{background:rgba(124,109,255,.12)}
+.fab-sug-tk{font-size:14px;font-weight:700;min-width:52px;font-family:DM Mono,monospace}
+.fab-sug-name{font-size:11px;color:var(--muted);flex:1;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.fab-sug-right{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0}
+.fab-sug-flag{font-size:18px;line-height:1}
+.fab-sug-isin{font-size:9px;color:var(--muted);font-family:DM Mono,monospace}
+.fab-isin-tag{background:rgba(124,109,255,.1);border:1px solid rgba(124,109,255,.25);
+  border-radius:7px;padding:5px 10px;font-size:11px;color:#a78bfa;
+  font-family:DM Mono,monospace;margin-bottom:8px;display:none}
+.fab-sug-loading{padding:12px 14px;font-size:12px;color:var(--muted);text-align:center}
 .toggle input:checked + .toggle-slider{background:var(--violet)}
 .toggle input:checked + .toggle-slider:before{transform:translateX(20px)}
 </style>
@@ -4616,6 +4636,174 @@ function syncIBKR() {
 /* ── Démarrage ── */
 App.boot().catch(e => console.error('[App] boot error', e));
 
+/* ── Ticker search autocomplete ─────────────────────────────── */
+const _EXCH_FLAG = {
+  NMS:'🇺🇸',NGM:'🇺🇸',NYQ:'🇺🇸',ASE:'🇺🇸',BTS:'🇺🇸',PCX:'🇺🇸',
+  LSE:'🇬🇧',IOB:'🇬🇧',
+  PAR:'🇫🇷',EPA:'🇫🇷',
+  TOR:'🇨🇦',CNQ:'🇨🇦',TSX:'🇨🇦',
+  ASX:'🇦🇺',
+  FRA:'🇩🇪',GER:'🇩🇪',STU:'🇩🇪',
+  MCE:'🇪🇸',MAD:'🇪🇸',
+  MIL:'🇮🇹',
+  AMS:'🇳🇱',
+  SWX:'🇨🇭',
+  HKG:'🇭🇰',
+  TYO:'🇯🇵',OSA:'🇯🇵',
+  KRX:'🇰🇷',
+  SHG:'🇨🇳',SHZ:'🇨🇳',
+  BSE:'🇮🇳',NSI:'🇮🇳',
+  SAO:'🇧🇷',
+  MEX:'🇲🇽',
+};
+const _EXCH_TO_FIGI = {
+  NMS:'US',NGM:'US',NYQ:'US',ASE:'US',BTS:'US',
+  LSE:'LN',PAR:'FP',TOR:'CN',TSX:'CN',
+  FRA:'GY',GER:'GY',
+  AMS:'NA',SWX:'SW',MIL:'IM',MCE:'SM',
+  ASX:'AU',HKG:'HK',TYO:'JP',KRX:'KS',
+};
+
+var _fabSearchTimer = null;
+var _fabSelectedISIN = '';
+var _fabSelectedName = '';
+
+function fabTickerInput(val) {
+  _fabSelectedISIN = '';
+  _fabSelectedName = '';
+  var isinTag = document.getElementById('fab-isin-tag');
+  if (isinTag) { isinTag.style.display = 'none'; isinTag.textContent = ''; }
+  var q = val.trim();
+  if (q.length < 2) {
+    var sug = document.getElementById('fab-suggestions');
+    if (sug) sug.innerHTML = '';
+    return;
+  }
+  clearTimeout(_fabSearchTimer);
+  _fabSearchTimer = setTimeout(function() { _fabDoSearch(q); }, 270);
+}
+
+async function _fabDoSearch(q) {
+  var el = document.getElementById('fab-suggestions');
+  if (!el) return;
+  el.innerHTML = '<div class="fab-sug-loading">🔍 Recherche…</div>';
+  try {
+    /* Yahoo Finance search — fonctionne sans clé API */
+    var url = 'https://query1.finance.yahoo.com/v1/finance/search?q='
+      + encodeURIComponent(q) + '&quotesCount=8&newsCount=0&listsCount=0&lang=fr-FR';
+    var res = await fetch(url, {mode:'cors'});
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var data = await res.json();
+    var quotes = (data.quotes || []).filter(function(r){ return r.quoteType === 'EQUITY'; }).slice(0,7);
+    if (!quotes.length) {
+      el.innerHTML = '<div class="fab-sug-loading">Aucun résultat pour « ' + q + ' »</div>';
+      return;
+    }
+    el.innerHTML = quotes.map(function(r) {
+      var flag = _EXCH_FLAG[r.exchange] || '🏳️';
+      var nameSafe = (r.shortname || r.longname || r.symbol).replace(/'/g, '&#39;');
+      var exchSafe = (r.exchange || '').replace(/'/g, '');
+      return '<div class="fab-sug-item" onclick="fabSelectTicker(\''
+        + r.symbol + '\',\'' + nameSafe + '\',\'' + exchSafe + '\')">'
+        + '<span class="fab-sug-tk">' + r.symbol + '</span>'
+        + '<span class="fab-sug-name">' + (r.shortname || r.longname || '') + '</span>'
+        + '<div class="fab-sug-right"><span class="fab-sug-flag">' + flag + '</span>'
+        + '<span class="fab-sug-isin" id="isin-' + r.symbol + '">ISIN…</span></div>'
+        + '</div>';
+    }).join('');
+    /* Enrichissement ISIN en parallèle via OpenFIGI */
+    _fabEnrichISINs(quotes);
+  } catch(e) {
+    /* Si CORS bloqué : afficher les tickers statiques du portefeuille */
+    var matches = Object.keys(TICKER_DB).filter(function(t){
+      return t.toLowerCase().startsWith(q.toLowerCase());
+    }).slice(0,6);
+    if (!matches.length) {
+      el.innerHTML = '<div class="fab-sug-loading" style="color:#f5a623">Recherche hors ligne · Saisis le ticker manuellement</div>';
+      return;
+    }
+    el.innerHTML = matches.map(function(t) {
+      var info = TICKER_DB[t];
+      return '<div class="fab-sug-item" onclick="fabSelectTicker(\'' + t + '\',\'' + t + '\',\'NMS\')">'
+        + '<span class="fab-sug-tk">' + t + '</span>'
+        + '<span class="fab-sug-name">' + (info.why || info.sector || '') + '</span>'
+        + '<div class="fab-sug-right"><span class="fab-sug-flag">🇺🇸</span></div>'
+        + '</div>';
+    }).join('');
+  }
+}
+
+async function _fabEnrichISINs(quotes) {
+  try {
+    var body = quotes.map(function(r) {
+      var exchCode = _EXCH_TO_FIGI[r.exchange] || 'US';
+      return {idType:'TICKER', idValue:r.symbol, exchCode:exchCode};
+    });
+    var res = await fetch('https://api.openfigi.com/v3/mapping', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    });
+    var data = await res.json();
+    data.forEach(function(entry, i) {
+      var sym = quotes[i] && quotes[i].symbol;
+      var isin = entry.data && entry.data[0] && entry.data[0].isin;
+      var el = document.getElementById('isin-' + sym);
+      if (el) el.textContent = isin || '';
+    });
+  } catch(e) { /* OpenFIGI optionnel — pas bloquant */ }
+}
+
+function fabSelectTicker(symbol, name, exchange) {
+  if (navigator.vibrate) navigator.vibrate(6);
+  var ticker = document.getElementById('fab-ticker');
+  if (ticker) ticker.value = symbol;
+  _fabSelectedName = name;
+  /* Récupère l'ISIN depuis l'élément DOM s'il est déjà chargé */
+  var isinEl = document.getElementById('isin-' + symbol);
+  var isin = isinEl ? isinEl.textContent : '';
+  /* Vide la liste */
+  var sug = document.getElementById('fab-suggestions');
+  if (sug) sug.innerHTML = '';
+  /* Affiche le badge ISIN */
+  var isinTag = document.getElementById('fab-isin-tag');
+  if (isinTag) {
+    if (isin && isin !== 'ISIN…') {
+      isinTag.textContent = isin + ' · ' + (name.length > 30 ? name.slice(0,30)+'…' : name);
+      isinTag.style.display = '';
+      _fabSelectedISIN = isin;
+    } else {
+      /* ISIN pas encore chargé → attendre OpenFIGI */
+      isinTag.textContent = '⏳ ' + name.slice(0,35);
+      isinTag.style.display = '';
+      _fabFetchISINForSelected(symbol, name, exchange, isinTag);
+    }
+  }
+}
+
+async function _fabFetchISINForSelected(symbol, name, exchange, tagEl) {
+  try {
+    var exchCode = _EXCH_TO_FIGI[exchange] || 'US';
+    var res = await fetch('https://api.openfigi.com/v3/mapping', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify([{idType:'TICKER', idValue:symbol, exchCode:exchCode}])
+    });
+    var data = await res.json();
+    var isin = data[0] && data[0].data && data[0].data[0] && data[0].data[0].isin;
+    if (tagEl) {
+      if (isin) {
+        tagEl.textContent = isin + ' · ' + (name.length > 30 ? name.slice(0,30)+'…' : name);
+        _fabSelectedISIN = isin;
+      } else {
+        tagEl.textContent = symbol + ' · ' + (name.length > 35 ? name.slice(0,35)+'…' : name);
+      }
+    }
+  } catch(e) {
+    if (tagEl) tagEl.textContent = symbol + ' · ' + name.slice(0,35);
+  }
+}
+
 /* ── FAB & bottom sheet ─────────────────────────────────────── */
 function openFABSheet() {
   if (navigator.vibrate) navigator.vibrate(8);
@@ -4694,15 +4882,18 @@ function toggleRndCard(ticker) {
     <option value="sell">▼ Vente</option>
     <option value="dividend">$ Dividende reçu</option>
   </select>
-  <div class="bs-row">
-    <div>
-      <label class="bs-label">Ticker</label>
-      <input class="bs-field" id="fab-ticker" placeholder="ex: JNJ" style="text-transform:uppercase">
-    </div>
-    <div>
-      <label class="bs-label">Quantité</label>
-      <input class="bs-field" id="fab-qty" type="number" placeholder="10" min="0.001" step="any">
-    </div>
+  <div>
+    <label class="bs-label">Action / Ticker</label>
+    <input class="bs-field" id="fab-ticker" placeholder="ex: JNJ, ADP, MMM…"
+      autocomplete="off" autocorrect="off" spellcheck="false"
+      oninput="fabTickerInput(this.value)"
+      style="text-transform:uppercase;margin-bottom:6px">
+    <div id="fab-suggestions"></div>
+    <div class="fab-isin-tag" id="fab-isin-tag"></div>
+  </div>
+  <div>
+    <label class="bs-label">Quantité</label>
+    <input class="bs-field" id="fab-qty" type="number" placeholder="10" min="0.001" step="any" style="margin-bottom:8px">
   </div>
   <div class="bs-row">
     <div>
