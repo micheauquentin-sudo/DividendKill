@@ -672,64 +672,173 @@ const DividendSafety = (() => {
   };
 
   const getSectorProfile = s => SECTOR_PROFILES[s] || SECTOR_PROFILES._default;
-  const linearScore = (val, good, bad, inv) => {
-    if (inv) { if (val <= good) return 100; if (val >= bad) return 0; return Math.round(100*(bad-val)/(bad-good)); }
-    else      { if (val >= good) return 100; if (val <= bad) return 0; return Math.round(100*(val-bad)/(good-bad)); }
+  const clamp = v => Math.max(0, Math.min(100, Math.round(v)));
+  const lerp  = (v, lo, hi, sLo, sHi) => clamp(sLo + (v - lo) / (hi - lo) * (sHi - sLo));
+
+  /* Payout ratio — 4 paliers, seuils sectoriels */
+  const scorePayout = (v, p) => {
+    if (v <= 0.40)                       return 100;
+    if (v <= p.payout_ratio_ok)          return lerp(v, 0.40, p.payout_ratio_ok, 100, 78);
+    if (v <= p.payout_ratio_warn)        return lerp(v, p.payout_ratio_ok, p.payout_ratio_warn, 78, 35);
+    if (v <= p.payout_ratio_warn + 0.15) return lerp(v, p.payout_ratio_warn, p.payout_ratio_warn + 0.15, 35, 5);
+    return 0;
   };
 
-  const scorePayout     = (v,p) => linearScore(v, p.payout_ratio_ok, p.payout_ratio_warn+.15, true);
-  const scoreFCF        = (v,p) => linearScore(v, p.fcf_payout_ok,   p.fcf_payout_warn+.15,   true);
-  const scoreDebt       = (v,p) => linearScore(v, p.debt_ebitda_ok,  p.debt_ebitda_warn+2.0,  true);
-  const scoreIntCov     = (v,p) => linearScore(v, p.interest_cov_ok*3, p.interest_cov_ok*.7,  false);
-  const scoreStreak     = y => y>=50?100:y>=25?85+Math.round((y-25)/25*15):y>=10?55+Math.round((y-10)/15*30):y>=5?25+Math.round((y-5)/5*30):Math.round(y*5);
-  const scoreDivCAGR    = c => linearScore(c, .08, .02, false);
-  const scoreEarnStab   = (pc,p5) => { if(!p5||p5<=0)return 50; const r=pc/p5; if(r>=.75&&r<=1.25)return 100; if(r>=.60&&r<=1.40)return 70; if(r>=.50&&r<=1.60)return 45; return 20; };
-  const scoreRecession  = (sec,streak,payout) => {
-    const d={'Santé':90,'Utilities':85,'Conso.':75,'Immo.':65,'Finance':55,'Industrie':50,'Tech':45,'Mat.':40,'Médias':35};
-    const base=d[sec]||50, sb=streak>=25?10:streak>=10?5:0, pm=payout>.80?-15:payout>.65?-5:0;
-    return Math.max(0, Math.min(100, base+sb+pm));
+  /* FCF payout — dividende non couvert par le FCF = score 0 */
+  const scoreFCF = (v, p) => {
+    if (v <= 0.50)               return 100;
+    if (v <= p.fcf_payout_ok)    return lerp(v, 0.50, p.fcf_payout_ok, 100, 78);
+    if (v <= p.fcf_payout_warn)  return lerp(v, p.fcf_payout_ok, p.fcf_payout_warn, 78, 30);
+    if (v <= 1.00)               return lerp(v, p.fcf_payout_warn, 1.00, 30, 5);
+    return 0;
   };
+
+  /* Dette/EBITDA — faible dette valorisée, seuils sectoriels */
+  const scoreDebt = (v, p) => {
+    if (v <= 1.0)                        return 100;
+    if (v <= p.debt_ebitda_ok)           return lerp(v, 1.0, p.debt_ebitda_ok, 100, 78);
+    if (v <= p.debt_ebitda_warn)         return lerp(v, p.debt_ebitda_ok, p.debt_ebitda_warn, 78, 35);
+    if (v <= p.debt_ebitda_warn + 2.0)   return lerp(v, p.debt_ebitda_warn, p.debt_ebitda_warn + 2.0, 35, 5);
+    return 0;
+  };
+
+  /* Couverture intérêts — 6 paliers, ≥15× = excellent, <1× = insolvabilité */
+  const scoreIntCov = (v, p) => {
+    const ok = p.interest_cov_ok;
+    if (v >= 15)         return 100;
+    if (v >= 10)         return lerp(v, 10, 15, 85, 100);
+    if (v >= ok * 2)     return lerp(v, ok * 2, 10, 68, 85);
+    if (v >= ok)         return lerp(v, ok, ok * 2, 48, 68);
+    if (v >= ok * 0.7)   return lerp(v, ok * 0.7, ok, 22, 48);
+    if (v >= 1.0)        return lerp(v, 1.0, ok * 0.7, 5, 22);
+    return 0;
+  };
+
+  /* Streak — tiers Aristocrat (≥25 ans) et King (≥50 ans) */
+  const scoreStreak = y => {
+    if (y >= 50) return 100;
+    if (y >= 25) return lerp(y, 25, 50, 85, 100);
+    if (y >= 10) return lerp(y, 10, 25, 58, 85);
+    if (y >= 5)  return lerp(y, 5, 10, 35, 58);
+    if (y >= 3)  return lerp(y, 3, 5, 18, 35);
+    if (y >= 1)  return lerp(y, 1, 3, 5, 18);
+    return 0;
+  };
+
+  /* CAGR dividende 5 ans — CAGR négatif (coupure) = 0 */
+  const scoreDivCAGR = c => {
+    if (c >= 0.12) return 100;
+    if (c >= 0.08) return lerp(c, 0.08, 0.12, 80, 100);
+    if (c >= 0.05) return lerp(c, 0.05, 0.08, 58, 80);
+    if (c >= 0.03) return lerp(c, 0.03, 0.05, 38, 58);
+    if (c >= 0.01) return lerp(c, 0.01, 0.03, 18, 38);
+    if (c >= 0)    return lerp(c, 0, 0.01, 5, 18);
+    return 0;
+  };
+
+  /* Stabilité résultats — bêta comme proxy principal, PE en fallback */
+  const scoreEarnStab = (beta, peCur) => {
+    if (beta != null && beta > 0) {
+      if (beta <= 0.40) return 100;
+      if (beta <= 0.70) return lerp(beta, 0.40, 0.70, 100, 85);
+      if (beta <= 0.90) return lerp(beta, 0.70, 0.90, 85, 68);
+      if (beta <= 1.10) return lerp(beta, 0.90, 1.10, 68, 50);
+      if (beta <= 1.40) return lerp(beta, 1.10, 1.40, 50, 28);
+      if (beta <= 2.00) return lerp(beta, 1.40, 2.00, 28, 8);
+      return 5;
+    }
+    if (peCur != null && peCur > 0) {
+      if (peCur <= 15) return 78;
+      if (peCur <= 25) return 62;
+      if (peCur <= 40) return 45;
+      return 28;
+    }
+    return 50;
+  };
+
+  /* Résilience récession — secteur + streak + payout + bêta */
+  const scoreRecession = (sec, streak, payout, beta) => {
+    const BASE = {
+      'Santé':90,'Utilities':82,'Conso.':75,'Immo.':62,
+      'Finance':52,'Industrie':45,'Énergie':40,'Tech':38,
+      'Mat.':32,'Médias':30
+    };
+    const base = BASE[sec] || 50;
+    const sb = streak >= 25 ? 10 : streak >= 10 ? 6 : streak >= 5 ? 3 : 0;
+    const pm = payout > 0.85 ? -15 : payout > 0.70 ? -7 : 0;
+    const bm = (beta != null && beta > 1.2) ? clamp((beta - 1.2) * 10) * -1 : 0;
+    return clamp(base + sb + pm + bm);
+  };
+
+  const STRENGTH_LABELS = {
+    payout_ratio:  'Payout ratio conservateur',
+    fcf_payout:    'FCF couvre largement le dividende',
+    debt_ebitda:   'Bilan sain — faible endettement',
+    interest_cov:  'Couverture intérêts confortable',
+    div_streak:    'Long historique de croissance du dividende',
+    div_cagr_5y:   'Croissance soutenue du dividende',
+    earn_stability:'Résultats réguliers et prévisibles',
+    recession_res: 'Secteur défensif — résilient en récession'
+  };
+  const WEAKNESS_LABELS = {
+    payout_ratio:  'Payout ratio trop élevé',
+    fcf_payout:    'Dividende mal couvert par le FCF',
+    debt_ebitda:   'Endettement excessif',
+    interest_cov:  'Couverture intérêts insuffisante',
+    div_streak:    'Historique dividendes court',
+    div_cagr_5y:   'Croissance dividende faible ou négative',
+    earn_stability:'Résultats volatils ou instables',
+    recession_res: 'Secteur cyclique — vulnérable en récession'
+  };
+
   const calculate = stock => {
-    const p = getSectorProfile(stock.sector);
+    const p   = getSectorProfile(stock.sector);
+    const sec = stock.sector || '';
 
-    // Valeurs nulles = données absentes → score neutre 50, pas de faux 100
+    // Données absentes → score neutre 50 (pas de faux bonus/malus)
     const payout = stock.payout_ratio != null ? stock.payout_ratio : null;
     const fcfP   = stock.fcf_payout   != null ? stock.fcf_payout   : null;
     const debtE  = stock.debt_ebitda  != null ? stock.debt_ebitda
                  : stock.debt_equity  != null ? stock.debt_equity * 2.0 : null;
-    // FMP stocke dans interest_cov, ancien code utilisait interest_coverage
     const intC   = stock.interest_cov      != null ? stock.interest_cov
                  : stock.interest_coverage != null ? stock.interest_coverage : null;
     const streak = stock.streak      || 0;
     const cagr   = stock.div_cagr_5y != null ? stock.div_cagr_5y : null;
-    const peCur  = stock.pe_cur      || 0;
-    const pe5y   = stock.pe_5y       || 0;
-    const sec    = stock.sector      || '';
+    const beta   = stock.beta        != null ? stock.beta        : null;
+    const peCur  = stock.pe_cur      != null ? stock.pe_cur      : null;
 
     const scores = {
-      payout_ratio:   payout != null ? scorePayout(payout, p) : 50,
-      fcf_payout:     fcfP   != null ? scoreFCF(fcfP, p)      : 50,
-      debt_ebitda:    debtE  != null ? scoreDebt(debtE, p)    : 50,
-      interest_cov:   intC   != null ? scoreIntCov(intC, p)   : 50,
+      payout_ratio:   payout != null ? scorePayout(payout, p)             : 50,
+      fcf_payout:     fcfP   != null ? scoreFCF(fcfP, p)                  : 50,
+      debt_ebitda:    debtE  != null ? scoreDebt(debtE, p)                : 50,
+      interest_cov:   intC   != null ? scoreIntCov(intC, p)               : 50,
       div_streak:     scoreStreak(streak),
-      div_cagr_5y:    cagr   != null ? scoreDivCAGR(cagr)     : 50,
-      earn_stability: scoreEarnStab(peCur, pe5y),
-      recession_res:  scoreRecession(sec, streak, payout || 0)
+      div_cagr_5y:    cagr   != null ? scoreDivCAGR(cagr)                 : 50,
+      earn_stability: scoreEarnStab(beta, peCur),
+      recession_res:  scoreRecession(sec, streak, payout || 0, beta)
     };
+
     let total = 0;
-    for (const k in WEIGHTS) total += (scores[k]||0) * WEIGHTS[k];
-    total = Math.round(total);
-    const risk = total>=80?'SAFE':total>=65?'MODERATE':total>=50?'CAUTION':total>=35?'RISKY':'DANGER';
-    const LABELS = {payout_ratio:'Payout ratio trop élevé',fcf_payout:'FCF payout insuffisant',debt_ebitda:'Endettement excessif',interest_cov:'Couverture intérêts faible',div_streak:'Historique dividendes court',div_cagr_5y:'Croissance dividende faible',earn_stability:'Résultats instables',recession_res:'Vulnérable en récession'};
-    const weak=[], str=[];
+    for (const k in WEIGHTS) total += (scores[k] || 0) * WEIGHTS[k];
+
+    // Pénalité corrélation : payout élevé ET FCF payout élevé simultanément
+    if (payout != null && fcfP != null && payout > 0.80 && fcfP > 0.90) total -= 5;
+
+    total = clamp(total);
+
+    const risk = total >= 80 ? 'SAFE' : total >= 65 ? 'MODERATE' : total >= 50 ? 'CAUTION' : total >= 35 ? 'RISKY' : 'DANGER';
+
+    const weak = [], str = [];
     for (const c in scores) {
-      const s=scores[c];
-      if (s<50)   weak.push({key:c,label:LABELS[c],score:s,weight:Math.round(WEIGHTS[c]*100)+'%'});
-      else if (s>=75) str.push({key:c,label:LABELS[c],score:s,weight:Math.round(WEIGHTS[c]*100)+'%'});
+      const s = scores[c];
+      if (s < 50)   weak.push({key:c, label:WEAKNESS_LABELS[c], score:s, weight:Math.round(WEIGHTS[c]*100)+'%'});
+      else if (s >= 75) str.push({key:c, label:STRENGTH_LABELS[c], score:s, weight:Math.round(WEIGHTS[c]*100)+'%'});
     }
-    weak.sort((a,b) => a.score-b.score);
-    str.sort((a,b)  => b.score-a.score);
-    return {safetyScore:total, riskLevel:risk, weakPoints:weak, strengths:str, breakdown:scores, sectorNote:p.note||null};
+    weak.sort((a, b) => a.score - b.score);
+    str.sort((a, b)  => b.score - a.score);
+
+    // safetyScore conservé pour compatibilité avec code existant
+    return {score:total, safetyScore:total, riskLevel:risk, weakPoints:weak, strengths:str, breakdown:scores, sectorNote:p.note||null};
   };
 
   const color = sc => sc>=80?'#22d47a':sc>=65?'#86efad':sc>=50?'#f5a623':sc>=35?'#fb923c':'#f43f5e';
@@ -739,7 +848,7 @@ const DividendSafety = (() => {
     let totalMV = 0, weightedDSE = 0;
     for (const pos of Calc.raw) {
       const m = Data.assets[pos.ticker] || {};
-      const dse = calculate(m).safetyScore;
+      const dse = calculate(m).score;
       weightedDSE += dse * pos.mv;
       totalMV += pos.mv;
     }
@@ -4195,7 +4304,7 @@ const App = (() => {
 function showDSESheet(ticker) {
   const stock = Data.assets[ticker] || {};
   const r = DividendSafety.calculate(stock);
-  const col = dseColor(r.safetyScore);
+  const col = dseColor(r.score);
   const CRIT_MAP = [
     {k:'payout_ratio',lbl:'Payout',w:'25%'},{k:'fcf_payout',lbl:'FCF Payout',w:'20%'},
     {k:'debt_ebitda',lbl:'Dette/EBITDA',w:'15%'},{k:'interest_cov',lbl:'Int. Coverage',w:'10%'},
@@ -4212,7 +4321,7 @@ function showDSESheet(ticker) {
   if (r.weakPoints.length) { wpHtml='<div style="margin-bottom:12px"><div style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#f43f5e;margin-bottom:6px">⚠ Points faibles</div>'+r.weakPoints.map(w=>`<div style="font-size:11px;color:#e2e2ec;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">· ${w.label} <span style="color:#52527a">(${w.weight})</span></div>`).join('')+'</div>'; }
   if (r.strengths.length)  { stHtml='<div><div style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#22d47a;margin-bottom:6px">✓ Points forts</div>'+r.strengths.map(s=>`<div style="font-size:11px;color:#e2e2ec;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">· ${s.label} <span style="color:#52527a">(${s.weight})</span></div>`).join('')+'</div>'; }
   document.getElementById('dse-sheet-inner').innerHTML =
-    `<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px"><div><div style="font-size:20px;font-weight:700">${ticker}</div>${r.sectorNote?`<div style="font-size:9.5px;color:#f5a623;margin-top:3px">${r.sectorNote}</div>`:''}</div><div style="text-align:right"><div style="font-size:32px;font-weight:700;font-family:DM Mono,monospace;color:${col}">${r.safetyScore}</div><div style="font-size:11px;font-weight:700;color:${col}">${dseLabel(r.riskLevel)}</div></div></div><div style="height:5px;background:#1a1a2e;border-radius:3px;overflow:hidden"><div style="height:100%;width:${r.safetyScore}%;background:${col};border-radius:3px;transition:width .6s ease"></div></div>${breakHtml}${wpHtml}${stHtml}`;
+    `<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px"><div><div style="font-size:20px;font-weight:700">${ticker}</div>${r.sectorNote?`<div style="font-size:9.5px;color:#f5a623;margin-top:3px">${r.sectorNote}</div>`:''}</div><div style="text-align:right"><div style="font-size:32px;font-weight:700;font-family:DM Mono,monospace;color:${col}">${r.score}</div><div style="font-size:11px;font-weight:700;color:${col}">${dseLabel(r.riskLevel)}</div></div></div><div style="height:5px;background:#1a1a2e;border-radius:3px;overflow:hidden"><div style="height:100%;width:${r.score}%;background:${col};border-radius:3px;transition:width .6s ease"></div></div>${breakHtml}${wpHtml}${stHtml}`;
   const sheet = document.getElementById('dse-sheet');
   sheet.style.display = 'flex';
   requestAnimationFrame(() => sheet.classList.add('dse-open'));
