@@ -34,8 +34,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .sync-btn{padding:6px 13px;border-radius:20px;border:1px solid rgba(0,200,160,.3);background:rgba(0,200,160,.07);color:var(--teal);font-size:11px;font-weight:600;white-space:nowrap;flex-shrink:0}
 /* ── KPI BAR ───────────────────────────────────────────── */
-.kpi-bar{display:none;background:#0c0c18;border-bottom:1px solid var(--border)}
-.kpi-bar.on{display:flex}
+.kpi-bar{display:flex;background:#0c0c18;border-bottom:1px solid var(--border)}
 .kc{flex:1;min-width:0;padding:10px 5px;display:flex;flex-direction:column;gap:2px;border-right:1px solid var(--border);overflow:hidden}
 .kc:last-child{border-right:none}
 .kc-l{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);white-space:nowrap}
@@ -146,6 +145,72 @@ tbody td{padding:9px 6px;vertical-align:middle}
 .toggle input{opacity:0;width:0;height:0}
 .toggle-slider{position:absolute;cursor:pointer;inset:0;background:#2a2a3e;border-radius:24px;transition:.3s}
 .toggle-slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
+
+/* ── FAB ─────────────────────────────────────────────────── */
+.fab{position:fixed;bottom:calc(var(--tab-h) + 16px);right:16px;z-index:400;
+  width:54px;height:54px;border-radius:50%;
+  background:linear-gradient(135deg,#7c6dff 0%,#a78bfa 100%);
+  color:#fff;font-size:26px;line-height:54px;text-align:center;
+  border:none;cursor:pointer;
+  box-shadow:0 4px 22px rgba(124,109,255,.55);
+  animation:fabIn .4s cubic-bezier(.34,1.56,.64,1) both .1s;
+  transition:transform .12s,box-shadow .12s;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.fab:active{transform:scale(.88);box-shadow:0 2px 12px rgba(124,109,255,.4)}
+
+/* ── Bottom sheet modal ──────────────────────────────────── */
+.bs-overlay{position:fixed;inset:0;z-index:499;background:rgba(0,0,0,.65);
+  animation:fadein .2s both;touch-action:none}
+.bs-sheet{position:fixed;bottom:0;left:0;right:0;z-index:500;
+  background:#10101e;border-radius:20px 20px 0 0;
+  padding:0 16px calc(env(safe-area-inset-bottom,0px) + 32px);
+  animation:slideUp .3s cubic-bezier(.34,1.2,.64,1) both;
+  max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.bs-handle{width:36px;height:4px;background:#2a2a3e;border-radius:2px;
+  margin:12px auto 20px;cursor:pointer}
+.bs-title{font-size:17px;font-weight:700;margin-bottom:18px;text-align:center;
+  letter-spacing:-.3px}
+.bs-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.bs-field{background:#1a1a2e;border:1px solid var(--border);border-radius:11px;
+  padding:12px 14px;font-size:15px;color:var(--text);width:100%;
+  font-family:inherit;box-sizing:border-box;
+  -webkit-appearance:none;appearance:none;transition:border-color .15s}
+.bs-field:focus{border-color:var(--violet);outline:none;background:#1e1e38}
+.bs-btn-row{display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:8px}
+.bs-btn-cancel{padding:15px;border-radius:14px;font-size:15px;font-weight:600;
+  font-family:inherit;cursor:pointer;border:1px solid var(--border);
+  background:transparent;color:var(--muted);touch-action:manipulation}
+.bs-btn{padding:15px;border-radius:14px;font-size:16px;font-weight:700;
+  font-family:inherit;cursor:pointer;border:none;
+  background:linear-gradient(135deg,#7c6dff,#a78bfa);color:#fff;
+  transition:transform .1s,opacity .1s;touch-action:manipulation}
+.bs-btn:active,.bs-btn-cancel:active{transform:scale(.97);opacity:.9}
+.bs-label{font-size:10px;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.6px;margin-bottom:4px;display:block}
+
+/* ── Expandable card (PORTEF.) ───────────────────────────── */
+.rnd-card{background:var(--surface);border-radius:12px;margin-bottom:8px;overflow:hidden}
+.rnd-head{display:flex;justify-content:space-between;align-items:center;
+  padding:12px 13px;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;user-select:none;
+  transition:background .12s}
+.rnd-head:active{background:rgba(255,255,255,.04)}
+.rnd-arrow{display:inline-block;transition:transform .25s cubic-bezier(.4,0,.2,1);
+  color:var(--muted);font-size:11px;flex-shrink:0}
+.rnd-body{max-height:0;overflow:hidden;
+  transition:max-height .35s cubic-bezier(.4,0,.2,1),opacity .25s;opacity:0}
+.rnd-body.open{max-height:500px;opacity:1}
+.rnd-body-inner{padding:0 13px 13px}
+
+/* ── Micro-animation utils ───────────────────────────────── */
+@keyframes fabIn{from{transform:scale(0) rotate(-90deg);opacity:0}to{transform:scale(1) rotate(0);opacity:1}}
+@keyframes slideUp{from{transform:translateY(110%)}to{transform:translateY(0)}}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+@keyframes successBurst{0%,100%{transform:scale(1)}35%{transform:scale(1.22)}65%{transform:scale(.95)}}
+@keyframes numIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@keyframes ripple{to{transform:scale(4);opacity:0}}
+.anim-success{animation:successBurst .55s cubic-bezier(.34,1.56,.64,1)}
+.anim-num{animation:numIn .3s ease both}
 .toggle input:checked + .toggle-slider{background:var(--violet)}
 .toggle input:checked + .toggle-slider:before{transform:translateX(20px)}
 </style>
@@ -162,13 +227,12 @@ tbody td{padding:9px 6px;vertical-align:middle}
   <button class="sync-btn" onclick="syncIBKR()">&#8635; Sync</button>
 </nav>
 
-<!-- KPI BAR -->
-<div class="kpi-bar" id="kpiBar">
-  <div class="kc"><div class="kc-l">Portef.</div><div class="kc-v" id="kv0">--</div><div class="kc-s" id="ks0">--</div></div>
-  <div class="kc"><div class="kc-l">P&amp;L</div><div class="kc-v" id="kv1">--</div><div class="kc-s" id="ks1">--</div></div>
+<!-- KPI BAR — always visible, 4 metrics -->
+<div class="kpi-bar on" id="kpiBar">
+  <div class="kc"><div class="kc-l">Portfolio</div><div class="kc-v" id="kv0">--</div><div class="kc-s" id="ks0">--</div></div>
+  <div class="kc"><div class="kc-l">Revenu/mois</div><div class="kc-v up" id="kv1">--</div><div class="kc-s" id="ks1">--</div></div>
   <div class="kc"><div class="kc-l">Yield</div><div class="kc-v up" id="kv2">--</div><div class="kc-s" id="ks2">--</div></div>
-  <div class="kc"><div class="kc-l">YoC</div><div class="kc-v" id="kv3" style="color:#86efad">--</div><div class="kc-s" id="ks3">--</div></div>
-  <div class="kc"><div class="kc-l">Score</div><div class="kc-v" id="kv4">--</div><div class="kc-s">/100</div></div>
+  <div class="kc"><div class="kc-l">FIRE</div><div class="kc-v" id="kv3">--</div><div class="kc-s" id="ks3">--</div></div>
 </div>
 
 <!-- PANELS -->
@@ -1255,27 +1319,37 @@ let _cur      = 0;
 let _rendered = {};
 const _noKPI  = {accueil:1, news:1, impots:1, import:1};
 
+function _animKpiVal(id, newText, color) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el.textContent !== newText) {
+    el.textContent = newText;
+    el.classList.remove('anim-num');
+    void el.offsetWidth; // reflow to restart animation
+    el.classList.add('anim-num');
+    setTimeout(() => el.classList.remove('anim-num'), 350);
+  }
+  if (color !== undefined) el.style.color = color;
+}
+
 function buildKPI() {
   const bar = document.getElementById('kpiBar');
   if (!bar) return;
-  const mv=getMV(), pnl=getPNL(), cost=getCost(), diva=getDivA();
-  const pp  = cost > 0 ? pnl/cost*100  : 0;
-  const yld = mv   > 0 ? diva/mv*100   : 0;
-  const yoc = cost > 0 ? diva/cost*100 : 0;
-  const sc  = DividendSafety.getPortfolioDSE();
-  const pC  = pnl >= 0 ? '#22d47a' : '#f43f5e';
-  const sC  = dseColor(sc);
-  document.getElementById('kv0').textContent = fE(mv);
-  document.getElementById('ks0').textContent = fPct(pp,1);
-  document.getElementById('kv1').style.color = pC;
-  document.getElementById('kv1').textContent = Calc.fEsign(pnl);
-  document.getElementById('ks1').textContent = fPct(pp);
-  document.getElementById('kv2').textContent = yld.toFixed(2) + '%';
-  document.getElementById('ks2').textContent = Math.round(getDivA()/Calc.eu()) + ' €/an';
-  document.getElementById('kv3').textContent = yoc.toFixed(2) + '%';
-  document.getElementById('ks3').textContent = 'Sur coût';
-  document.getElementById('kv4').style.color = sC;
-  document.getElementById('kv4').textContent = sc + '';
+  const mv = getMV(), pnl = getPNL(), cost = getCost(), diva = getDivA();
+  const pp      = cost > 0 ? pnl / cost * 100 : 0;
+  const yld     = mv   > 0 ? diva / mv * 100  : 0;
+  const monthly = diva / 12 / Calc.eu();
+  const fire    = Config.TARGET_MONTHLY > 0 ? Math.min(100, Math.round(monthly / Config.TARGET_MONTHLY * 100)) : 0;
+  const fireC   = fire >= 100 ? '#22d47a' : fire >= 70 ? '#86efad' : fire >= 40 ? '#f5a623' : '#f43f5e';
+
+  _animKpiVal('kv0', fE(mv));
+  document.getElementById('ks0').textContent = fPct(pp, 1);
+  _animKpiVal('kv1', Math.round(monthly).toLocaleString('fr-FR') + ' €');
+  document.getElementById('ks1').textContent = 'par mois';
+  _animKpiVal('kv2', yld.toFixed(2) + '%');
+  document.getElementById('ks2').textContent = Math.round(diva / Calc.eu()) + ' €/an';
+  _animKpiVal('kv3', fire + '%', fireC);
+  document.getElementById('ks3').textContent = Math.round(monthly) + ' / ' + Config.TARGET_MONTHLY + ' €';
   bar.classList.add('on');
 }
 
@@ -1294,9 +1368,7 @@ function goTo(idx) {
     else if (!_rendered[pid]) { _rendered[pid] = 1; renderPanel(pid, el); }
   }
   tabs[idx]?.scrollIntoView({behavior:'smooth', block:'nearest', inline:'center'});
-  const kpi = document.getElementById('kpiBar');
-  if (_noKPI[pid]) { kpi?.classList.remove('on'); }
-  else             { buildKPI(); }
+  buildKPI();
 }
 
 function renderPanel(pid, el) {
@@ -1622,40 +1694,73 @@ function renderRendement(el) {
     var rndDSEResult = rndMeta.payout_ratio != null ? calculateDividendSafety(rndMeta) : null;
     var rndDseScore = rndDSEResult ? rndDSEResult.safetyScore : (rndMeta.safe || calculateDividendSafety(rndMeta).safetyScore);
     var rndDseCol = dseColor(rndDseScore);
-    var rndDseLbl = dseLabel(rndDSEResult ? rndDSEResult.riskLevel : rndDseScore>=80?'SAFE':rndDseScore>=65?'MODERATE':rndDseScore>=50?'CAUTION':rndDseScore>=35?'RISKY':'DANGER');
-    rows += '<div style="background:var(--surface);border-radius:12px;padding:13px;margin-bottom:8px;border-left:3px solid '+(d.pnl>=0?'#22d47a':'#f43f5e')+'">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
-      +'<div>'
+    var dpnlDay = d.dpnl ? ((d.dpnl>=0?'+':'')+Math.round(toE(d.dpnl))+'\u20ac auj.') : '';
+    /* \u2500\u2500 Collapsed head \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+    rows += '<div class="rnd-card" style="border-left:3px solid '+(d.pnl>=0?'#22d47a':'#f43f5e')+'">'
+      +'<div class="rnd-head" onclick="toggleRndCard(\''+d.ticker+'\')">'
+      +'<div style="flex:1;min-width:0;margin-right:10px">'
+      +'<div style="display:flex;align-items:baseline;gap:7px;margin-bottom:5px">'
       +'<span style="font-size:16px;font-weight:700;letter-spacing:-.3px">'+d.ticker+'</span>'
-      +'<span style="font-size:10px;color:var(--muted);margin-left:7px">'+d.sec+'</span>'
+      +'<span style="font-size:10px;color:var(--muted)">'+d.sec+'</span>'
       +'</div>'
-      +'<div style="display:flex;align-items:center;gap:8px">'      +'<div style="cursor:pointer;background:rgba(0,0,0,.2);border:1px solid '+rndDseCol+';border-radius:8px;padding:4px 8px;text-align:center" onclick="showDSESheet(\''+d.ticker+'\')">'
-      +'<div style="font-size:10px;font-weight:700;color:'+rndDseCol+'">'+rndDseScore+'</div>'      +'<div style="font-size:8px;color:'+rndDseCol+'">DSE</div>'      +'</div>'      +'<div style="text-align:right">'      +'<div style="font-size:15px;font-weight:700;font-family:DM Mono,monospace;color:'+ppC+'">'+(d.pp>=0?'+':'')+d.pp.toFixed(1)+'%</div>'      +'<div style="font-size:11px;color:'+pnlC+';font-family:DM Mono,monospace">'+(d.pnl>=0?'+':'')+Math.round(toE(d.pnl))+'\u20ac</div>'      +'</div>'      +'</div></div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">'
+      +(div2>0
+        ? '<div style="display:flex;align-items:center;gap:5px">'
+          +'<span style="font-size:12px;font-weight:700;font-family:DM Mono,monospace;color:#22d47a">'+d.yd.toFixed(2)+'%</span>'
+          +'<span style="font-size:9px;color:var(--border)">|</span>'
+          +'<span style="font-size:10px;color:var(--muted)">YoC</span>'
+          +'<span style="font-size:12px;font-weight:700;font-family:DM Mono,monospace;color:#86efad">'+d.yoc.toFixed(2)+'%</span>'
+          +'</div>'
+        : '<div style="font-size:10px;color:var(--muted)">Pas de dividende</div>')
+      +'</div>'
+      +'<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">'
+      +'<div style="text-align:right">'
+      +'<div style="font-size:15px;font-weight:700;font-family:DM Mono,monospace;color:'+ppC+'">'+(d.pp>=0?'+':'')+d.pp.toFixed(1)+'%</div>'
+      +'<div style="font-size:10px;color:'+pnlC+';font-family:DM Mono,monospace">'+(d.pnl>=0?'+':'')+Math.round(toE(d.pnl))+'\u20ac</div>'
+      +'</div>'
+      +'<span class="rnd-arrow" id="ra-'+d.ticker+'">\u25be</span>'
+      +'</div>'
+      +'</div>'  /* end rnd-head */
+      /* \u2500\u2500 Expandable body \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+      +'<div class="rnd-body" id="rb-'+d.ticker+'">'
+      +'<div class="rnd-body-inner">'
+      /* DSE + 4-col grid */
+      +'<div style="display:flex;gap:6px;align-items:stretch;margin-bottom:8px">'
+      +'<div style="cursor:pointer;background:rgba(0,0,0,.2);border:1px solid '+rndDseCol+';border-radius:8px;padding:5px 8px;text-align:center;min-width:44px;flex-shrink:0" onclick="event.stopPropagation();showDSESheet(\''+d.ticker+'\')">'
+      +'<div style="font-size:11px;font-weight:700;color:'+rndDseCol+'">'+rndDseScore+'</div>'
+      +'<div style="font-size:7.5px;color:'+rndDseCol+'">DSE</div>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:5px;flex:1">'
       +'<div><div style="font-size:8.5px;color:var(--muted)">PRU</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+d.avg.toFixed(2)+'$</div></div>'
       +'<div><div style="font-size:8.5px;color:var(--muted)">Cours</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+d.price.toFixed(2)+'$</div></div>'
       +'<div><div style="font-size:8.5px;color:var(--muted)">Investi</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+Math.round(toE(d.cost))+'\u20ac</div></div>'
       +'<div><div style="font-size:8.5px;color:var(--muted)">Poids</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600;color:'+(w>12?'#f43f5e':w>8?'#f5a623':'var(--text)')+'">'+w.toFixed(1)+'%</div></div>'
       +'</div>'
-      +(div2>0?'<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.05)">'
-        +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">'
-        +'<div style="background:rgba(34,212,122,.07);border:1px solid rgba(34,212,122,.15);border-radius:9px;padding:7px 10px;text-align:center">'
-        +'<div style="font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Yield actuel</div>'
-        +'<div style="font-size:17px;font-weight:700;font-family:DM Mono,monospace;color:#22d47a">'+d.yd.toFixed(2)+'%</div>'
-        +'<div style="font-size:8px;color:var(--muted);margin-top:1px">sur '+d.price.toFixed(2)+'$</div>'
-        +'</div>'
-        +'<div style="background:rgba(134,239,172,.06);border:1px solid rgba(134,239,172,.15);border-radius:9px;padding:7px 10px;text-align:center">'
-        +'<div style="font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Yield on Cost</div>'
-        +'<div style="font-size:17px;font-weight:700;font-family:DM Mono,monospace;color:#86efad">'+d.yoc.toFixed(2)+'%</div>'
-        +'<div style="font-size:8px;color:var(--muted);margin-top:1px">sur PRU '+d.avg.toFixed(2)+'$</div>'
-        +'</div>'
-        +'</div>'
-        +'<div style="display:flex;gap:16px">'
-        +'<div><span style="font-size:9px;color:var(--muted)">Div/an </span><span style="font-size:11px;font-weight:700;color:#22d47a">'+Math.round(div2*d.qty)+'$</span></div>'
-        +'<div><span style="font-size:9px;color:var(--muted)">Qt\u00e9 </span><span style="font-size:11px;font-weight:700">'+d.qty+'</span></div>'
-        +'</div>'
-        +'</div>':'')
-      +'</div>';
+      +'</div>'
+      /* Yield dual cards */
+      +(div2>0
+        ? '<div style="padding-top:8px;border-top:1px solid rgba(255,255,255,.05)">'
+          +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">'
+          +'<div style="background:rgba(34,212,122,.07);border:1px solid rgba(34,212,122,.15);border-radius:9px;padding:7px 10px;text-align:center">'
+          +'<div style="font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Yield actuel</div>'
+          +'<div style="font-size:17px;font-weight:700;font-family:DM Mono,monospace;color:#22d47a">'+d.yd.toFixed(2)+'%</div>'
+          +'<div style="font-size:8px;color:var(--muted);margin-top:1px">sur '+d.price.toFixed(2)+'$</div>'
+          +'</div>'
+          +'<div style="background:rgba(134,239,172,.06);border:1px solid rgba(134,239,172,.15);border-radius:9px;padding:7px 10px;text-align:center">'
+          +'<div style="font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Yield on Cost</div>'
+          +'<div style="font-size:17px;font-weight:700;font-family:DM Mono,monospace;color:#86efad">'+d.yoc.toFixed(2)+'%</div>'
+          +'<div style="font-size:8px;color:var(--muted);margin-top:1px">sur PRU '+d.avg.toFixed(2)+'$</div>'
+          +'</div>'
+          +'</div>'
+          +'<div style="display:flex;gap:16px">'
+          +'<div><span style="font-size:9px;color:var(--muted)">Div/an </span><span style="font-size:11px;font-weight:700;color:#22d47a">'+Math.round(div2*d.qty)+'$</span></div>'
+          +'<div><span style="font-size:9px;color:var(--muted)">Qt\u00e9 </span><span style="font-size:11px;font-weight:700">'+d.qty+'</span></div>'
+          +(dpnlDay?'<div style="margin-left:auto"><span style="font-size:9px;color:var(--muted)">Auj. </span><span style="font-size:11px;font-weight:700;color:'+(d.dpnl>=0?'#22d47a':'#f43f5e')+'">'+dpnlDay+'</span></div>':'')
+          +'</div>'
+          +'</div>'
+        : (dpnlDay?'<div style="padding-top:6px;border-top:1px solid rgba(255,255,255,.05);font-size:10px;color:var(--muted)">Auj. <span style="font-weight:700;color:'+(d.dpnl>=0?'#22d47a':'#f43f5e')+'">'+dpnlDay+'</span></div>':''))
+      +'</div>'  /* end rnd-body-inner */
+      +'</div>'  /* end rnd-body */
+      +'</div>'; /* end rnd-card */
   }
   el.innerHTML = summaryHtml + toggleHtml + rows;
   el._sk = sk; el._sd = sd;
@@ -4511,6 +4616,110 @@ function syncIBKR() {
 /* ── Démarrage ── */
 App.boot().catch(e => console.error('[App] boot error', e));
 
+/* ── FAB & bottom sheet ─────────────────────────────────────── */
+function openFABSheet() {
+  if (navigator.vibrate) navigator.vibrate(8);
+  var dateEl = document.getElementById('fab-date');
+  if (dateEl && !dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
+  document.getElementById('fab-error').style.display = 'none';
+  document.getElementById('bs-overlay').style.display = '';
+  document.getElementById('bs-sheet').style.display = '';
+}
+
+function closeFABSheet() {
+  document.getElementById('bs-overlay').style.display = 'none';
+  document.getElementById('bs-sheet').style.display = 'none';
+}
+
+function submitFABTx() {
+  var type   = document.getElementById('fab-type').value;
+  var ticker = (document.getElementById('fab-ticker').value||'').trim().toUpperCase().replace(/[^A-Z0-9.]/g,'');
+  var qty    = parseFloat(document.getElementById('fab-qty').value);
+  var price  = parseFloat(document.getElementById('fab-price').value);
+  var date   = document.getElementById('fab-date').value;
+  var errEl  = document.getElementById('fab-error');
+  errEl.style.display = 'none';
+  if (!ticker)              { errEl.textContent='Ticker manquant'; errEl.style.display=''; return; }
+  if (!date)                { errEl.textContent='Date manquante';  errEl.style.display=''; return; }
+  if (isNaN(qty)||qty<=0)   { errEl.textContent='Quantité invalide'; errEl.style.display=''; return; }
+  if (isNaN(price)||price<0){ errEl.textContent='Prix invalide';   errEl.style.display=''; return; }
+  var tx = { id:'fab_'+Date.now(), ticker, type, quantity:qty, price, fees:0, currency:'USD', tax_withheld:0, date, _manual:true };
+  var existing = Storage.loadManual(); existing.push(tx);
+  Storage.saveManual(existing);
+  BrokerImport.applyToPortfolio();
+  _rendered = {};
+  buildKPI();
+  closeFABSheet();
+  if (navigator.vibrate) navigator.vibrate([10,40,10]);
+  /* Success flash on FAB */
+  var fab = document.getElementById('mainFAB');
+  if (fab) {
+    fab.textContent = '✓';
+    fab.style.background = 'linear-gradient(135deg,#10b981,#22d47a)';
+    fab.classList.add('anim-success');
+    setTimeout(function(){
+      fab.textContent = '＋';
+      fab.style.background = '';
+      fab.classList.remove('anim-success');
+    }, 1800);
+  }
+}
+
+/* ── Expandable portfolio cards ─────────────────────────────── */
+function toggleRndCard(ticker) {
+  if (navigator.vibrate) navigator.vibrate(6);
+  var body  = document.getElementById('rb-'+ticker);
+  var arrow = document.getElementById('ra-'+ticker);
+  if (!body) return;
+  var isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  if (arrow) arrow.style.transform = !isOpen ? 'rotate(180deg)' : '';
+}
+
 </script>
+
+<!-- FAB button -->
+<button class="fab" id="mainFAB" onclick="openFABSheet()" aria-label="Ajouter une transaction">＋</button>
+
+<!-- Bottom sheet overlay -->
+<div id="bs-overlay" class="bs-overlay" style="display:none" onclick="closeFABSheet()"></div>
+
+<!-- Bottom sheet -->
+<div id="bs-sheet" class="bs-sheet" style="display:none">
+  <div class="bs-handle" onclick="closeFABSheet()"></div>
+  <div class="bs-title">＋ Transaction</div>
+  <label class="bs-label">Type</label>
+  <select class="bs-field" id="fab-type" style="margin-bottom:12px">
+    <option value="buy">▲ Achat</option>
+    <option value="sell">▼ Vente</option>
+    <option value="dividend">$ Dividende reçu</option>
+  </select>
+  <div class="bs-row">
+    <div>
+      <label class="bs-label">Ticker</label>
+      <input class="bs-field" id="fab-ticker" placeholder="ex: JNJ" style="text-transform:uppercase">
+    </div>
+    <div>
+      <label class="bs-label">Quantité</label>
+      <input class="bs-field" id="fab-qty" type="number" placeholder="10" min="0.001" step="any">
+    </div>
+  </div>
+  <div class="bs-row">
+    <div>
+      <label class="bs-label">Prix ($)</label>
+      <input class="bs-field" id="fab-price" type="number" placeholder="94.50" min="0" step="any">
+    </div>
+    <div>
+      <label class="bs-label">Date</label>
+      <input class="bs-field" id="fab-date" type="date">
+    </div>
+  </div>
+  <div id="fab-error" style="color:#f43f5e;font-size:12px;margin:4px 0 6px;display:none"></div>
+  <div class="bs-btn-row">
+    <button class="bs-btn-cancel" onclick="closeFABSheet()">Annuler</button>
+    <button class="bs-btn" onclick="submitFABTx()">Enregistrer</button>
+  </div>
+</div>
+
 </body>
 </html>
