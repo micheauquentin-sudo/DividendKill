@@ -644,7 +644,8 @@ const getTotalDividends = Calc.getTotalDividends;
 const getTotalTaxes     = Calc.getTotalTaxes;
 const getRealizedGains  = Calc.getRealizedGains;
 const getPositions      = Calc.getPositions; // alias positions[]
-let   raw   = Calc.raw; // référence mise à jour via recompute
+// raw est un getter dynamique — pointe toujours sur Calc.raw courant
+Object.defineProperty(window, 'raw', { get: () => Calc.raw, configurable: true });
 
 
 /* ════════════════════════════════════════════════════════════════
@@ -1086,7 +1087,6 @@ const BrokerImport = (() => {
     for (const tx of imported) Data.transactions.push(tx);
     for (const tx of manual)   Data.transactions.push(tx);
     Calc.recompute();
-    raw = Calc.raw;
   };
 
   return { process, isDuplicate, applyToPortfolio };
@@ -1303,8 +1303,11 @@ function _drawAccueil(el) {
       + '</div></div>';
   }
   var gH = '', lH = '';
-  for (var a = 0; a < 3; a++) gH += mrow(sorted[a], 'up');
-  for (var b = sorted.length-1; b >= sorted.length-3; b--) lH += mrow(sorted[b], 'dn');
+  var topN = Math.min(3, sorted.length);
+  for (var a = 0; a < topN; a++) gH += mrow(sorted[a], 'up');
+  var botStart = sorted.length - 1;
+  var botEnd = Math.max(sorted.length - 3, topN);
+  for (var b = botStart; b >= botEnd; b--) lH += mrow(sorted[b], 'dn');
   function ctbtn(v, lbl) {
     return '<button class="ctbtn' + (_mode === v ? ' on' : '') + '" data-m="' + v + '">' + lbl + '</button>';
   }
@@ -3883,7 +3886,6 @@ function clearAll() {
   Storage.clearManual();
   Data.transactions = Data.transactions.filter(t => !t._imported && !t._manual);
   Calc.recompute();
-  raw = Calc.raw;
   _rendered = {};
   const el = document.getElementById('panel-import');
   if (el) { _rendered['import'] = 1; renderImport(el); }
