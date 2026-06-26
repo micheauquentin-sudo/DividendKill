@@ -1391,8 +1391,8 @@ function renderRendement(el) {
       +'<div style="display:flex;align-items:center;gap:8px">'      +'<div style="cursor:pointer;background:rgba(0,0,0,.2);border:1px solid '+rndDseCol+';border-radius:8px;padding:4px 8px;text-align:center" onclick="showDSESheet(\''+d.ticker+'\')">'
       +'<div style="font-size:10px;font-weight:700;color:'+rndDseCol+'">'+rndDseScore+'</div>'      +'<div style="font-size:8px;color:'+rndDseCol+'">DSE</div>'      +'</div>'      +'<div style="text-align:right">'      +'<div style="font-size:15px;font-weight:700;font-family:DM Mono,monospace;color:'+ppC+'">'+(d.pp>=0?'+':'')+d.pp.toFixed(1)+'%</div>'      +'<div style="font-size:11px;color:'+pnlC+';font-family:DM Mono,monospace">'+(d.pnl>=0?'+':'')+Math.round(toE(d.pnl))+'\u20ac</div>'      +'</div>'      +'</div></div>'
       +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px">'
-      +'<div><div style="font-size:8.5px;color:var(--muted)">PRU</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+Math.round(toE(d.avg))+'\u20ac</div></div>'
-      +'<div><div style="font-size:8.5px;color:var(--muted)">Cours</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+Math.round(toE(d.price))+'\u20ac</div></div>'
+      +'<div><div style="font-size:8.5px;color:var(--muted)">PRU</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+d.avg.toFixed(2)+'$</div></div>'
+      +'<div><div style="font-size:8.5px;color:var(--muted)">Cours</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+d.price.toFixed(2)+'$</div></div>'
       +'<div><div style="font-size:8.5px;color:var(--muted)">Investi</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+Math.round(toE(d.cost))+'\u20ac</div></div>'
       +'<div><div style="font-size:8.5px;color:var(--muted)">Poids</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600;color:'+(w>12?'#f43f5e':w>8?'#f5a623':'var(--text)')+'">'+w.toFixed(1)+'%</div></div>'
       +'</div>'
@@ -2717,7 +2717,7 @@ function renderValorisation(el) {
       var roomPos = Math.max(0, maxPos - d.mv);
       var roomSec = Math.max(0, maxSec - (secMV[d.sec] || 0));
       var roomEur = Math.min(roomPos, roomSec) / eu();
-      var maxQty  = d.price > 0 ? Math.floor((Math.min(roomPos, roomSec)) / (d.price * eu())) : 0;
+      var maxQty  = d.price > 0 ? Math.floor(Math.min(roomPos, roomSec) / d.price) : 0;
       return {roomEur: Math.round(roomEur), maxQty: maxQty, curPosPct: curPosPct.toFixed(1), curSecPct: curSecPct.toFixed(1)};
     }
 
@@ -3795,13 +3795,16 @@ function cancelImport() {
   if (el) { _rendered['import'] = 1; renderImport(el); }
 }
 
-function clearAll() {
+async function clearAll() {
   if (!confirm('Supprimer toutes les transactions importées et manuelles ?')) return;
-  Storage.clear();
-  Storage.clearManual();
+  await Storage.clear();
+  await Storage.clearManual();
   Data.transactions = Data.transactions.filter(t => !t._imported && !t._manual);
+  // Vide aussi les métadonnées actifs pour éviter des dividendes fantômes
+  for (const k in Data.assets) delete Data.assets[k];
   Calc.recompute();
   _rendered = {};
+  buildKPI();
   const el = document.getElementById('panel-import');
   if (el) { _rendered['import'] = 1; renderImport(el); }
 }
@@ -3865,13 +3868,21 @@ const App = (() => {
     /* Lance refresh marché en arrière-plan (non bloquant) */
     const tickers = Calc.getPositions().map(p => p.ticker).filter((t,i,a) => a.indexOf(t) === i);
     MarketData.refreshAll(tickers, (ticker, quote) => {
+      // Alimente Data.assets depuis Yahoo Finance (dividende, secteur…)
+      if (!Data.assets[ticker]) Data.assets[ticker] = {};
+      if (quote.annual_div != null) Data.assets[ticker].d = quote.annual_div;
+      Calc.recompute();
       // Re-render panel courant si prix reçu (silencieux)
-      const panels = ['accueil','portefeuille','dividendes','valorisation','deal','news','calendrier','import'];
+      const panels = ['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation','news','impots','import'];
       const activeId = 'panel-' + panels[window._curTab || 0];
       const activeEl = document.getElementById(activeId);
       if (activeEl) {
         try { renderPanel(panels[window._curTab || 0], activeEl); } catch(e) {}
       }
+    }).then(() => {
+      // Invalide le cache de rendu pour que tous les panels rafraîchissent au prochain clic
+      _rendered = {};
+      buildKPI();
     }).catch(e => console.warn('[App] MarketData refresh:', e.message));
   };
 
@@ -3925,7 +3936,11 @@ function syncIBKR() {
   MarketData.refreshAll(tickers, (ticker, quote) => {
     successCount++;
     if (btn) btn.textContent = '⟳ ' + successCount + '/' + tickers.length;
-    const panels = ['accueil','portefeuille','dividendes','valorisation','deal','news','calendrier','import'];
+    // Alimente Data.assets depuis Yahoo Finance
+    if (!Data.assets[ticker]) Data.assets[ticker] = {};
+    if (quote.annual_div != null) Data.assets[ticker].d = quote.annual_div;
+    Calc.recompute();
+    const panels = ['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation','news','impots','import'];
     const activeId = 'panel-' + panels[window._curTab || 0];
     const activeEl = document.getElementById(activeId);
     if (activeEl) {
@@ -3937,6 +3952,9 @@ function syncIBKR() {
       btn.textContent = errors === 0 ? '✓ ' + success + '/' + tickers.length : '⚠ ' + success + '/' + tickers.length;
       setTimeout(() => { btn.textContent = '⟳ Sync'; }, 3000);
     }
+    // Invalide le cache de rendu + rafraîchit la KPI bar
+    _rendered = {};
+    buildKPI();
     console.log('[syncIBKR] OK: ' + success + '/' + tickers.length + ', erreurs: ' + errors);
   }).catch(e => {
     console.warn('[syncIBKR]', e);
