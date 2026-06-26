@@ -374,11 +374,17 @@ const MarketData = (() => {
   /* ── Init : charge cache persisté ── */
   _loadCache();
 
+  function clearCache() {
+    for (const k in _cache) delete _cache[k];
+    try { localStorage.removeItem(CACHE_KEY); } catch(e) {}
+  }
+
   return {
     getQuote,
     getDividendData,
     getFundamentals,
     refreshAll,
+    clearCache,
     getCachedPrice,
     getCachedChange,
     getStatus,
@@ -4001,12 +4007,15 @@ function closeDSESheet() {
 function syncIBKR() {
   const tickers = Object.keys(Data.assets);
   const btn = document.querySelector('.sync-btn');
-  if (btn) btn.textContent = '⟳ Sync...';
-  // Force refresh (ignore cache TTL)
-  Object.keys(Data.assets).forEach(t => {
-    // On vide le cache pour forcer re-fetch
-  });
+  if (btn) { btn.textContent = '⟳ Sync...'; btn.disabled = true; }
+
+  // Fix: vider réellement le cache pour forcer un re-fetch complet
+  MarketData.clearCache();
+
+  let successCount = 0;
   MarketData.refreshAll(tickers, (ticker, quote) => {
+    successCount++;
+    if (btn) btn.textContent = '⟳ ' + successCount + '/' + tickers.length;
     const panels = ['accueil','portefeuille','dividendes','valorisation','deal','news','calendrier','import'];
     const activeId = 'panel-' + panels[window._curTab || 0];
     const activeEl = document.getElementById(activeId);
@@ -4014,12 +4023,16 @@ function syncIBKR() {
       try { renderPanel(panels[window._curTab || 0], activeEl); } catch(e) {}
     }
   }).then(({success, errors}) => {
-    if (btn) btn.textContent = '✓ Sync';
-    setTimeout(() => { if (btn) btn.textContent = '⟳ Sync'; }, 2000);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = errors === 0 ? '✓ ' + success + '/' + tickers.length : '⚠ ' + success + '/' + tickers.length;
+      setTimeout(() => { btn.textContent = '⟳ Sync'; }, 3000);
+    }
+    console.log('[syncIBKR] OK: ' + success + '/' + tickers.length + ', erreurs: ' + errors);
   }).catch(e => {
     console.warn('[syncIBKR]', e);
-    if (btn) btn.textContent = '✗ Erreur';
-    setTimeout(() => { if (btn) btn.textContent = '⟳ Sync'; }, 2000);
+    if (btn) { btn.disabled = false; btn.textContent = '✗ Erreur'; }
+    setTimeout(() => { if (btn) btn.textContent = '⟳ Sync'; }, 3000);
   });
 }
 
