@@ -292,6 +292,11 @@ const MarketData = (() => {
       annual_div: q.trailingAnnualDividendRate  || null,
       ex_date:    q.exDividendDate              || null,
       marketState: q.marketState               || 'REGULAR',
+      name:       q.longName || q.shortName     || null,
+      beta:       q.beta                        || null,
+      market_cap: q.marketCap                   || null,
+      fifty2_high: q.fiftyTwoWeekHigh           || null,
+      fifty2_low:  q.fiftyTwoWeekLow            || null,
     };
   }
 
@@ -886,7 +891,17 @@ const Storage = (() => {
     console.log('[Storage] Prêt ✓ (IndexedDB + AES-GCM)');
   }
 
-  return { load, save, clear, loadManual, saveManual, clearManual, init, hydrate };
+  /* ── Fondamentaux persistés (dividende, secteur, PE…) ── */
+  const saveFundamentals = async (assetsObj) => {
+    const clean = {};
+    for (const [tk, info] of Object.entries(assetsObj)) {
+      if (info && Object.keys(info).length) clean[tk] = info;
+    }
+    await AstraDB.setSetting('fundamentals_v1', clean);
+  };
+  const loadFundamentals = async () => AstraDB.getSetting('fundamentals_v1', {});
+
+  return { load, save, clear, loadManual, saveManual, clearManual, init, hydrate, saveFundamentals, loadFundamentals };
 })();
 
 /* Aliases rétrocompat */
@@ -3530,10 +3545,11 @@ function renderImport(el) {
     </div>`;
   }
 
-  /* ── Tabs Import/Manuel ── */
+  /* ── Tabs Import / Manuel / Fondamentaux ── */
   html += `<div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:16px">
-    <button id="imp-tab-csv" onclick="switchImportTab('csv')" style="flex:1;padding:10px 0;font-size:12px;font-weight:700;border:none;background:none;color:var(--violet);border-bottom:2px solid var(--violet);cursor:pointer">CSV Import</button>
-    <button id="imp-tab-manual" onclick="switchImportTab('manual')" style="flex:1;padding:10px 0;font-size:12px;font-weight:700;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer">✏️ Saisie manuelle</button>
+    <button id="imp-tab-csv"    onclick="switchImportTab('csv')"    style="flex:1;padding:10px 0;font-size:11px;font-weight:700;border:none;background:none;color:var(--violet);border-bottom:2px solid var(--violet);cursor:pointer">CSV Import</button>
+    <button id="imp-tab-manual" onclick="switchImportTab('manual')" style="flex:1;padding:10px 0;font-size:11px;font-weight:700;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer">✏️ Manuel</button>
+    <button id="imp-tab-funds"  onclick="switchImportTab('funds')"  style="flex:1;padding:10px 0;font-size:11px;font-weight:700;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer">📊 Fondamentaux</button>
   </div>`;
 
   /* ── Zone CSV ── */
@@ -3617,26 +3633,118 @@ function renderImport(el) {
     <div id="manual-list"></div>
   </div>`;
 
+  /* ── Zone Fondamentaux ── */
+  html += `<div id="imp-zone-funds" style="display:none">
+    <div style="background:var(--surface);border-radius:14px;padding:16px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#f59e0b">📊 Fondamentaux par ticker</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">Édition manuelle · Les valeurs API sont conservées entre rechargements</div>
+        </div>
+        <button onclick="saveFundamentalsForm()" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:9px;background:rgba(245,158,11,.12);color:#f59e0b;border:1px solid rgba(245,158,11,.3);cursor:pointer">💾 Sauvegarder</button>
+      </div>
+      <div id="funds-table"></div>
+    </div>
+  </div>`;
+
   el.innerHTML = html;
 
   /* Render liste manuelle si on est sur cet onglet */
   renderManualList();
+  renderFundamentalsTable();
 }
 
 function switchImportTab(tab) {
-  const csv    = document.getElementById('imp-zone-csv');
-  const manual = document.getElementById('imp-zone-manual');
-  const btnCsv = document.getElementById('imp-tab-csv');
-  const btnMan = document.getElementById('imp-tab-manual');
-  if (!csv || !manual) return;
-  const isCSV = tab === 'csv';
-  csv.style.display    = isCSV ? '' : 'none';
-  manual.style.display = isCSV ? 'none' : '';
-  btnCsv.style.color          = isCSV ? 'var(--violet)' : 'var(--muted)';
-  btnCsv.style.borderBottom   = isCSV ? '2px solid var(--violet)' : '2px solid transparent';
-  btnMan.style.color          = !isCSV ? 'var(--teal)' : 'var(--muted)';
-  btnMan.style.borderBottom   = !isCSV ? '2px solid var(--teal)' : '2px solid transparent';
-  if (!isCSV) renderManualList();
+  const zones = { csv: 'imp-zone-csv', manual: 'imp-zone-manual', funds: 'imp-zone-funds' };
+  const btns  = {
+    csv:    { id: 'imp-tab-csv',    color: 'var(--violet)' },
+    manual: { id: 'imp-tab-manual', color: 'var(--teal)'   },
+    funds:  { id: 'imp-tab-funds',  color: '#f59e0b'       },
+  };
+  for (const [key, zoneId] of Object.entries(zones)) {
+    const zone = document.getElementById(zoneId);
+    const btn  = document.getElementById(btns[key].id);
+    if (!zone || !btn) continue;
+    const active = key === tab;
+    zone.style.display    = active ? '' : 'none';
+    btn.style.color       = active ? btns[key].color : 'var(--muted)';
+    btn.style.borderBottom= active ? `2px solid ${btns[key].color}` : '2px solid transparent';
+  }
+  if (tab === 'manual') renderManualList();
+  if (tab === 'funds')  renderFundamentalsTable();
+}
+
+const SECTORS = ['Tech','Santé','Conso.','Utilities','Finance','Immo.','Industrie','Mat.','Médias','Énergie','Autre'];
+
+function renderFundamentalsTable() {
+  const el = document.getElementById('funds-table');
+  if (!el) return;
+  const positions = Calc.getPositions();
+  if (!positions.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px">Aucune position dans le portfolio.</div>';
+    return;
+  }
+  let html = `<div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-size:10px">
+        <th style="text-align:left;padding:6px 4px">Ticker</th>
+        <th style="text-align:left;padding:6px 4px">Nom</th>
+        <th style="text-align:center;padding:6px 4px">Div/action $</th>
+        <th style="text-align:center;padding:6px 4px">Secteur</th>
+        <th style="text-align:center;padding:6px 4px">PE actuel</th>
+        <th style="text-align:center;padding:6px 4px">Streak ans</th>
+        <th style="text-align:center;padding:6px 4px">Source</th>
+      </tr></thead>
+      <tbody>`;
+  positions.forEach(p => {
+    const tk = p.ticker;
+    const a  = Data.assets[tk] || {};
+    const fromApi = !!a._from_api;
+    const badge = fromApi
+      ? '<span style="font-size:9px;background:rgba(34,212,122,.15);color:#22d47a;padding:2px 6px;border-radius:5px;font-weight:700">API ✓</span>'
+      : '<span style="font-size:9px;background:rgba(255,255,255,.06);color:var(--muted);padding:2px 6px;border-radius:5px">Manuel</span>';
+    const sectorOpts = SECTORS.map(s => `<option value="${s}"${a.sector===s?' selected':''}>${s}</option>`).join('');
+    html += `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:7px 4px;font-family:DM Mono,monospace;font-weight:700;color:var(--violet)">${tk}</td>
+      <td style="padding:7px 4px"><input data-tk="${tk}" data-field="name" type="text" value="${a.name||''}" placeholder="Nom société" style="width:110px;padding:4px 7px;border-radius:7px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-size:11px;font-family:inherit"></td>
+      <td style="padding:7px 4px;text-align:center"><input data-tk="${tk}" data-field="d" type="number" value="${a.d!=null?a.d:''}" placeholder="0.00" min="0" step="any" style="width:70px;padding:4px 7px;border-radius:7px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-size:11px;font-family:DM Mono,monospace;text-align:center"></td>
+      <td style="padding:7px 4px;text-align:center"><select data-tk="${tk}" data-field="sector" style="padding:4px 7px;border-radius:7px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-size:11px;font-family:inherit"><option value="">—</option>${sectorOpts}</select></td>
+      <td style="padding:7px 4px;text-align:center"><input data-tk="${tk}" data-field="pe_cur" type="number" value="${a.pe_cur!=null?a.pe_cur:''}" placeholder="—" min="0" step="any" style="width:60px;padding:4px 7px;border-radius:7px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-size:11px;font-family:DM Mono,monospace;text-align:center"></td>
+      <td style="padding:7px 4px;text-align:center"><input data-tk="${tk}" data-field="streak" type="number" value="${a.streak!=null?a.streak:''}" placeholder="—" min="0" step="1" style="width:55px;padding:4px 7px;border-radius:7px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-size:11px;font-family:DM Mono,monospace;text-align:center"></td>
+      <td style="padding:7px 4px;text-align:center">${badge}</td>
+    </tr>`;
+  });
+  html += `</tbody></table></div>
+    <div id="funds-save-msg" style="display:none;text-align:center;font-size:11px;margin-top:12px;padding:8px;border-radius:8px"></div>`;
+  el.innerHTML = html;
+}
+
+async function saveFundamentalsForm() {
+  const inputs = document.querySelectorAll('#funds-table [data-tk]');
+  inputs.forEach(input => {
+    const tk    = input.dataset.tk;
+    const field = input.dataset.field;
+    if (!Data.assets[tk]) Data.assets[tk] = {};
+    const raw = input.value.trim();
+    if (field === 'name' || field === 'sector') {
+      Data.assets[tk][field] = raw || null;
+    } else {
+      const n = parseFloat(raw);
+      Data.assets[tk][field] = isNaN(n) ? null : n;
+    }
+  });
+  await Storage.saveFundamentals(Data.assets);
+  Calc.recompute();
+  _rendered = {};
+  buildKPI();
+  const msg = document.getElementById('funds-save-msg');
+  if (msg) {
+    msg.style.display = '';
+    msg.style.background = 'rgba(34,212,122,.1)';
+    msg.style.color = '#22d47a';
+    msg.textContent = '✓ Fondamentaux sauvegardés';
+    setTimeout(() => { msg.style.display = 'none'; }, 2500);
+  }
 }
 
 function addManualTransaction() {
@@ -3851,6 +3959,14 @@ const App = (() => {
     /* Apply imported transactions */
     BrokerImport.applyToPortfolio();
 
+    /* Charger les fondamentaux persistés (div, secteur, PE…) */
+    const savedFunds = await Storage.loadFundamentals();
+    for (const [tk, info] of Object.entries(savedFunds)) {
+      if (!Data.assets[tk]) Data.assets[tk] = {};
+      Object.assign(Data.assets[tk], info);
+    }
+    if (Object.keys(savedFunds).length) Calc.recompute();
+
     /* Init tabs */
     const allTabs = document.querySelectorAll('.tab');
     allTabs.forEach((tab, idx) => tab.addEventListener('click', () => goTo(idx)));
@@ -3868,19 +3984,27 @@ const App = (() => {
     /* Lance refresh marché en arrière-plan (non bloquant) */
     const tickers = Calc.getPositions().map(p => p.ticker).filter((t,i,a) => a.indexOf(t) === i);
     MarketData.refreshAll(tickers, (ticker, quote) => {
-      // Alimente Data.assets depuis Yahoo Finance (dividende, secteur…)
+      // Alimente Data.assets depuis Yahoo Finance
       if (!Data.assets[ticker]) Data.assets[ticker] = {};
-      if (quote.annual_div != null) Data.assets[ticker].d = quote.annual_div;
+      const a = Data.assets[ticker];
+      if (quote.annual_div != null) a.d        = quote.annual_div;
+      if (quote.name      != null) a.name      = quote.name;
+      if (quote.pe_cur    != null) a.pe_cur    = quote.pe_cur;
+      if (quote.pe_fwd    != null) a.pe_fwd    = quote.pe_fwd;
+      if (quote.beta      != null) a.beta      = quote.beta;
+      if (quote.market_cap!= null) a.market_cap= quote.market_cap;
+      if (quote.fifty2_high!=null) a.fifty2_high=quote.fifty2_high;
+      if (quote.fifty2_low!=null)  a.fifty2_low =quote.fifty2_low;
+      a._from_api = true;
       Calc.recompute();
-      // Re-render panel courant si prix reçu (silencieux)
+      // Re-render panel courant
       const panels = ['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation','news','impots','import'];
       const activeId = 'panel-' + panels[window._curTab || 0];
       const activeEl = document.getElementById(activeId);
-      if (activeEl) {
-        try { renderPanel(panels[window._curTab || 0], activeEl); } catch(e) {}
-      }
+      if (activeEl) { try { renderPanel(panels[window._curTab || 0], activeEl); } catch(e) {} }
     }).then(() => {
-      // Invalide le cache de rendu pour que tous les panels rafraîchissent au prochain clic
+      // Persister les fondamentaux enrichis par l'API
+      Storage.saveFundamentals(Data.assets);
       _rendered = {};
       buildKPI();
     }).catch(e => console.warn('[App] MarketData refresh:', e.message));
@@ -3938,21 +4062,29 @@ function syncIBKR() {
     if (btn) btn.textContent = '⟳ ' + successCount + '/' + tickers.length;
     // Alimente Data.assets depuis Yahoo Finance
     if (!Data.assets[ticker]) Data.assets[ticker] = {};
-    if (quote.annual_div != null) Data.assets[ticker].d = quote.annual_div;
+    const a = Data.assets[ticker];
+    if (quote.annual_div != null) a.d         = quote.annual_div;
+    if (quote.name      != null)  a.name      = quote.name;
+    if (quote.pe_cur    != null)  a.pe_cur    = quote.pe_cur;
+    if (quote.pe_fwd    != null)  a.pe_fwd    = quote.pe_fwd;
+    if (quote.beta      != null)  a.beta      = quote.beta;
+    if (quote.market_cap!= null)  a.market_cap= quote.market_cap;
+    if (quote.fifty2_high!=null)  a.fifty2_high=quote.fifty2_high;
+    if (quote.fifty2_low!=null)   a.fifty2_low =quote.fifty2_low;
+    a._from_api = true;
     Calc.recompute();
     const panels = ['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation','news','impots','import'];
     const activeId = 'panel-' + panels[window._curTab || 0];
     const activeEl = document.getElementById(activeId);
-    if (activeEl) {
-      try { renderPanel(panels[window._curTab || 0], activeEl); } catch(e) {}
-    }
+    if (activeEl) { try { renderPanel(panels[window._curTab || 0], activeEl); } catch(e) {} }
   }).then(({success, errors}) => {
     if (btn) {
       btn.disabled = false;
       btn.textContent = errors === 0 ? '✓ ' + success + '/' + tickers.length : '⚠ ' + success + '/' + tickers.length;
       setTimeout(() => { btn.textContent = '⟳ Sync'; }, 3000);
     }
-    // Invalide le cache de rendu + rafraîchit la KPI bar
+    // Persister les fondamentaux + invalider le cache de rendu
+    Storage.saveFundamentals(Data.assets);
     _rendered = {};
     buildKPI();
     console.log('[syncIBKR] OK: ' + success + '/' + tickers.length + ', erreurs: ' + errors);
