@@ -3747,6 +3747,44 @@ async function saveFundamentalsForm() {
   }
 }
 
+/* ── Auto-fetch fondamentaux pour une liste de tickers ── */
+async function autoFetchFundamentals(tickers, { onDone, onProgress } = {}) {
+  if (!tickers || !tickers.length) return;
+  // Dédupliquer
+  const uniq = [...new Set(tickers.filter(Boolean))];
+  let fetched = 0;
+  for (const tk of uniq) {
+    try {
+      const quote = await MarketData.getQuote(tk);
+      if (!quote) continue;
+      if (!Data.assets[tk]) Data.assets[tk] = {};
+      const a = Data.assets[tk];
+      if (quote.annual_div  != null) a.d          = quote.annual_div;
+      if (quote.name        != null) a.name        = quote.name;
+      if (quote.pe_cur      != null) a.pe_cur      = quote.pe_cur;
+      if (quote.pe_fwd      != null) a.pe_fwd      = quote.pe_fwd;
+      if (quote.beta        != null) a.beta        = quote.beta;
+      if (quote.market_cap  != null) a.market_cap  = quote.market_cap;
+      if (quote.fifty2_high != null) a.fifty2_high = quote.fifty2_high;
+      if (quote.fifty2_low  != null) a.fifty2_low  = quote.fifty2_low;
+      a._from_api = true;
+      fetched++;
+      if (onProgress) onProgress(tk, fetched, uniq.length);
+    } catch(e) {
+      console.warn('[autoFetchFundamentals]', tk, e.message);
+    }
+  }
+  if (fetched > 0) {
+    await Storage.saveFundamentals(Data.assets);
+    Calc.recompute();
+    _rendered = {};
+    buildKPI();
+    // Rafraîchir le panel fondamentaux s'il est visible
+    renderFundamentalsTable();
+  }
+  if (onDone) onDone(fetched, uniq.length);
+}
+
 function addManualTransaction() {
   const type     = document.getElementById('mt-type')?.value;
   const ticker   = (document.getElementById('mt-ticker')?.value || '').trim().toUpperCase().replace(/[^A-Z0-9.]/g,'');
@@ -3787,11 +3825,22 @@ function addManualTransaction() {
   document.getElementById('mt-fees').value   = '';
   document.getElementById('mt-tax').value    = '';
 
-  okEl.textContent    = `✓ ${ticker} ${type} ajouté — portfolio mis à jour`;
-  okEl.style.display  = '';
+  okEl.textContent   = `✓ ${ticker} ${type} ajouté — récupération fondamentaux…`;
+  okEl.style.display = '';
 
   renderManualList();
   buildKPI();
+
+  // Récupérer les fondamentaux en arrière-plan pour ce ticker
+  autoFetchFundamentals([ticker], {
+    onDone: (ok) => {
+      if (okEl.isConnected) {
+        okEl.textContent = ok
+          ? `✓ ${ticker} ajouté · fondamentaux chargés (div, PE, nom…)`
+          : `✓ ${ticker} ajouté · fondamentaux indisponibles (API hors-ligne)`;
+      }
+    }
+  });
 }
 
 function renderManualList() {
@@ -3889,12 +3938,34 @@ function renderImportPreview(res) {
 
 function validateImport() {
   if (!_importResult?.ok?.length) return;
+  const newTickers = [...new Set(_importResult.ok.map(t => t.ticker).filter(Boolean))];
   const merged = Storage.load().concat(_importResult.ok);
   Storage.save(merged);
   BrokerImport.applyToPortfolio();
   _rendered = {}; _importResult = null;
   const el = document.getElementById('panel-import');
-  if (el) { _rendered['import'] = 1; renderImport(el); const st = document.getElementById('imp-status'); if (st) st.innerHTML = '<div style="background:rgba(34,212,122,.1);border:1px solid rgba(34,212,122,.3);border-radius:10px;padding:14px;margin-bottom:14px;text-align:center"><div style="font-size:18px;margin-bottom:4px">&#10003;</div><div style="font-weight:700;color:#22d47a;font-size:14px">Import réussi !</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Transactions intégrées au portfolio</div></div>'; }
+  if (el) {
+    _rendered['import'] = 1; renderImport(el);
+    const st = document.getElementById('imp-status');
+    if (st) st.innerHTML = '<div style="background:rgba(34,212,122,.1);border:1px solid rgba(34,212,122,.3);border-radius:10px;padding:14px;margin-bottom:14px;text-align:center"><div style="font-size:18px;margin-bottom:4px">&#10003;</div><div style="font-weight:700;color:#22d47a;font-size:14px">Import réussi !</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Récupération fondamentaux en cours…</div></div>';
+  }
+  // Récupérer les fondamentaux pour tous les tickers importés
+  autoFetchFundamentals(newTickers, {
+    onProgress: (tk, done, total) => {
+      const st = document.getElementById('imp-status');
+      if (st) {
+        const msg = st.querySelector('div > div:last-child');
+        if (msg) msg.textContent = `Fondamentaux : ${done}/${total} tickers chargés…`;
+      }
+    },
+    onDone: (ok, total) => {
+      const st = document.getElementById('imp-status');
+      if (st) {
+        const msg = st.querySelector('div > div:last-child');
+        if (msg) msg.textContent = `${ok}/${total} tickers enrichis (div, PE, nom, beta…)`;
+      }
+    }
+  });
 }
 
 function cancelImport() {
