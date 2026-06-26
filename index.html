@@ -417,6 +417,101 @@ const MarketData = (() => {
 })();
 
 /* ════════════════════════════════════════════════════════════════
+   MODULE: FmpData — Fondamentaux Financial Modeling Prep (24h cache)
+   Champs enrichis : payout_ratio, fcf_payout, debt_ebitda,
+   interest_cov, streak, div_cagr_5y, pe_cur, beta, sector, market_cap
+   ════════════════════════════════════════════════════════════════ */
+const FmpData = (() => {
+  const CACHE_KEY = 'astra_fmp_cache';
+  const TTL       = 24 * 3600 * 1000; // 24 h
+  const _cache    = {};
+
+  function _save() {
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(_cache)); } catch(e) {}
+  }
+  function _load() {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const now = Date.now();
+      for (const [t, d] of Object.entries(parsed)) {
+        if (now - d.ts < TTL) _cache[t] = d;
+      }
+    } catch(e) {}
+  }
+  function _isFresh(ticker) {
+    return _cache[ticker] && (Date.now() - _cache[ticker].ts < TTL);
+  }
+
+  async function _fetchOne(ticker) {
+    const url = `${Config.YF_BASE}?fmp=all&symbol=${encodeURIComponent(ticker)}`;
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`FMP worker HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    return data;
+  }
+
+  /* Précharge tous les tickers (appelé au boot et au sync).
+     Retourne un tableau { ticker, data } */
+  async function prefetch(tickers) {
+    const toFetch = tickers.filter(t => !_isFresh(t));
+    if (toFetch.length === 0) return tickers.map(t => ({ ticker: t, data: _cache[t]?.data }));
+
+    const results = await Promise.allSettled(toFetch.map(t => _fetchOne(t)));
+    const now = Date.now();
+    toFetch.forEach((t, i) => {
+      if (results[i].status === 'fulfilled') {
+        _cache[t] = { data: results[i].value, ts: now };
+      } else {
+        console.warn('[FmpData] échec', t, results[i].reason?.message);
+      }
+    });
+    _save();
+    return tickers.map(t => ({ ticker: t, data: _cache[t]?.data || null }));
+  }
+
+  function get(ticker) {
+    return _cache[ticker]?.data || null;
+  }
+
+  /* Applique les données FMP dans Data.assets[ticker] (ne pas écraser les valeurs manuelles
+     définies par l'utilisateur, sauf si la valeur FMP est plus précise) */
+  function mergeIntoAssets(ticker, assets) {
+    const f = get(ticker);
+    if (!f) return;
+    if (!assets[ticker]) assets[ticker] = {};
+    const a = assets[ticker];
+
+    // N'écrase que si la valeur API est non-null et que la valeur actuelle vient d'une ancienne
+    // API (null ou absente), pour ne pas écraser les saisies manuelles de l'utilisateur.
+    const set = (field, val) => { if (val != null) a[field] = val; };
+
+    set('sector',       f.sector);
+    set('beta',         f.beta);
+    set('market_cap',   f.market_cap);
+    set('pe_cur',       f.pe_cur);
+    set('payout_ratio', f.payout_ratio);
+    set('fcf_payout',   f.fcf_payout);
+    set('debt_ebitda',  f.debt_ebitda);
+    set('interest_cov', f.interest_cov);
+    set('div_cagr_5y',  f.div_cagr_5y);
+    // streak : préfère la valeur FMP sauf si le FUNDAMENTALS statique est plus conservateur
+    if (f.streak != null && f.streak > 0) set('streak', f.streak);
+    // dividende annuel : FMP si absent ou zéro
+    if (f.annual_div != null && (!a.d || a.d === 0)) set('d', f.annual_div);
+    // nom si manquant
+    if (f.name && !a.name) set('name', f.name);
+
+    a._fmp_api = true;
+  }
+
+  _load();
+  return { prefetch, get, mergeIntoAssets };
+})();
+
+/* ════════════════════════════════════════════════════════════════
    MODULE: Data — Données statiques (prices, assets, transactions)
    ════════════════════════════════════════════════════════════════ */
 const Data = (() => {
@@ -4052,33 +4147,38 @@ const App = (() => {
     renderPanel('accueil', document.getElementById('panel-accueil'));
     goTo(0);
 
-    /* Lance refresh marché en arrière-plan (non bloquant) */
+    /* Lance refresh marché + fondamentaux en arrière-plan (non bloquant) */
     const tickers = Calc.getPositions().map(p => p.ticker).filter((t,i,a) => a.indexOf(t) === i);
-    MarketData.refreshAll(tickers, (ticker, quote) => {
-      // Alimente Data.assets depuis Yahoo Finance
+
+    const bootPricePromise = MarketData.refreshAll(tickers, (ticker, quote) => {
       if (!Data.assets[ticker]) Data.assets[ticker] = {};
       const a = Data.assets[ticker];
-      if (quote.annual_div != null) a.d        = quote.annual_div;
-      if (quote.name      != null) a.name      = quote.name;
-      if (quote.pe_cur    != null) a.pe_cur    = quote.pe_cur;
-      if (quote.pe_fwd    != null) a.pe_fwd    = quote.pe_fwd;
-      if (quote.beta      != null) a.beta      = quote.beta;
-      if (quote.market_cap!= null) a.market_cap= quote.market_cap;
-      if (quote.fifty2_high!=null) a.fifty2_high=quote.fifty2_high;
-      if (quote.fifty2_low!=null)  a.fifty2_low =quote.fifty2_low;
+      if (quote.annual_div  != null) a.d          = quote.annual_div;
+      if (quote.name        != null) a.name        = quote.name;
+      if (quote.pe_cur      != null) a.pe_cur      = quote.pe_cur;
+      if (quote.pe_fwd      != null) a.pe_fwd      = quote.pe_fwd;
+      if (quote.beta        != null) a.beta        = quote.beta;
+      if (quote.market_cap  != null) a.market_cap  = quote.market_cap;
+      if (quote.fifty2_high != null) a.fifty2_high = quote.fifty2_high;
+      if (quote.fifty2_low  != null) a.fifty2_low  = quote.fifty2_low;
       a._from_api = true;
       Calc.recompute();
-      // Re-render panel courant
       const panels = ['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation','news','impots','import'];
-      const activeId = 'panel-' + panels[window._curTab || 0];
-      const activeEl = document.getElementById(activeId);
+      const activeEl = document.getElementById('panel-' + panels[window._curTab || 0]);
       if (activeEl) { try { renderPanel(panels[window._curTab || 0], activeEl); } catch(e) {} }
-    }).then(() => {
-      // Persister les fondamentaux enrichis par l'API
+    });
+
+    // FMP en parallèle — enrichit payout, fcf_payout, debt_ebitda, interest_cov, streak, cagr…
+    const bootFmpPromise = FmpData.prefetch(tickers).then(results => {
+      results.forEach(({ ticker }) => FmpData.mergeIntoAssets(ticker, Data.assets));
+      Calc.recompute();
+    }).catch(e => console.warn('[App] FmpData boot:', e.message));
+
+    Promise.all([bootPricePromise, bootFmpPromise]).then(() => {
       Storage.saveFundamentals(Data.assets);
       _rendered = {};
       buildKPI();
-    }).catch(e => console.warn('[App] MarketData refresh:', e.message));
+    }).catch(e => console.warn('[App] boot refresh:', e.message));
   };
 
   return { boot };
@@ -4124,46 +4224,54 @@ function syncIBKR() {
   const btn = document.querySelector('.sync-btn');
   if (btn) { btn.textContent = '⟳ Sync...'; btn.disabled = true; }
 
-  // Fix: vider réellement le cache pour forcer un re-fetch complet
+  // Vide le cache prix pour forcer un re-fetch complet
   MarketData.clearCache();
 
   let successCount = 0;
-  MarketData.refreshAll(tickers, (ticker, quote) => {
+
+  // Lance prix (Twelve Data) ET fondamentaux (FMP) en parallèle
+  const pricePromise = MarketData.refreshAll(tickers, (ticker, quote) => {
     successCount++;
     if (btn) btn.textContent = '⟳ ' + successCount + '/' + tickers.length;
-    // Alimente Data.assets depuis Yahoo Finance
     if (!Data.assets[ticker]) Data.assets[ticker] = {};
     const a = Data.assets[ticker];
-    if (quote.annual_div != null) a.d         = quote.annual_div;
-    if (quote.name      != null)  a.name      = quote.name;
-    if (quote.pe_cur    != null)  a.pe_cur    = quote.pe_cur;
-    if (quote.pe_fwd    != null)  a.pe_fwd    = quote.pe_fwd;
-    if (quote.beta      != null)  a.beta      = quote.beta;
-    if (quote.market_cap!= null)  a.market_cap= quote.market_cap;
-    if (quote.fifty2_high!=null)  a.fifty2_high=quote.fifty2_high;
-    if (quote.fifty2_low!=null)   a.fifty2_low =quote.fifty2_low;
+    if (quote.annual_div  != null) a.d          = quote.annual_div;
+    if (quote.name        != null) a.name        = quote.name;
+    if (quote.pe_cur      != null) a.pe_cur      = quote.pe_cur;
+    if (quote.pe_fwd      != null) a.pe_fwd      = quote.pe_fwd;
+    if (quote.beta        != null) a.beta        = quote.beta;
+    if (quote.market_cap  != null) a.market_cap  = quote.market_cap;
+    if (quote.fifty2_high != null) a.fifty2_high = quote.fifty2_high;
+    if (quote.fifty2_low  != null) a.fifty2_low  = quote.fifty2_low;
     a._from_api = true;
     Calc.recompute();
     const panels = ['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation','news','impots','import'];
-    const activeId = 'panel-' + panels[window._curTab || 0];
-    const activeEl = document.getElementById(activeId);
+    const activeEl = document.getElementById('panel-' + panels[window._curTab || 0]);
     if (activeEl) { try { renderPanel(panels[window._curTab || 0], activeEl); } catch(e) {} }
-  }).then(({success, errors}) => {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = errors === 0 ? '✓ ' + success + '/' + tickers.length : '⚠ ' + success + '/' + tickers.length;
-      setTimeout(() => { btn.textContent = '⟳ Sync'; }, 3000);
-    }
-    // Persister les fondamentaux + invalider le cache de rendu
-    Storage.saveFundamentals(Data.assets);
-    _rendered = {};
-    buildKPI();
-    console.log('[syncIBKR] OK: ' + success + '/' + tickers.length + ', erreurs: ' + errors);
-  }).catch(e => {
-    console.warn('[syncIBKR]', e);
-    if (btn) { btn.disabled = false; btn.textContent = '✗ Erreur'; }
-    setTimeout(() => { if (btn) btn.textContent = '⟳ Sync'; }, 3000);
   });
+
+  const fmpPromise = FmpData.prefetch(tickers).then(results => {
+    results.forEach(({ ticker }) => FmpData.mergeIntoAssets(ticker, Data.assets));
+    Calc.recompute();
+  }).catch(e => console.warn('[syncIBKR] FMP:', e.message));
+
+  Promise.all([pricePromise, fmpPromise])
+    .then(([{ success, errors }]) => {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = errors === 0 ? '✓ Sync OK' : '⚠ ' + success + '/' + tickers.length;
+        setTimeout(() => { btn.textContent = '⟳ Sync'; }, 3000);
+      }
+      Storage.saveFundamentals(Data.assets);
+      _rendered = {};
+      buildKPI();
+      console.log('[syncIBKR] prix OK:', success + '/' + tickers.length, '— FMP fondamentaux chargés');
+    })
+    .catch(e => {
+      console.warn('[syncIBKR]', e);
+      if (btn) { btn.disabled = false; btn.textContent = '✗ Erreur'; }
+      setTimeout(() => { if (btn) btn.textContent = '⟳ Sync'; }, 3000);
+    });
 }
 
 /* ── Démarrage ── */
