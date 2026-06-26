@@ -752,7 +752,12 @@ const AstraDB = (() => {
         let item = items[i];
         if (enc) {
           const payload = await _AES.encrypt(item);
-          item = { __enc:true, payload };
+          // Preserve id and source outside the encrypted payload so IndexedDB
+          // can use the keyPath and clearBySource can filter without decryption
+          const outer = { __enc:true, payload };
+          if (item.id     !== undefined) outer.id     = item.id;
+          if (item.source !== undefined) outer.source = item.source;
+          item = outer;
         }
         const r = store.put(item);
         r.onsuccess = () => go(i+1);
@@ -3858,7 +3863,7 @@ const App = (() => {
     goTo(0);
 
     /* Lance refresh marché en arrière-plan (non bloquant) */
-    const tickers = Object.keys(Data.assets);
+    const tickers = Calc.getPositions().map(p => p.ticker).filter((t,i,a) => a.indexOf(t) === i);
     MarketData.refreshAll(tickers, (ticker, quote) => {
       // Re-render panel courant si prix reçu (silencieux)
       const panels = ['accueil','portefeuille','dividendes','valorisation','deal','news','calendrier','import'];
@@ -3909,7 +3914,7 @@ function closeDSESheet() {
 }
 
 function syncIBKR() {
-  const tickers = Object.keys(Data.assets);
+  const tickers = Calc.getPositions().map(p => p.ticker).filter((t,i,a) => a.indexOf(t) === i);
   const btn = document.querySelector('.sync-btn');
   if (btn) { btn.textContent = '⟳ Sync...'; btn.disabled = true; }
 
