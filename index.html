@@ -289,7 +289,7 @@ const MarketData = (() => {
       pe_cur:     q.trailingPE                  || null,
       pe_fwd:     q.forwardPE                   || null,
       div_yield:  q.dividendYield               || null,
-      annual_div: q.trailingAnnualDividendRate  || null,
+      annual_div: q.trailingAnnualDividendRate  || (q.dividendYield > 0 && q.regularMarketPrice > 0 ? +(q.dividendYield * q.regularMarketPrice).toFixed(4) : null),
       ex_date:    q.exDividendDate              || null,
       marketState: q.marketState               || 'REGULAR',
       name:       q.longName || q.shortName     || null,
@@ -3968,7 +3968,8 @@ async function autoFetchFundamentals(tickers, { onDone, onProgress } = {}) {
       if (!quote) continue;
       if (!Data.assets[tk]) Data.assets[tk] = {};
       const a = Data.assets[tk];
-      if (quote.annual_div  != null) a.d          = quote.annual_div;
+      if (quote.annual_div != null) { a.d = quote.annual_div; }
+      else if (quote.div_yield > 0 && quote.price > 0) { a.d = +(quote.div_yield * quote.price).toFixed(4); }
       if (quote.name        != null) a.name        = quote.name;
       if (quote.pe_cur      != null) a.pe_cur      = quote.pe_cur;
       if (quote.pe_fwd      != null) a.pe_fwd      = quote.pe_fwd;
@@ -4267,7 +4268,8 @@ const App = (() => {
     const bootPricePromise = MarketData.refreshAll(tickers, (ticker, quote) => {
       if (!Data.assets[ticker]) Data.assets[ticker] = {};
       const a = Data.assets[ticker];
-      if (quote.annual_div  != null) a.d          = quote.annual_div;
+      if (quote.annual_div != null) { a.d = quote.annual_div; }
+      else if (quote.div_yield > 0 && quote.price > 0) { a.d = +(quote.div_yield * quote.price).toFixed(4); }
       if (quote.name        != null) a.name        = quote.name;
       if (quote.pe_cur      != null) a.pe_cur      = quote.pe_cur;
       if (quote.pe_fwd      != null) a.pe_fwd      = quote.pe_fwd;
@@ -4277,6 +4279,7 @@ const App = (() => {
       if (quote.fifty2_low  != null) a.fifty2_low  = quote.fifty2_low;
       a._from_api = true;
       Calc.recompute();
+      buildKPI();
       const panels = ['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation','news','impots','import'];
       const activeEl = document.getElementById('panel-' + panels[window._curTab || 0]);
       if (activeEl) { try { renderPanel(panels[window._curTab || 0], activeEl); } catch(e) {} }
@@ -4286,6 +4289,7 @@ const App = (() => {
     const bootFmpPromise = FmpData.prefetch(tickers).then(results => {
       results.forEach(({ ticker }) => FmpData.mergeIntoAssets(ticker, Data.assets));
       Calc.recompute();
+      buildKPI();
     }).catch(e => console.warn('[App] FmpData boot:', e.message));
 
     Promise.all([bootPricePromise, bootFmpPromise]).then(() => {
@@ -4349,7 +4353,8 @@ function syncIBKR() {
     if (btn) btn.textContent = '⟳ ' + successCount + '/' + tickers.length;
     if (!Data.assets[ticker]) Data.assets[ticker] = {};
     const a = Data.assets[ticker];
-    if (quote.annual_div  != null) a.d          = quote.annual_div;
+    if (quote.annual_div != null) { a.d = quote.annual_div; }
+    else if (quote.div_yield > 0 && quote.price > 0) { a.d = +(quote.div_yield * quote.price).toFixed(4); }
     if (quote.name        != null) a.name        = quote.name;
     if (quote.pe_cur      != null) a.pe_cur      = quote.pe_cur;
     if (quote.pe_fwd      != null) a.pe_fwd      = quote.pe_fwd;
@@ -4359,6 +4364,7 @@ function syncIBKR() {
     if (quote.fifty2_low  != null) a.fifty2_low  = quote.fifty2_low;
     a._from_api = true;
     Calc.recompute();
+    buildKPI();
     const panels = ['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation','news','impots','import'];
     const activeEl = document.getElementById('panel-' + panels[window._curTab || 0]);
     if (activeEl) { try { renderPanel(panels[window._curTab || 0], activeEl); } catch(e) {} }
@@ -4367,6 +4373,7 @@ function syncIBKR() {
   const fmpPromise = FmpData.prefetch(tickers).then(results => {
     results.forEach(({ ticker }) => FmpData.mergeIntoAssets(ticker, Data.assets));
     Calc.recompute();
+    buildKPI();
   }).catch(e => console.warn('[syncIBKR] FMP:', e.message));
 
   Promise.all([pricePromise, fmpPromise])
