@@ -689,25 +689,32 @@ const DividendSafety = (() => {
     const base=d[sec]||50, sb=streak>=25?10:streak>=10?5:0, pm=payout>.80?-15:payout>.65?-5:0;
     return Math.max(0, Math.min(100, base+sb+pm));
   };
-  const estDebtEbitda   = s => s.debt_ebitda !== undefined ? s.debt_ebitda : (s.debt_equity||0)*2.0;
-  const estInterestCov  = s => {
-    if (s.interest_coverage !== undefined) return s.interest_coverage;
-    const de=s.debt_equity||0, fy=s.fcf_yield||0;
-    if (de===0) return 15;
-    return Math.max(1, Math.min(20, (fy*100)/(de*1.5+.5)));
-  };
-
   const calculate = stock => {
     const p = getSectorProfile(stock.sector);
-    const payout=stock.payout_ratio||0, fcfP=stock.fcf_payout||0;
-    const debtE=estDebtEbitda(stock), intC=estInterestCov(stock);
-    const streak=stock.streak||0, cagr=stock.div_cagr_5y||0;
-    const peCur=stock.pe_cur||0, pe5y=stock.pe_5y||0, sec=stock.sector||'';
+
+    // Valeurs nulles = données absentes → score neutre 50, pas de faux 100
+    const payout = stock.payout_ratio != null ? stock.payout_ratio : null;
+    const fcfP   = stock.fcf_payout   != null ? stock.fcf_payout   : null;
+    const debtE  = stock.debt_ebitda  != null ? stock.debt_ebitda
+                 : stock.debt_equity  != null ? stock.debt_equity * 2.0 : null;
+    // FMP stocke dans interest_cov, ancien code utilisait interest_coverage
+    const intC   = stock.interest_cov      != null ? stock.interest_cov
+                 : stock.interest_coverage != null ? stock.interest_coverage : null;
+    const streak = stock.streak      || 0;
+    const cagr   = stock.div_cagr_5y != null ? stock.div_cagr_5y : null;
+    const peCur  = stock.pe_cur      || 0;
+    const pe5y   = stock.pe_5y       || 0;
+    const sec    = stock.sector      || '';
+
     const scores = {
-      payout_ratio: scorePayout(payout,p), fcf_payout: scoreFCF(fcfP,p),
-      debt_ebitda: scoreDebt(debtE,p), interest_cov: scoreIntCov(intC,p),
-      div_streak: scoreStreak(streak), div_cagr_5y: scoreDivCAGR(cagr),
-      earn_stability: scoreEarnStab(peCur,pe5y), recession_res: scoreRecession(sec,streak,payout)
+      payout_ratio:   payout != null ? scorePayout(payout, p) : 50,
+      fcf_payout:     fcfP   != null ? scoreFCF(fcfP, p)      : 50,
+      debt_ebitda:    debtE  != null ? scoreDebt(debtE, p)    : 50,
+      interest_cov:   intC   != null ? scoreIntCov(intC, p)   : 50,
+      div_streak:     scoreStreak(streak),
+      div_cagr_5y:    cagr   != null ? scoreDivCAGR(cagr)     : 50,
+      earn_stability: scoreEarnStab(peCur, pe5y),
+      recession_res:  scoreRecession(sec, streak, payout || 0)
     };
     let total = 0;
     for (const k in WEIGHTS) total += (scores[k]||0) * WEIGHTS[k];
