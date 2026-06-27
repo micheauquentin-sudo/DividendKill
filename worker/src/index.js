@@ -55,7 +55,12 @@ async function priceProxy(request, env) {
     const res = await fetch(fmpUrl);
     if (!res.ok) return err(`FMP HTTP ${res.status}`, 502);
     const data = await res.json();
-    if (!Array.isArray(data) || !data.length) return err('FMP: aucun résultat', 502);
+    if (!Array.isArray(data)) {
+      const msg = data?.['Error Message'] || data?.message || 'FMP: réponse inattendue';
+      const isQuota = msg.toLowerCase().includes('limit') || msg.toLowerCase().includes('upgrade');
+      return err(isQuota ? 'FMP_QUOTA' : msg, isQuota ? 429 : 502);
+    }
+    if (!data.length) return err('FMP: aucun résultat', 502);
 
     const results = data.map(q => ({
       symbol:                     q.symbol,

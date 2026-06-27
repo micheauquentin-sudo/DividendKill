@@ -32,8 +32,10 @@ export const MarketData = (() => {
     const symbols = batchTickers.join(',');
     const url = `${Config.YF_BASE}?symbols=${encodeURIComponent(symbols)}`;
     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (res.status === 429) throw new Error('QUOTA');
     if (!res.ok) throw new Error(`Worker HTTP ${res.status}`);
     const json = await res.json();
+    if (json.error === 'FMP_QUOTA') throw new Error('QUOTA');
     if (json.error) throw new Error(`Worker: ${json.error}`);
     const results = json?.quoteResponse?.result;
     if (!results || results.length === 0) throw new Error('Worker: aucun résultat');
@@ -134,7 +136,12 @@ export const MarketData = (() => {
         _saveCache();
         errors = toFetch.filter(t => !results.find(r => r.symbol === t)).length;
       } catch(e) {
-        console.warn('[MarketData] Yahoo batch error:', e.message);
+        if (e.message === 'QUOTA') {
+          _setNavStatus('quota', '');
+          _scheduleRefresh(tickers, onUpdate);
+          return { success, errors: toFetch.length };
+        }
+        console.warn('[MarketData] batch error:', e.message);
         errors = toFetch.length;
       }
     }
@@ -163,10 +170,11 @@ export const MarketData = (() => {
   function _setNavStatus(type, msg) {
     const dot = document.getElementById('statusDot');
     const txt = document.getElementById('statusTxt');
-    if (dot) dot.className = 'status-dot' + (type === 'loading' ? ' load' : type === 'err' ? ' err' : '');
+    if (dot) dot.className = 'status-dot' + (type === 'loading' ? ' load' : (type === 'err' || type === 'quota') ? ' err' : '');
     if (txt) {
       if (type === 'loading') txt.textContent = 'Prix...';
-      else if (type === 'err') txt.textContent = 'Prix ERR';
+      else if (type === 'quota') txt.textContent = 'Quota FMP';
+      else if (type === 'err')   txt.textContent = 'Prix ERR';
       else txt.textContent = 'Prix OK';
     }
   }
