@@ -402,13 +402,18 @@ async function fmpProxy(req, env) {
     fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.json()),
   ]);
   const result = { profile, metrics };
-  if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 2592000 });
+  if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 10368000 });
   return json(result);
 }
 
-// ── Cron: pré-cache tickers du portefeuille ──────────────────
+// ── Cron: prix + fondamentaux automatiques à la clôture marché ─
 async function handleScheduled(env) {
   if (!env.FMP_KEY || !env.PRICES_KV || !env.DB) return;
+  const TTL_PRICE = 86400;
+  const TTL_FUNDA = 10368000; // 4 mois
+  const FMP_BASE  = 'https://financialmodelingprep.com/stable';
+  const HEADERS   = { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' };
+
   try {
     const { results } = await env.DB.prepare(
       "SELECT DISTINCT ticker FROM transactions WHERE type IN ('buy','sell')"
@@ -416,52 +421,50 @@ async function handleScheduled(env) {
     const tickers = results.map(r => r.ticker).filter(Boolean);
     if (!tickers.length) { console.log('[Cron] Aucun ticker'); return; }
 
+    // 1 seul appel FMP pour tous les prix
     const res = await fetch(
-      `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(tickers.join(','))}&apikey=${env.FMP_KEY}`,
-      { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } }
+      `${FMP_BASE}/quote?symbol=${encodeURIComponent(tickers.join(','))}&apikey=${env.FMP_KEY}`,
+      { headers: HEADERS }
     );
     if (!res.ok) { console.warn('[Cron] FMP HTTP', res.status); return; }
     const data = await res.json();
     if (!Array.isArray(data)) { console.warn('[Cron] Réponse inattendue'); return; }
 
     const toStore = data.map(normalizeFmpQuote).filter(q => q.regularMarketPrice != null);
-    let divChanged = 0;
-    await Promise.all(toStore.map(async q => {
-      const old = await env.PRICES_KV.get(`p:${q.symbol}`, { type: 'json' });
-      if (old?.lastDiv != null && q.lastDiv != null && old.lastDiv !== q.lastDiv) {
-        await env.PRICES_KV.delete(`funda:${q.symbol}`);
-        divChanged++;
-        console.log(`[Cron] Dividende changé ${q.symbol}: ${old.lastDiv} → ${q.lastDiv}`);
-      }
-      await env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(q), { expirationTtl: 86400 });
-    }));
-    console.log(`[Cron] ${toStore.length}/${tickers.length} tickers mis en cache KV, ${divChanged} dividende(s) invalidé(s)`);
-  } catch(e) { console.warn('[Cron]', e.message); }
-}
+    let divChanged = 0, fundaInit = 0;
 
-// ── Cron: pré-cache tickers du portefeuille ──────────────────
-async function handleScheduled(env) {
-  if (!env.FMP_KEY || !env.PRICES_KV || !env.DB) return;
-  try {
-    const { results } = await env.DB.prepare(
-      "SELECT DISTINCT ticker FROM transactions WHERE type IN ('buy','sell')"
-    ).all();
-    const tickers = results.map(r => r.ticker).filter(Boolean);
-    if (!tickers.length) { console.log('[Cron] Aucun ticker'); return; }
+    // Traitement par lots de 5 pour éviter la saturation FMP
+    for (let i = 0; i < toStore.length; i += 5) {
+      await Promise.all(toStore.slice(i, i + 5).map(async q => {
+        const [old, fundaRaw] = await Promise.all([
+          env.PRICES_KV.get(`p:${q.symbol}`, { type: 'json' }),
+          env.PRICES_KV.get(`funda:${q.symbol}`),
+        ]);
 
-    const res = await fetch(
-      `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(tickers.join(','))}&apikey=${env.FMP_KEY}`,
-      { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } }
-    );
-    if (!res.ok) { console.warn('[Cron] FMP HTTP', res.status); return; }
-    const data = await res.json();
-    if (!Array.isArray(data)) { console.warn('[Cron] Réponse inattendue'); return; }
+        const divChg = old?.lastDiv != null && q.lastDiv != null && old.lastDiv !== q.lastDiv;
+        const needsFunda = !fundaRaw || divChg;
 
-    const toStore = data.map(normalizeFmpQuote).filter(q => q.regularMarketPrice != null);
-    await Promise.all(toStore.map(q =>
-      env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(q), { expirationTtl: 3600 })
-    ));
-    console.log(`[Cron] ${toStore.length}/${tickers.length} tickers mis en cache KV`);
+        if (needsFunda) {
+          try {
+            const [profile, metrics] = await Promise.all([
+              fetch(`${FMP_BASE}/profile?symbol=${q.symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
+              fetch(`${FMP_BASE}/key-metrics-ttm?symbol=${q.symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
+            ]);
+            await env.PRICES_KV.put(`funda:${q.symbol}`, JSON.stringify({ profile, metrics }), { expirationTtl: TTL_FUNDA });
+            if (divChg) {
+              divChanged++;
+              console.log(`[Cron] Dividende changé ${q.symbol}: ${old.lastDiv} → ${q.lastDiv} — fondamentaux mis à jour`);
+            } else {
+              fundaInit++;
+            }
+          } catch(e) { console.warn(`[Cron] funda ${q.symbol}:`, e.message); }
+        }
+
+        await env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(q), { expirationTtl: TTL_PRICE });
+      }));
+    }
+
+    console.log(`[Cron] ${toStore.length} prix · ${divChanged} dividende(s) changé(s) · ${fundaInit} fondamentaux initialisés`);
   } catch(e) { console.warn('[Cron]', e.message); }
 }
 
