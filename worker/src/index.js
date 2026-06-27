@@ -2,7 +2,7 @@
  * DividendKill — Cloudflare Worker API
  *
  * Routes (no auth):
- *   GET  /?symbols=JNJ,MMM        → proxy Yahoo Finance prices
+ *   GET  /?symbols=JNJ,MMM        → proxy Twelve Data prices
  *   GET  /?fmp=all&symbol=JNJ     → proxy FMP fundamentals
  *
  * Routes (Bearer auth required):
@@ -16,6 +16,7 @@
  * Env vars (secrets via `wrangler secret put`):
  *   PORTFOLIO_TOKEN  — Bearer token pour toutes les routes /api/*
  *   FMP_KEY          — clé API Financial Modeling Prep
+ *   TD_KEY           — clé API Twelve Data (twelvedata.com)
  */
 
 const CORS = {
@@ -42,33 +43,46 @@ function checkAuth(request, env) {
   return null;
 }
 
-// ── Proxy: Yahoo Finance prices ──────────────────────────────
-async function priceProxy(request) {
+// ── Proxy: Twelve Data prices ─────────────────────────────────
+async function priceProxy(request, env) {
   const url = new URL(request.url);
   const symbols = url.searchParams.get('symbols');
   if (!symbols) return err('missing symbols');
+  if (!env.TD_KEY) return err('TD_KEY not configured', 500);
 
-  const fields = 'regularMarketPrice,currency,shortName,regularMarketChangePercent,regularMarketPreviousClose,trailingPE,forwardPE,dividendYield,trailingAnnualDividendRate,exDividendDate,marketState,longName,beta,marketCap,fiftyTwoWeekHigh,fiftyTwoWeekLow';
-  const yfHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Origin': 'https://finance.yahoo.com',
-    'Referer': 'https://finance.yahoo.com/',
-  };
+  const tdUrl = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbols)}&apikey=${env.TD_KEY}&dp=4`;
 
-  const hosts = ['query1', 'query2'];
-  for (const host of hosts) {
-    try {
-      const yfUrl = `https://${host}.finance.yahoo.com/v7/finance/quote`
-        + `?symbols=${encodeURIComponent(symbols)}&fields=${fields}`;
-      const res = await fetch(yfUrl, { headers: yfHeaders });
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data?.quoteResponse?.result?.length) return json(data);
-    } catch (_) { /* try next host */ }
+  try {
+    const res = await fetch(tdUrl);
+    if (!res.ok) return err(`Twelve Data HTTP ${res.status}`, 502);
+    const data = await res.json();
+
+    // Twelve Data: objet plat pour 1 symbole, objet indexé par symbole pour plusieurs
+    const symbolList = symbols.split(',').map(s => s.trim().toUpperCase());
+    const results = symbolList.map(sym => {
+      const q = symbolList.length === 1 ? data : data[sym];
+      if (!q || q.status === 'error' || !q.close) return null;
+      return {
+        symbol:                        sym,
+        regularMarketPrice:            parseFloat(q.close)           || null,
+        regularMarketChange:           parseFloat(q.change)          || 0,
+        regularMarketChangePercent:    parseFloat(q.percent_change)  || 0,
+        regularMarketPreviousClose:    parseFloat(q.previous_close)  || null,
+        regularMarketVolume:           parseInt(q.volume)            || null,
+        longName:                      q.name  || null,
+        shortName:                     q.name  || null,
+        currency:                      q.currency || 'USD',
+        fiftyTwoWeekHigh:              parseFloat(q.fifty_two_week?.high) || null,
+        fiftyTwoWeekLow:               parseFloat(q.fifty_two_week?.low)  || null,
+        marketState:                   q.is_market_open ? 'REGULAR' : 'CLOSED',
+      };
+    }).filter(Boolean);
+
+    if (!results.length) return err('Twelve Data: aucun résultat', 502);
+    return json({ quoteResponse: { result: results, error: null } });
+  } catch(e) {
+    return err(`Twelve Data error: ${e.message}`, 502);
   }
-  return err('Yahoo Finance indisponible', 502);
 }
 
 // ── Proxy: FMP fundamentals ──────────────────────────────────
@@ -195,7 +209,7 @@ export default {
     }
 
     // Legacy proxy routes — no auth, backward-compatible
-    if (url.searchParams.has('symbols')) return priceProxy(request);
+    if (url.searchParams.has('symbols')) return priceProxy(request, env);
     if (url.searchParams.has('fmp'))     return fmpProxy(request, env);
 
     // API routes — auth required
