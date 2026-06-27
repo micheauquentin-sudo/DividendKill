@@ -5,7 +5,7 @@ compatibility_date = "2025-01-01"
 [[d1_databases]]
 binding       = "DB"
 database_name = "dividendkill"
-database_id   = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id   = "f931a856-8175-42d5-91fa-9b72c1fa964f"
 
 [[r2_buckets]]
 binding     = "BACKUPS"
