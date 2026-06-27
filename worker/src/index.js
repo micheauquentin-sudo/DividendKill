@@ -414,26 +414,73 @@ async function handleScheduled(env) {
   const FMP_BASE  = 'https://financialmodelingprep.com/stable';
   const HEADERS   = { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' };
 
+  const fmt = d => d.toISOString().split('T')[0];
+
+  async function refreshFunda(symbol, reason) {
+    try {
+      const [profile, metrics] = await Promise.all([
+        fetch(`${FMP_BASE}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
+        fetch(`${FMP_BASE}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
+      ]);
+      await env.PRICES_KV.put(`funda:${symbol}`, JSON.stringify({ profile, metrics }), { expirationTtl: TTL_FUNDA });
+      console.log(`[Cron] funda:${symbol} mis à jour — ${reason}`);
+      return true;
+    } catch(e) { console.warn(`[Cron] funda ${symbol}:`, e.message); return false; }
+  }
+
   try {
     const { results } = await env.DB.prepare(
       "SELECT DISTINCT ticker FROM transactions WHERE type IN ('buy','sell')"
     ).all();
     const tickers = results.map(r => r.ticker).filter(Boolean);
     if (!tickers.length) { console.log('[Cron] Aucun ticker'); return; }
+    const tickerSet = new Set(tickers.map(t => t.toUpperCase()));
 
-    // 1 seul appel FMP pour tous les prix
-    const res = await fetch(
+    // ── Appel 1 : prix de tous les tickers (batch) ───────────
+    const priceRes = await fetch(
       `${FMP_BASE}/quote?symbol=${encodeURIComponent(tickers.join(','))}&apikey=${env.FMP_KEY}`,
       { headers: HEADERS }
     );
-    if (!res.ok) { console.warn('[Cron] FMP HTTP', res.status); return; }
-    const data = await res.json();
-    if (!Array.isArray(data)) { console.warn('[Cron] Réponse inattendue'); return; }
+    if (!priceRes.ok) { console.warn('[Cron] FMP prix HTTP', priceRes.status); return; }
+    const priceData = await priceRes.json();
+    if (!Array.isArray(priceData)) { console.warn('[Cron] Réponse prix inattendue'); return; }
+    const toStore = priceData.map(normalizeFmpQuote).filter(q => q.regularMarketPrice != null);
 
-    const toStore = data.map(normalizeFmpQuote).filter(q => q.regularMarketPrice != null);
-    let divChanged = 0, fundaInit = 0;
+    // ── Appel 2 : calendrier dividendes déclarés (30 jours) ──
+    const today  = new Date();
+    const future = new Date(today.getTime() + 30 * 86400000);
+    let declaredChanges = new Set(); // tickers avec nouvelle déclaration
+    try {
+      const calRes = await fetch(
+        `${FMP_BASE}/dividends-calendar?from=${fmt(today)}&to=${fmt(future)}&apikey=${env.FMP_KEY}`,
+        { headers: HEADERS }
+      );
+      if (calRes.ok) {
+        const calData = await calRes.json();
+        if (Array.isArray(calData)) {
+          await Promise.all(
+            calData
+              .filter(d => tickerSet.has(d.symbol?.toUpperCase()))
+              .map(async d => {
+                const sym     = d.symbol.toUpperCase();
+                const declKey = `divdecl:${sym}`;
+                const prev    = await env.PRICES_KV.get(declKey, { type: 'json' });
+                const isNew   = !prev
+                  || prev.declarationDate !== d.declarationDate
+                  || prev.amount         !== d.dividend;
+                if (isNew) {
+                  await env.PRICES_KV.put(declKey, JSON.stringify({ amount: d.dividend, declarationDate: d.declarationDate }), { expirationTtl: TTL_FUNDA });
+                  declaredChanges.add(sym);
+                  console.log(`[Cron] Nouvelle déclaration dividende ${sym}: ${d.dividend} (déclaré ${d.declarationDate}, paiement ${d.paymentDate})`);
+                }
+              })
+          );
+        }
+      }
+    } catch(e) { console.warn('[Cron] calendrier dividendes:', e.message); }
 
-    // Traitement par lots de 5 pour éviter la saturation FMP
+    // ── Mise à jour prix + fondamentaux (lots de 5) ───────────
+    let divChanged = 0, declUpdated = 0, fundaInit = 0;
     for (let i = 0; i < toStore.length; i += 5) {
       await Promise.all(toStore.slice(i, i + 5).map(async q => {
         const [old, fundaRaw] = await Promise.all([
@@ -441,30 +488,18 @@ async function handleScheduled(env) {
           env.PRICES_KV.get(`funda:${q.symbol}`),
         ]);
 
-        const divChg = old?.lastDiv != null && q.lastDiv != null && old.lastDiv !== q.lastDiv;
-        const needsFunda = !fundaRaw || divChg;
+        const lastDivChg = old?.lastDiv != null && q.lastDiv != null && old.lastDiv !== q.lastDiv;
+        const declChg    = declaredChanges.has(q.symbol);
 
-        if (needsFunda) {
-          try {
-            const [profile, metrics] = await Promise.all([
-              fetch(`${FMP_BASE}/profile?symbol=${q.symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
-              fetch(`${FMP_BASE}/key-metrics-ttm?symbol=${q.symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
-            ]);
-            await env.PRICES_KV.put(`funda:${q.symbol}`, JSON.stringify({ profile, metrics }), { expirationTtl: TTL_FUNDA });
-            if (divChg) {
-              divChanged++;
-              console.log(`[Cron] Dividende changé ${q.symbol}: ${old.lastDiv} → ${q.lastDiv} — fondamentaux mis à jour`);
-            } else {
-              fundaInit++;
-            }
-          } catch(e) { console.warn(`[Cron] funda ${q.symbol}:`, e.message); }
-        }
+        if (!fundaRaw)      { if (await refreshFunda(q.symbol, 'init'))          fundaInit++;    }
+        else if (lastDivChg){ if (await refreshFunda(q.symbol, `lastDiv ${old.lastDiv}→${q.lastDiv}`)) divChanged++; }
+        else if (declChg)   { if (await refreshFunda(q.symbol, 'déclaration anticipée')) declUpdated++; }
 
         await env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(q), { expirationTtl: TTL_PRICE });
       }));
     }
 
-    console.log(`[Cron] ${toStore.length} prix · ${divChanged} dividende(s) changé(s) · ${fundaInit} fondamentaux initialisés`);
+    console.log(`[Cron] ${toStore.length} prix · ${fundaInit} inits · ${divChanged} versements changés · ${declUpdated} déclarations anticipées`);
   } catch(e) { console.warn('[Cron]', e.message); }
 }
 
