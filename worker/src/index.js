@@ -397,21 +397,30 @@ async function fmpProxy(req, env) {
   }
 
   const base = 'https://financialmodelingprep.com/stable';
-  const [profile, metrics] = await Promise.all([
-    fetch(`${base}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.json()),
-    fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.json()),
-  ]);
-  const result = { profile, metrics };
-  if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 10368000 });
-  return json(result);
+  try {
+    const safeJson = async r => {
+      if (!r.ok) throw new Error(`FMP HTTP ${r.status}`);
+      const text = await r.text();
+      try { return JSON.parse(text); } catch(_) { throw new Error('FMP réponse non-JSON'); }
+    };
+    const [profile, metrics] = await Promise.all([
+      fetch(`${base}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(safeJson),
+      fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(safeJson),
+    ]);
+    const result = { profile, metrics };
+    if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: ttlFunda() });
+    return json(result);
+  } catch(e) {
+    return err(`FMP fondamentaux: ${e.message}`, 502);
+  }
 }
 
 // ── Cron: prix + fondamentaux automatiques à la clôture marché ─
+const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
+
 async function handleScheduled(env) {
   if (!env.FMP_KEY || !env.PRICES_KV || !env.DB) return;
   const TTL_PRICE = 86400;
-  // Jitter ±15j autour de 4 mois → évite que tous les caches expirent le même jour
-  const ttlFunda  = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
   const FMP_BASE  = 'https://financialmodelingprep.com/stable';
   const HEADERS   = { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' };
 
