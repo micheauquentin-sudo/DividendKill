@@ -102,7 +102,10 @@ async function priceProxy(request, env) {
       });
 
       if (!res.ok) {
-        if (!Object.keys(cached).length) return err(`FMP HTTP ${res.status}`, 502);
+        let fmpErr = `FMP HTTP ${res.status}`;
+        try { const b = await res.json(); fmpErr = b?.['Error Message'] || b?.message || fmpErr; } catch(_) {}
+        console.error('[priceProxy] FMP error:', fmpErr);
+        if (!Object.keys(cached).length) return err(fmpErr, 502);
       } else {
         const data = await res.json();
         if (!Array.isArray(data)) {
