@@ -325,6 +325,8 @@ function normalizeFmpQuote(q) {
     fiftyTwoWeekHigh:           q.yearHigh                               || null,
     fiftyTwoWeekLow:            q.yearLow                                || null,
     marketState:                'REGULAR',
+    lastDiv:                    q.lastDiv                                || null,
+    dividendYield:              q.dividendYield                          || null,
   };
 }
 
@@ -400,7 +402,7 @@ async function fmpProxy(req, env) {
     fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.json()),
   ]);
   const result = { profile, metrics };
-  if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 86400 });
+  if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 2592000 });
   return json(result);
 }
 
@@ -423,10 +425,17 @@ async function handleScheduled(env) {
     if (!Array.isArray(data)) { console.warn('[Cron] Réponse inattendue'); return; }
 
     const toStore = data.map(normalizeFmpQuote).filter(q => q.regularMarketPrice != null);
-    await Promise.all(toStore.map(q =>
-      env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(q), { expirationTtl: 86400 })
-    ));
-    console.log(`[Cron] ${toStore.length}/${tickers.length} tickers mis en cache KV`);
+    let divChanged = 0;
+    await Promise.all(toStore.map(async q => {
+      const old = await env.PRICES_KV.get(`p:${q.symbol}`, { type: 'json' });
+      if (old?.lastDiv != null && q.lastDiv != null && old.lastDiv !== q.lastDiv) {
+        await env.PRICES_KV.delete(`funda:${q.symbol}`);
+        divChanged++;
+        console.log(`[Cron] Dividende changé ${q.symbol}: ${old.lastDiv} → ${q.lastDiv}`);
+      }
+      await env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(q), { expirationTtl: 86400 });
+    }));
+    console.log(`[Cron] ${toStore.length}/${tickers.length} tickers mis en cache KV, ${divChanged} dividende(s) invalidé(s)`);
   } catch(e) { console.warn('[Cron]', e.message); }
 }
 
