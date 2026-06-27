@@ -1,15 +1,6 @@
 export const D1Client = (() => {
-  const BASE   = 'https://divkiller.michooo-45.workers.dev';
-  const TK_KEY = 'dk_bearer';
-
-  const getToken  = ()  => localStorage.getItem(TK_KEY) || '';
-  const setToken  = t   => localStorage.setItem(TK_KEY, t.trim());
-  const hasToken  = ()  => !!getToken();
-
-  const _h = () => ({
-    'Content-Type':  'application/json',
-    'Authorization': 'Bearer ' + getToken(),
-  });
+  const _h = () => ({ 'Content-Type': 'application/json' });
+  const _opts = { credentials: 'include' };
 
   function _setSyncDot(state) {
     const el = document.getElementById('syncDot');
@@ -17,50 +8,52 @@ export const D1Client = (() => {
     el.className = 'kpi-sync-dot' + (state ? ' ' + state : '');
   }
 
+  async function me() {
+    try {
+      const res = await fetch('/auth/me', _opts);
+      if (!res.ok) return null;
+      return (await res.json()).user || null;
+    } catch(_) { return null; }
+  }
+
+  function login()  { window.location.href = '/auth/login'; }
+  function logout() { window.location.href = '/auth/logout'; }
+
   async function sync() {
-    if (!hasToken()) { _setSyncDot(''); return null; }
     _setSyncDot('syncing');
     try {
-      const res = await fetch(BASE + '/api/sync', { headers: _h() });
+      const res = await fetch('/api/sync', { ..._opts, headers: _h() });
+      if (res.status === 401) { _setSyncDot(''); return null; }
       if (!res.ok) { _setSyncDot('error'); return null; }
-      const data = await res.json();
       _setSyncDot('synced');
-      return data;
+      return await res.json();
     } catch(e) {
-      console.warn('[D1] sync offline:', e.message);
+      console.warn('[D1] sync:', e.message);
       _setSyncDot('error');
       return null;
     }
   }
 
   async function addTx(tx) {
-    if (!hasToken()) return null;
     try {
-      const res = await fetch(BASE + '/api/transaction', {
-        method: 'POST', headers: _h(), body: JSON.stringify(tx),
+      const res = await fetch('/api/transaction', {
+        ..._opts, method: 'POST', headers: _h(), body: JSON.stringify(tx),
       });
-      if (!res.ok) return null;
-      return res.json();
-    } catch(e) { return null; }
+      return res.ok ? res.json() : null;
+    } catch(_) { return null; }
   }
 
   async function deleteTx(id) {
-    if (!hasToken()) return;
-    try {
-      await fetch(BASE + '/api/transaction/' + id, {
-        method: 'DELETE', headers: _h(),
-      });
-    } catch(e) {}
+    try { await fetch(`/api/transaction/${id}`, { ..._opts, method: 'DELETE', headers: _h() }); } catch(_) {}
   }
 
   async function putSettings(obj) {
-    if (!hasToken()) return;
     try {
-      await fetch(BASE + '/api/settings', {
-        method: 'PUT', headers: _h(), body: JSON.stringify(obj),
+      await fetch('/api/settings', {
+        ..._opts, method: 'PUT', headers: _h(), body: JSON.stringify(obj),
       });
-    } catch(e) {}
+    } catch(_) {}
   }
 
-  return { sync, addTx, deleteTx, putSettings, setToken, getToken, hasToken };
+  return { sync, addTx, deleteTx, putSettings, me, login, logout };
 })();

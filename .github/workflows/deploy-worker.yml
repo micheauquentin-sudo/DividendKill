@@ -5,12 +5,15 @@ on:
     branches: [main]
     paths:
       - 'worker/**'
-  workflow_dispatch:  # bouton "Run workflow" manuel dans l'onglet Actions
+      - 'src/**'
+      - 'vite.config.js'
+      - 'package.json'
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Deploy
+    name: Build & Deploy
 
     steps:
       - uses: actions/checkout@v4
@@ -18,6 +21,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build frontend (Vite)
+        run: npm run build
+        # Génère dist/ — inclus dans le Worker via [assets]
 
       - name: Apply D1 schema (idempotent)
         uses: cloudflare/wrangler-action@v3
@@ -27,13 +37,13 @@ jobs:
           workingDirectory: worker
           command:          d1 execute dividendkill --file=schema.sql --remote
 
-      - name: Deploy Worker
+      - name: Deploy Worker (+ assets frontend)
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken:         ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId:        ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: worker
           command:          deploy
-        # Secrets (FMP_KEY, PORTFOLIO_TOKEN) are set once via `wrangler secret put`
-        # and must NOT be listed here — the wrangler-action would overwrite them
-        # with empty strings if the GitHub secrets are not configured.
+        # Secrets (FMP_KEY, SESSION_SECRET, GOOGLE_CLIENT_SECRET) sont gérés via
+        # `wrangler secret put` — NE PAS les lister ici (écrasement avec valeur vide)
+        # GOOGLE_CLIENT_ID est dans wrangler.toml [vars] (valeur publique)

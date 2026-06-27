@@ -2,6 +2,15 @@ name            = "divkiller"
 main            = "src/index.js"
 compatibility_date = "2025-01-01"
 
+[assets]
+directory = "../dist"
+
+[vars]
+# Ton Google OAuth Client ID (public — visible dans les URLs OAuth)
+# Obtiens-le sur https://console.cloud.google.com → APIs & Services → Credentials
+# Puis remplace cette valeur et redéploie
+GOOGLE_CLIENT_ID = "769761273591-97hctc8bs7f46so6tqhc6cb3a0mghovb.apps.googleusercontent.com"
+
 [triggers]
 crons = ["*/30 * * * *"]
 

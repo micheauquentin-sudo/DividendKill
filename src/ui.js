@@ -3153,6 +3153,19 @@ const App = (() => {
   };
 
   const boot = async () => {
+    /* Vérification auth Google OAuth */
+    const user = await D1Client.me();
+    const overlay = document.getElementById('loginOverlay');
+    const userBtn = document.getElementById('navUserBtn');
+    const userInitial = document.getElementById('navUserInitial');
+    if (!user) {
+      if (overlay) overlay.style.display = 'flex';
+      return; // ne pas booter l'app sans auth
+    }
+    if (overlay) overlay.style.display = 'none';
+    if (userBtn) userBtn.style.display = 'flex';
+    if (userInitial) userInitial.textContent = (user.name || user.email || '?')[0].toUpperCase();
+
     /* Init IndexedDB + migration localStorage + hydrate cache */
     await Storage.init();
 
@@ -3551,42 +3564,74 @@ function submitFABTx() {
   }
 }
 
-/* ── Sync / Token modal ─────────────────────────────────────── */
-function openTokenModal() {
-  var inp = document.getElementById('tokenInput');
-  var st  = document.getElementById('tokenStatus');
-  if (inp) inp.value = D1Client.getToken();
-  if (st)  st.textContent = D1Client.hasToken() ? '✓ Token configuré' : 'Aucun token — sync désactivé';
-  var overlay = document.getElementById('tokenModalOverlay');
-  if (overlay) overlay.classList.add('open');
+/* ── Auth ────────────────────────────────────────────────────── */
+function authLogin()  { D1Client.login(); }
+function authLogout() { D1Client.logout(); }
+
+function loginTabSwitch(tab) {
+  document.getElementById('ltab-google').classList.toggle('on', tab === 'google');
+  document.getElementById('ltab-email').classList.toggle('on', tab === 'email');
+  document.getElementById('login-panel-google').style.display = tab === 'google' ? '' : 'none';
+  document.getElementById('login-panel-email').style.display  = tab === 'email'  ? '' : 'none';
 }
-function closeTokenModal() {
-  var overlay = document.getElementById('tokenModalOverlay');
-  if (overlay) overlay.classList.remove('open');
+
+var _loginMode = 'login';
+function loginToggleMode() {
+  _loginMode = _loginMode === 'login' ? 'register' : 'login';
+  var isReg = _loginMode === 'register';
+  document.getElementById('loginSubmitBtn').textContent  = isReg ? 'Créer un compte' : 'Connexion';
+  var tog = document.getElementById('loginModeToggle');
+  if (tog) tog.innerHTML = isReg ? 'Déjà un compte ? <span>Connexion</span>' : 'Pas encore de compte ? <span>Créer un compte</span>';
+  var nameField = document.getElementById('loginName');
+  if (nameField) nameField.style.display = isReg ? '' : 'none';
+  var pwField = document.getElementById('loginPassword');
+  if (pwField) pwField.placeholder = isReg ? 'Mot de passe (8 car. min.)' : 'Mot de passe';
+  var pwAutoComplete = document.getElementById('loginPassword');
+  if (pwAutoComplete) pwAutoComplete.autocomplete = isReg ? 'new-password' : 'current-password';
+  document.getElementById('loginError').style.display = 'none';
 }
-async function saveToken() {
-  var inp = document.getElementById('tokenInput');
-  var st  = document.getElementById('tokenStatus');
-  var val = (inp ? inp.value : '').trim();
-  if (!val) {
-    if (st) { st.style.color='#f43f5e'; st.textContent='Token vide — sync désactivé'; }
+
+async function authLoginEmail() {
+  var email = (document.getElementById('loginEmail').value || '').trim();
+  var password = document.getElementById('loginPassword').value || '';
+  var errEl = document.getElementById('loginError');
+  var btn   = document.getElementById('loginSubmitBtn');
+
+  if (!email || !password) {
+    errEl.textContent = 'Email et mot de passe requis'; errEl.style.display = '';
     return;
   }
-  D1Client.setToken(val);
-  if (st) { st.style.color='#f5a623'; st.textContent='Test de connexion…'; }
-  /* Test immédiat */
-  var d1 = await D1Client.sync();
-  if (d1) {
-    if (st) { st.style.color='#22d47a'; st.textContent='✓ Connecté — sync OK'; }
-    setTimeout(closeTokenModal, 1200);
-    /* Re-apply D1 data */
-    if (d1.transactions && d1.transactions.length) {
-      Storage.hydrate && Storage.hydrate();
-      BrokerImport.applyToPortfolio();
-      buildKPI();
+  btn.disabled = true;
+  btn.textContent = '...';
+  errEl.style.display = 'none';
+
+  var endpoint = _loginMode === 'register' ? '/auth/register' : '/auth/login/email';
+  var body = { email, password };
+  if (_loginMode === 'register') {
+    var n = (document.getElementById('loginName').value || '').trim();
+    if (n) body.name = n;
+  }
+
+  try {
+    var res = await fetch(endpoint, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    var data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Erreur';
+      errEl.style.display = '';
+      btn.disabled = false;
+      btn.textContent = _loginMode === 'register' ? 'Créer un compte' : 'Connexion';
+      return;
     }
-  } else {
-    if (st) { st.style.color='#f43f5e'; st.textContent='Erreur — token invalide ou Worker hors ligne'; }
+    window.location.reload();
+  } catch(e) {
+    errEl.textContent = 'Erreur réseau';
+    errEl.style.display = '';
+    btn.disabled = false;
+    btn.textContent = _loginMode === 'register' ? 'Créer un compte' : 'Connexion';
   }
 }
 
@@ -3605,7 +3650,7 @@ function toggleRndCard(ticker) {
 // ── Expose global functions for inline HTML event handlers ──
 Object.assign(window, {
   syncIBKR,
-  openTokenModal, closeTokenModal, saveToken,
+  authLogin, authLogout, authLoginEmail, loginTabSwitch, loginToggleMode,
   openFABSheet, closeFABSheet, submitFABTx, fabTickerInput, fabSelectTicker,
   showDSESheet, closeDSESheet,
   toggleRndCard,
