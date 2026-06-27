@@ -2,6 +2,9 @@ name            = "divkiller"
 main            = "src/index.js"
 compatibility_date = "2025-01-01"
 
+[triggers]
+crons = ["*/30 * * * *"]
+
 [[d1_databases]]
 binding       = "DB"
 database_name = "dividendkill"
@@ -11,7 +14,10 @@ database_id   = "f931a856-8175-42d5-91fa-9b72c1fa964f"
 binding     = "BACKUPS"
 bucket_name = "dividendkill-backups"
 
+[[kv_namespaces]]
+binding = "PRICES_KV"
+id      = "f991055139244638b2eeda97ef31bf46"
+
 # Secrets — set via CLI (never commit these):
 #   wrangler secret put PORTFOLIO_TOKEN   ← token Bearer pour l'auth
 #   wrangler secret put FMP_KEY           ← clé API Financial Modeling Prep
-#   wrangler secret put TD_KEY            ← clé API Twelve Data (twelvedata.com)

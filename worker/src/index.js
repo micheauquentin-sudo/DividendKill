@@ -2,8 +2,8 @@
  * DividendKill — Cloudflare Worker API
  *
  * Routes (no auth):
- *   GET  /?symbols=JNJ,MMM        → proxy FMP prices (batch)
- *   GET  /?fmp=all&symbol=JNJ     → proxy FMP fundamentals
+ *   GET  /?symbols=JNJ,MMM        → prix FMP (KV cache par ticker, TTL 30min)
+ *   GET  /?fmp=all&symbol=JNJ     → fondamentaux FMP
  *
  * Routes (Bearer auth required):
  *   GET    /api/sync              → toutes les transactions + settings
@@ -13,9 +13,17 @@
  *   GET    /api/backup            → export JSON → R2 + téléchargement
  *   POST   /api/restore           → restaurer depuis un JSON de backup
  *
+ * Cron (toutes les 30min):
+ *   Pré-cache NYSE + NASDAQ + EURONEXT + LSE + TSX dans KV
+ *   → utilisateurs servis depuis KV, quasi 0 crédit FMP par requête
+ *
  * Env vars (secrets via `wrangler secret put`):
  *   PORTFOLIO_TOKEN  — Bearer token pour toutes les routes /api/*
- *   FMP_KEY          — clé API Financial Modeling Prep (prix + fondamentaux)
+ *   FMP_KEY          — clé API Financial Modeling Prep
+ * Bindings (wrangler.toml):
+ *   DB              — Cloudflare D1
+ *   BACKUPS         — Cloudflare R2
+ *   PRICES_KV       — Cloudflare KV (cache prix toutes les 30min)
  */
 
 const CORS = {
@@ -32,9 +40,29 @@ const json = (data, status = 200) =>
 
 const err = (msg, status = 400) => json({ error: msg }, status);
 
+// ── Normalise un quote FMP brut vers le format attendu par le frontend ──
+function normalizeFmpQuote(q) {
+  return {
+    symbol:                     q.symbol,
+    regularMarketPrice:         q.price            || null,
+    regularMarketChange:        q.change           || 0,
+    regularMarketChangePercent: q.changesPercentage || 0,
+    regularMarketPreviousClose: q.previousClose    || null,
+    regularMarketVolume:        q.volume           || null,
+    longName:                   q.name             || null,
+    shortName:                  q.name             || null,
+    currency:                   'USD',
+    trailingPE:                 q.pe               || null,
+    marketCap:                  q.marketCap        || null,
+    fiftyTwoWeekHigh:           q.yearHigh         || null,
+    fiftyTwoWeekLow:            q.yearLow          || null,
+    marketState:                'REGULAR',
+  };
+}
+
 // ── Auth ─────────────────────────────────────────────────────
 function checkAuth(request, env) {
-  if (!env.PORTFOLIO_TOKEN) return null; // pas de token configuré = dev local
+  if (!env.PORTFOLIO_TOKEN) return null;
   const auth = (request.headers.get('Authorization') || '').trim();
   if (auth !== `Bearer ${env.PORTFOLIO_TOKEN}`) {
     return new Response('Unauthorized', { status: 401, headers: CORS });
@@ -42,46 +70,79 @@ function checkAuth(request, env) {
   return null;
 }
 
-// ── Proxy: FMP prices (batch, 1 crédit/requête) ───────────────
+// ── Proxy: prix FMP avec cache KV par ticker ─────────────────
 async function priceProxy(request, env) {
   const url = new URL(request.url);
   const symbols = url.searchParams.get('symbols');
   if (!symbols) return err('missing symbols');
   if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
 
-  const fmpUrl = `https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent(symbols)}?apikey=${env.FMP_KEY}`;
+  const tickers = symbols.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
 
-  try {
-    const res = await fetch(fmpUrl);
-    if (!res.ok) return err(`FMP HTTP ${res.status}`, 502);
-    const data = await res.json();
-    if (!Array.isArray(data)) {
-      const msg = data?.['Error Message'] || data?.message || 'FMP: réponse inattendue';
-      const isQuota = msg.toLowerCase().includes('limit') || msg.toLowerCase().includes('upgrade');
-      return err(isQuota ? 'FMP_QUOTA' : msg, isQuota ? 429 : 502);
-    }
-    if (!data.length) return err('FMP: aucun résultat', 502);
-
-    const results = data.map(q => ({
-      symbol:                     q.symbol,
-      regularMarketPrice:         q.price           || null,
-      regularMarketChange:        q.change          || 0,
-      regularMarketChangePercent: q.changesPercentage || 0,
-      regularMarketPreviousClose: q.previousClose   || null,
-      regularMarketVolume:        q.volume          || null,
-      longName:                   q.name            || null,
-      shortName:                  q.name            || null,
-      currency:                   'USD',
-      trailingPE:                 q.pe              || null,
-      marketCap:                  q.marketCap       || null,
-      fiftyTwoWeekHigh:           q.yearHigh        || null,
-      fiftyTwoWeekLow:            q.yearLow         || null,
-      marketState:                'REGULAR',
+  // 1. Lire le cache KV pour chaque ticker
+  const cached = {};
+  const missing = [];
+  if (env.PRICES_KV) {
+    await Promise.all(tickers.map(async t => {
+      const val = await env.PRICES_KV.get(`p:${t}`, { type: 'json' });
+      if (val) cached[t] = val;
+      else missing.push(t);
     }));
+  } else {
+    missing.push(...tickers);
+  }
 
-    return json({ quoteResponse: { result: results, error: null } });
-  } catch(e) {
-    return err(`FMP error: ${e.message}`, 502);
+  // 2. Fetch FMP uniquement pour les tickers absents du cache
+  if (missing.length > 0) {
+    try {
+      const fmpUrl = `https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent(missing.join(','))}?apikey=${env.FMP_KEY}`;
+      const res = await fetch(fmpUrl);
+
+      if (!res.ok) {
+        if (!Object.keys(cached).length) return err(`FMP HTTP ${res.status}`, 502);
+      } else {
+        const data = await res.json();
+        if (!Array.isArray(data)) {
+          const msg = data?.['Error Message'] || data?.message || 'FMP: réponse inattendue';
+          const isQuota = msg.toLowerCase().includes('limit') || msg.toLowerCase().includes('upgrade');
+          if (!Object.keys(cached).length) return err(isQuota ? 'FMP_QUOTA' : msg, isQuota ? 429 : 502);
+        } else {
+          await Promise.all(data.map(async q => {
+            const normalized = normalizeFmpQuote(q);
+            cached[q.symbol] = normalized;
+            if (env.PRICES_KV) {
+              await env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(normalized), { expirationTtl: 1800 });
+            }
+          }));
+        }
+      }
+    } catch(e) {
+      if (!Object.keys(cached).length) return err(`FMP error: ${e.message}`, 502);
+    }
+  }
+
+  const results = tickers.map(t => cached[t]).filter(Boolean);
+  if (!results.length) return err('FMP: aucun résultat', 502);
+  return json({ quoteResponse: { result: results, error: null } });
+}
+
+// ── Cron: pré-cache tout le marché dans KV (toutes les 30min) ─
+async function handleScheduled(env) {
+  if (!env.FMP_KEY || !env.PRICES_KV) return;
+  const exchanges = ['NYSE', 'NASDAQ', 'EURONEXT', 'LSE', 'TSX'];
+  for (const exchange of exchanges) {
+    try {
+      const res = await fetch(`https://financialmodelingprep.com/api/v3/quotes/${exchange}?apikey=${env.FMP_KEY}`);
+      if (!res.ok) { console.warn(`[Cron] ${exchange} HTTP ${res.status}`); continue; }
+      const data = await res.json();
+      if (!Array.isArray(data)) { console.warn(`[Cron] ${exchange} réponse inattendue`); continue; }
+      await Promise.all(
+        data.map(q => env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(normalizeFmpQuote(q)), { expirationTtl: 3600 }))
+      );
+      console.log(`[Cron] ${exchange}: ${data.length} prix mis en cache KV`);
+    } catch(e) {
+      console.warn(`[Cron] ${exchange} error:`, e.message);
+    }
   }
 }
 
@@ -208,11 +269,9 @@ export default {
       return new Response(null, { status: 204, headers: CORS });
     }
 
-    // Legacy proxy routes — no auth, backward-compatible
     if (url.searchParams.has('symbols')) return priceProxy(request, env);
     if (url.searchParams.has('fmp'))     return fmpProxy(request, env);
 
-    // API routes — auth required
     if (path.startsWith('/api/')) {
       const authErr = checkAuth(request, env);
       if (authErr) return authErr;
@@ -230,5 +289,9 @@ export default {
     }
 
     return new Response('DividendKill API', { status: 200, headers: CORS });
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(handleScheduled(env));
   },
 };
