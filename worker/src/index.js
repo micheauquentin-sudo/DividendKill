@@ -85,7 +85,8 @@ async function priceProxy(request, env) {
   if (env.PRICES_KV) {
     await Promise.all(tickers.map(async t => {
       const val = await env.PRICES_KV.get(`p:${t}`, { type: 'json' });
-      if (val) cached[t] = val;
+      // Ignore KV entries with null price — force re-fetch from FMP
+      if (val && val.regularMarketPrice != null) cached[t] = val;
       else missing.push(t);
     }));
   } else {
@@ -136,8 +137,9 @@ async function handleScheduled(env) {
       if (!res.ok) { console.warn(`[Cron] ${exchange} HTTP ${res.status}`); continue; }
       const data = await res.json();
       if (!Array.isArray(data)) { console.warn(`[Cron] ${exchange} réponse inattendue`); continue; }
+      const toStore = data.map(normalizeFmpQuote).filter(q => q.regularMarketPrice != null);
       await Promise.all(
-        data.map(q => env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(normalizeFmpQuote(q)), { expirationTtl: 3600 }))
+        toStore.map(q => env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(q), { expirationTtl: 3600 }))
       );
       console.log(`[Cron] ${exchange}: ${data.length} prix mis en cache KV`);
     } catch(e) {
