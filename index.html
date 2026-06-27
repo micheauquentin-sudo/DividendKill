@@ -41,12 +41,14 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .kc-v{font-family:"DM Mono",monospace;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kc-s{font-size:9px;color:var(--muted);white-space:nowrap}
 /* ── Sync button in KPI bar ─────────────────────────────── */
-.kpi-sync{width:28px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
-  border-left:1px solid var(--border);cursor:pointer;-webkit-tap-highlight-color:transparent}
-.kpi-sync-dot{width:7px;height:7px;border-radius:50%;background:#333;transition:background .4s}
+.kpi-sync{min-width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:2px;border-left:1px solid var(--border);cursor:pointer;
+  padding:0 6px;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.kpi-sync-dot{width:8px;height:8px;border-radius:50%;background:#333;transition:background .4s}
 .kpi-sync-dot.synced{background:#22d47a}
 .kpi-sync-dot.syncing{background:#f5a623;animation:syncPulse .8s ease-in-out infinite}
 .kpi-sync-dot.error{background:#f43f5e}
+.kpi-sync-lbl{font-size:7px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700}
 @keyframes syncPulse{0%,100%{opacity:1}50%{opacity:.35}}
 /* ── Token modal ─────────────────────────────────────────── */
 .token-modal-overlay{position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.7);display:none;align-items:flex-end;justify-content:center}
@@ -275,7 +277,10 @@ tbody td{padding:9px 6px;vertical-align:middle}
   <div class="kc"><div class="kc-l">Revenu/mois</div><div class="kc-v up" id="kv1">--</div><div class="kc-s" id="ks1">--</div></div>
   <div class="kc"><div class="kc-l">Yield</div><div class="kc-v up" id="kv2">--</div><div class="kc-s" id="ks2">--</div></div>
   <div class="kc"><div class="kc-l">FIRE</div><div class="kc-v" id="kv3">--</div><div class="kc-s" id="ks3">--</div></div>
-  <div class="kpi-sync" onclick="openTokenModal()" title="Sync D1"><div class="kpi-sync-dot" id="syncDot"></div></div>
+  <div class="kpi-sync" onclick="openTokenModal()" title="Sync D1">
+    <div class="kpi-sync-dot" id="syncDot"></div>
+    <div class="kpi-sync-lbl">D1</div>
+  </div>
 </div>
 
 <!-- Token / Sync modal -->
