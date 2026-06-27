@@ -31,7 +31,7 @@ export const MarketData = (() => {
   async function _fetchOneBatch(batchTickers) {
     const symbols = batchTickers.join(',');
     const url = `${Config.YF_BASE}?symbols=${encodeURIComponent(symbols)}`;
-    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
     if (res.status === 429) throw new Error('QUOTA');
     if (!res.ok) {
       let detail = `Worker HTTP ${res.status}`;
@@ -136,12 +136,14 @@ export const MarketData = (() => {
           return { success, errors: toFetch.length };
         }
         console.warn('[MarketData] batch error:', e.message);
+        try { localStorage.setItem('dk_price_last_err', e.message); } catch(_) {}
         errors = toFetch.length;
       }
     }
 
     _status = tickers.length > 0 && errors === tickers.length ? 'error' : 'ok';
-    _setNavStatus(_status === 'error' ? 'err' : 'ok', '');
+    const lastErr = _status === 'error' ? (localStorage.getItem('dk_price_last_err') || '') : '';
+    _setNavStatus(_status === 'error' ? 'err' : 'ok', lastErr);
     _scheduleRefresh(tickers, onUpdate);
     return { success, errors };
   }
@@ -168,7 +170,7 @@ export const MarketData = (() => {
     if (txt) {
       if (type === 'loading') txt.textContent = 'Prix...';
       else if (type === 'quota') txt.textContent = 'Quota FMP';
-      else if (type === 'err')   txt.textContent = 'Prix ERR';
+      else if (type === 'err')   txt.textContent = msg ? 'ERR: ' + msg.slice(0, 30) : 'Prix ERR';
       else txt.textContent = 'Prix OK';
     }
   }

@@ -613,6 +613,8 @@ async function debugPrice(req, env) {
     } catch(e) { out.kv_error = e.message; }
   }
 
+  out.price_test_url = `https://${new URL(req.url).host}/?symbols=${symbol}`;
+
   if (env.FMP_KEY) {
     const fmpUrl = `https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${env.FMP_KEY}`;
     out.fmp_url = fmpUrl.replace(env.FMP_KEY, '***');
