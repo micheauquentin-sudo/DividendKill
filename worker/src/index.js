@@ -368,7 +368,7 @@ async function priceProxy(req, env) {
           await Promise.all(data.map(async q => {
             const n = normalizeFmpQuote(q);
             cached[q.symbol] = n;
-            if (env.PRICES_KV) await env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(n), { expirationTtl: 1800 });
+            if (env.PRICES_KV) await env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(n), { expirationTtl: 86400 });
           }));
         }
       }
@@ -382,18 +382,26 @@ async function priceProxy(req, env) {
   return json({ quoteResponse: { result: results, error: null } });
 }
 
-// ── Fondamentaux FMP ─────────────────────────────────────────
+// ── Fondamentaux FMP avec cache KV 24h ───────────────────────
 async function fmpProxy(req, env) {
   const symbol = new URL(req.url).searchParams.get('symbol');
   if (!symbol)      return err('missing symbol');
   if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
+
+  const cacheKey = `funda:${symbol.toUpperCase()}`;
+  if (env.PRICES_KV) {
+    const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+    if (cached) return json(cached);
+  }
 
   const base = 'https://financialmodelingprep.com/stable';
   const [profile, metrics] = await Promise.all([
     fetch(`${base}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.json()),
     fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.json()),
   ]);
-  return json({ profile, metrics });
+  const result = { profile, metrics };
+  if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 86400 });
+  return json(result);
 }
 
 // ── Cron: pré-cache tickers du portefeuille ──────────────────
@@ -416,7 +424,7 @@ async function handleScheduled(env) {
 
     const toStore = data.map(normalizeFmpQuote).filter(q => q.regularMarketPrice != null);
     await Promise.all(toStore.map(q =>
-      env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(q), { expirationTtl: 3600 })
+      env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(q), { expirationTtl: 86400 })
     ));
     console.log(`[Cron] ${toStore.length}/${tickers.length} tickers mis en cache KV`);
   } catch(e) { console.warn('[Cron]', e.message); }
