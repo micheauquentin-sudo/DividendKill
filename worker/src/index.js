@@ -430,6 +430,32 @@ async function handleScheduled(env) {
   } catch(e) { console.warn('[Cron]', e.message); }
 }
 
+// ── Cron: pré-cache tickers du portefeuille ──────────────────
+async function handleScheduled(env) {
+  if (!env.FMP_KEY || !env.PRICES_KV || !env.DB) return;
+  try {
+    const { results } = await env.DB.prepare(
+      "SELECT DISTINCT ticker FROM transactions WHERE type IN ('buy','sell')"
+    ).all();
+    const tickers = results.map(r => r.ticker).filter(Boolean);
+    if (!tickers.length) { console.log('[Cron] Aucun ticker'); return; }
+
+    const res = await fetch(
+      `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(tickers.join(','))}&apikey=${env.FMP_KEY}`,
+      { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } }
+    );
+    if (!res.ok) { console.warn('[Cron] FMP HTTP', res.status); return; }
+    const data = await res.json();
+    if (!Array.isArray(data)) { console.warn('[Cron] Réponse inattendue'); return; }
+
+    const toStore = data.map(normalizeFmpQuote).filter(q => q.regularMarketPrice != null);
+    await Promise.all(toStore.map(q =>
+      env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(q), { expirationTtl: 3600 })
+    ));
+    console.log(`[Cron] ${toStore.length}/${tickers.length} tickers mis en cache KV`);
+  } catch(e) { console.warn('[Cron]', e.message); }
+}
+
 // ── D1: GET /api/sync ────────────────────────────────────────
 async function getSync(env, userId) {
   const [txRes, stRes] = await Promise.all([
