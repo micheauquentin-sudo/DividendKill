@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#08080f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Portfolio IBKR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="logo">port<em>folio</em><span class="logo-tag">BETA</span></div>
+  <div class="nav-status" id="navStatus">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusTxt">Prix...</span>
+  </div>
+  <button class="sync-btn" onclick="syncIBKR()">&#8635; Sync</button>
+</nav>
+
+<!-- KPI BAR — always visible, 4 metrics -->
+<div class="kpi-bar on" id="kpiBar">
+  <div class="kc"><div class="kc-l">Portfolio</div><div class="kc-v" id="kv0">--</div><div class="kc-s" id="ks0">--</div></div>
+  <div class="kc"><div class="kc-l">Revenu/mois</div><div class="kc-v up" id="kv1">--</div><div class="kc-s" id="ks1">--</div></div>
+  <div class="kc"><div class="kc-l">Yield</div><div class="kc-v up" id="kv2">--</div><div class="kc-s" id="ks2">--</div></div>
+  <div class="kc"><div class="kc-l">FIRE</div><div class="kc-v" id="kv3">--</div><div class="kc-s" id="ks3">--</div></div>
+  <div class="kpi-sync" onclick="openTokenModal()" title="Sync D1">
+    <div class="kpi-sync-dot" id="syncDot"></div>
+    <div class="kpi-sync-lbl">D1</div>
+  </div>
+</div>
+
+<!-- Token / Sync modal -->
+<div class="token-modal-overlay" id="tokenModalOverlay" onclick="if(event.target===this)closeTokenModal()">
+  <div class="token-modal">
+    <h3>&#9729; Sync multi-appareils</h3>
+    <p>Entre ton Bearer token pour synchroniser tes transactions via Cloudflare D1. Le token est stocké localement sur cet appareil.</p>
+    <input id="tokenInput" type="password" placeholder="Bearer token…" autocomplete="off" spellcheck="false">
+    <div id="tokenStatus" style="font-size:11px;margin-bottom:12px;color:var(--muted)"></div>
+    <div class="token-modal-btns">
+      <button class="token-modal-cancel" onclick="closeTokenModal()">Annuler</button>
+      <button class="token-modal-save" onclick="saveToken()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- PANELS -->
+<div id="panel-accueil"      class="panel on"></div>
+<div id="panel-rendement"    class="panel"></div>
+<div id="panel-secteurs"     class="panel"></div>
+<div id="panel-dividendes"   class="panel"></div>
+<div id="panel-calendar"     class="panel"></div>
+<div id="panel-deal"         class="panel"></div>
+<div id="panel-valorisation" class="panel"></div>
+<div id="panel-news"         class="panel"></div>
+<div id="panel-impots"       class="panel"></div>
+<div id="panel-import"       class="panel"></div>
+
+<!-- TABS -->
+<div class="tabs" id="mainTabs">
+  <div class="tab on"  data-p="accueil">     <span class="tab-icon">&#127968;</span>ACCUEIL</div>
+  <div class="tab"     data-p="rendement">   <span class="tab-icon">&#128202;</span>PORTEF.</div>
+  <div class="tab"     data-p="secteurs">    <span class="tab-icon">&#127919;</span>DIVERSIF.</div>
+  <div class="tab"     data-p="dividendes">  <span class="tab-icon">&#128176;</span>DIVIDENDES</div>
+  <div class="tab"     data-p="calendar">    <span class="tab-icon">&#128197;</span>CALENDRIER</div>
+  <div class="tab"     data-p="deal">        <span class="tab-icon">&#128142;</span>DEAL</div>
+  <div class="tab"     data-p="valorisation"><span class="tab-icon">&#128200;</span>VALORISATION</div>
+  <div class="tab"     data-p="news">        <span class="tab-icon">&#128240;</span>NEWS</div>
+  <div class="tab"     data-p="impots">      <span class="tab-icon">&#9878;</span>IMP&Ocirc;TS</div>
+  <div class="tab"     data-p="import">      <span class="tab-icon">&#128229;</span>IMPORT</div>
+</div>
+
+<!-- FAB button -->
+<button class="fab" id="mainFAB" onclick="openFABSheet()" aria-label="Ajouter une transaction">&#65291;</button>
+
+<!-- Bottom sheet overlay -->
+<div id="bs-overlay" class="bs-overlay" style="display:none" onclick="closeFABSheet()"></div>
+
+<!-- Bottom sheet -->
+<div id="bs-sheet" class="bs-sheet" style="display:none">
+  <div class="bs-handle" onclick="closeFABSheet()"></div>
+  <div class="bs-title">&#65291; Transaction</div>
+  <label class="bs-label">Type</label>
+  <select class="bs-field" id="fab-type" style="margin-bottom:12px">
+    <option value="buy">&#9650; Achat</option>
+    <option value="sell">&#9660; Vente</option>
+    <option value="dividend">$ Dividende reçu</option>
+  </select>
+  <div>
+    <label class="bs-label">Action / Ticker</label>
+    <input class="bs-field" id="fab-ticker" placeholder="ex: JNJ, ADP, MMM…"
+      autocomplete="off" autocorrect="off" spellcheck="false"
+      oninput="fabTickerInput(this.value)"
+      style="text-transform:uppercase;margin-bottom:6px">
+    <div id="fab-suggestions"></div>
+    <div class="fab-isin-tag" id="fab-isin-tag"></div>
+  </div>
+  <div>
+    <label class="bs-label">Quantité</label>
+    <input class="bs-field" id="fab-qty" type="number" placeholder="10" min="0.001" step="any" style="margin-bottom:8px">
+  </div>
+  <div class="bs-row">
+    <div>
+      <label class="bs-label">Prix ($)</label>
+      <input class="bs-field" id="fab-price" type="number" placeholder="94.50" min="0" step="any">
+    </div>
+    <div>
+      <label class="bs-label">Date</label>
+      <input class="bs-field" id="fab-date" type="date">
+    </div>
+  </div>
+  <div id="fab-error" style="color:#f43f5e;font-size:12px;margin:4px 0 6px;display:none"></div>
+  <div class="bs-btn-row">
+    <button class="bs-btn-cancel" onclick="closeFABSheet()">Annuler</button>
+    <button class="bs-btn" onclick="submitFABTx()">Enregistrer</button>
+  </div>
+</div>
+
+<script type="module" src="./main.js"></script>
+</body>
+</html>
