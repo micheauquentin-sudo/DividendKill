@@ -40,6 +40,28 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .kc-l{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);white-space:nowrap}
 .kc-v{font-family:"DM Mono",monospace;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kc-s{font-size:9px;color:var(--muted);white-space:nowrap}
+/* ── Sync button in KPI bar ─────────────────────────────── */
+.kpi-sync{width:28px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  border-left:1px solid var(--border);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.kpi-sync-dot{width:7px;height:7px;border-radius:50%;background:#333;transition:background .4s}
+.kpi-sync-dot.synced{background:#22d47a}
+.kpi-sync-dot.syncing{background:#f5a623;animation:syncPulse .8s ease-in-out infinite}
+.kpi-sync-dot.error{background:#f43f5e}
+@keyframes syncPulse{0%,100%{opacity:1}50%{opacity:.35}}
+/* ── Token modal ─────────────────────────────────────────── */
+.token-modal-overlay{position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.7);display:none;align-items:flex-end;justify-content:center}
+.token-modal-overlay.open{display:flex}
+.token-modal{background:#10101e;border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:24px 20px 32px;animation:slideUp .25s ease}
+.token-modal h3{margin:0 0 6px;font-size:16px;font-weight:700}
+.token-modal p{margin:0 0 16px;font-size:12px;color:var(--muted);line-height:1.5}
+.token-modal input{width:100%;box-sizing:border-box;background:#1a1a2e;border:1px solid var(--border);
+  border-radius:10px;padding:12px 14px;font-size:13px;color:#fff;font-family:"DM Mono",monospace;
+  margin-bottom:12px;outline:none}
+.token-modal input:focus{border-color:#7c6dff}
+.token-modal-btns{display:flex;gap:10px}
+.token-modal-btns button{flex:1;padding:13px;border-radius:12px;border:none;font-size:14px;font-weight:700;cursor:pointer}
+.token-modal-save{background:linear-gradient(135deg,#7c6dff,#a78bfa);color:#fff}
+.token-modal-cancel{background:var(--surface);color:var(--muted)}
 /* ── PANELS ─────────────────────────────────────────────── */
 .panel{display:none;min-height:calc(100vh - var(--nav-h) - var(--tab-h));padding:16px 14px 80px}
 .panel.on{display:block}
@@ -253,6 +275,21 @@ tbody td{padding:9px 6px;vertical-align:middle}
   <div class="kc"><div class="kc-l">Revenu/mois</div><div class="kc-v up" id="kv1">--</div><div class="kc-s" id="ks1">--</div></div>
   <div class="kc"><div class="kc-l">Yield</div><div class="kc-v up" id="kv2">--</div><div class="kc-s" id="ks2">--</div></div>
   <div class="kc"><div class="kc-l">FIRE</div><div class="kc-v" id="kv3">--</div><div class="kc-s" id="ks3">--</div></div>
+  <div class="kpi-sync" onclick="openTokenModal()" title="Sync D1"><div class="kpi-sync-dot" id="syncDot"></div></div>
+</div>
+
+<!-- Token / Sync modal -->
+<div class="token-modal-overlay" id="tokenModalOverlay" onclick="if(event.target===this)closeTokenModal()">
+  <div class="token-modal">
+    <h3>☁ Sync multi-appareils</h3>
+    <p>Entre ton Bearer token pour synchroniser tes transactions via Cloudflare D1. Le token est stocké localement sur cet appareil.</p>
+    <input id="tokenInput" type="password" placeholder="Bearer token…" autocomplete="off" spellcheck="false">
+    <div id="tokenStatus" style="font-size:11px;margin-bottom:12px;color:var(--muted)"></div>
+    <div class="token-modal-btns">
+      <button class="token-modal-cancel" onclick="closeTokenModal()">Annuler</button>
+      <button class="token-modal-save" onclick="saveToken()">Enregistrer</button>
+    </div>
+  </div>
 </div>
 
 <!-- PANELS -->
@@ -1187,7 +1224,36 @@ const Storage = (() => {
     await AstraDB.open();
     await migrateLS();
     await hydrate();
-    console.log('[Storage] Prêt ✓ (IndexedDB + AES-GCM)');
+
+    /* Sync depuis D1 si token configuré — D1 est source de vérité pour les transactions manuelles */
+    try {
+      const d1 = await D1Client.sync();
+      if (d1 && Array.isArray(d1.transactions) && d1.transactions.length) {
+        const mapped = d1.transactions.map(tx => ({
+          id:        'd1_' + tx.id,
+          d1_id:     tx.id,
+          ticker:    tx.ticker,
+          type:      tx.type,
+          quantity:  tx.shares  || 0,
+          price:     tx.price   || 0,
+          fees:      0,
+          currency:  tx.currency || 'USD',
+          amount:    tx.amount  || 0,
+          date:      tx.date,
+          _manual:   true,
+          source:    'manual',
+        }));
+        _cache.manual = mapped;
+        await AstraDB.clearBySource('manual');
+        if (mapped.length) await AstraDB.putAll('transactions', mapped);
+        console.log('[D1] Sync OK:', mapped.length, 'transactions');
+      }
+      if (d1 && d1.settings && d1.settings.target_monthly) {
+        Config.TARGET_MONTHLY = parseFloat(d1.settings.target_monthly) || Config.TARGET_MONTHLY;
+      }
+    } catch(e) { console.warn('[D1] init sync:', e.message); }
+
+    console.log('[Storage] Prêt ✓ (IndexedDB + AES-GCM + D1)');
   }
 
   /* ── Fondamentaux persistés (dividende, secteur, PE…) ── */
@@ -1207,6 +1273,76 @@ const Storage = (() => {
 const loadImportedTx  = Storage.load;
 const saveImportedTx  = Storage.save;
 const clearImportedTx = Storage.clear;
+
+/* ════════════════════════════════════════════════════════════════
+   MODULE: D1Client — sync avec Cloudflare Worker / D1
+   ════════════════════════════════════════════════════════════════ */
+const D1Client = (() => {
+  const BASE   = 'https://divkiller.michooo-45.workers.dev';
+  const TK_KEY = 'dk_bearer';
+
+  const getToken  = ()  => localStorage.getItem(TK_KEY) || '';
+  const setToken  = t   => localStorage.setItem(TK_KEY, t.trim());
+  const hasToken  = ()  => !!getToken();
+
+  const _h = () => ({
+    'Content-Type':  'application/json',
+    'Authorization': 'Bearer ' + getToken(),
+  });
+
+  function _setSyncDot(state) {
+    const el = document.getElementById('syncDot');
+    if (!el) return;
+    el.className = 'kpi-sync-dot' + (state ? ' ' + state : '');
+  }
+
+  async function sync() {
+    if (!hasToken()) { _setSyncDot(''); return null; }
+    _setSyncDot('syncing');
+    try {
+      const res = await fetch(BASE + '/api/sync', { headers: _h() });
+      if (!res.ok) { _setSyncDot('error'); return null; }
+      const data = await res.json();
+      _setSyncDot('synced');
+      return data;
+    } catch(e) {
+      console.warn('[D1] sync offline:', e.message);
+      _setSyncDot('error');
+      return null;
+    }
+  }
+
+  async function addTx(tx) {
+    if (!hasToken()) return null;
+    try {
+      const res = await fetch(BASE + '/api/transaction', {
+        method: 'POST', headers: _h(), body: JSON.stringify(tx),
+      });
+      if (!res.ok) return null;
+      return res.json();
+    } catch(e) { return null; }
+  }
+
+  async function deleteTx(id) {
+    if (!hasToken()) return;
+    try {
+      await fetch(BASE + '/api/transaction/' + id, {
+        method: 'DELETE', headers: _h(),
+      });
+    } catch(e) {}
+  }
+
+  async function putSettings(obj) {
+    if (!hasToken()) return;
+    try {
+      await fetch(BASE + '/api/settings', {
+        method: 'PUT', headers: _h(), body: JSON.stringify(obj),
+      });
+    } catch(e) {}
+  }
+
+  return { sync, addTx, deleteTx, putSettings, setToken, getToken, hasToken };
+})();
 
 /* ════════════════════════════════════════════════════════════════
    MODULE: BrokerImport — Parsing CSV multi-brokers
@@ -4834,6 +4970,14 @@ function submitFABTx() {
   var tx = { id:'fab_'+Date.now(), ticker, type, quantity:qty, price, fees:0, currency:'USD', tax_withheld:0, date, _manual:true };
   var existing = Storage.loadManual(); existing.push(tx);
   Storage.saveManual(existing);
+  /* Push to D1 in background — ne bloque pas l'UI */
+  D1Client.addTx({ type:type, ticker:ticker, shares:qty, price:price, date:date, currency:'USD',
+    amount: type==='dividend' ? qty : null }).then(function(r){
+    if (r && r.id) {
+      var upd = Storage.loadManual().map(function(t){ return t.id===tx.id ? Object.assign({},t,{d1_id:r.id,id:'d1_'+r.id}) : t; });
+      Storage.saveManual(upd);
+    }
+  }).catch(function(){});
   BrokerImport.applyToPortfolio();
   _rendered = {};
   buildKPI();
@@ -4850,6 +4994,45 @@ function submitFABTx() {
       fab.style.background = '';
       fab.classList.remove('anim-success');
     }, 1800);
+  }
+}
+
+/* ── Sync / Token modal ─────────────────────────────────────── */
+function openTokenModal() {
+  var inp = document.getElementById('tokenInput');
+  var st  = document.getElementById('tokenStatus');
+  if (inp) inp.value = D1Client.getToken();
+  if (st)  st.textContent = D1Client.hasToken() ? '✓ Token configuré' : 'Aucun token — sync désactivé';
+  var overlay = document.getElementById('tokenModalOverlay');
+  if (overlay) overlay.classList.add('open');
+}
+function closeTokenModal() {
+  var overlay = document.getElementById('tokenModalOverlay');
+  if (overlay) overlay.classList.remove('open');
+}
+async function saveToken() {
+  var inp = document.getElementById('tokenInput');
+  var st  = document.getElementById('tokenStatus');
+  var val = (inp ? inp.value : '').trim();
+  if (!val) {
+    if (st) { st.style.color='#f43f5e'; st.textContent='Token vide — sync désactivé'; }
+    return;
+  }
+  D1Client.setToken(val);
+  if (st) { st.style.color='#f5a623'; st.textContent='Test de connexion…'; }
+  /* Test immédiat */
+  var d1 = await D1Client.sync();
+  if (d1) {
+    if (st) { st.style.color='#22d47a'; st.textContent='✓ Connecté — sync OK'; }
+    setTimeout(closeTokenModal, 1200);
+    /* Re-apply D1 data */
+    if (d1.transactions && d1.transactions.length) {
+      Storage.hydrate && Storage.hydrate();
+      BrokerImport.applyToPortfolio();
+      buildKPI();
+    }
+  } else {
+    if (st) { st.style.color='#f43f5e'; st.textContent='Erreur — token invalide ou Worker hors ligne'; }
   }
 }
 
