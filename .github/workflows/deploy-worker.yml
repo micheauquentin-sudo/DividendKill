@@ -34,9 +34,6 @@ jobs:
           accountId:        ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: worker
           command:          deploy
-          secrets: |
-            PORTFOLIO_TOKEN
-            FMP_KEY
-        env:
-          PORTFOLIO_TOKEN: ${{ secrets.PORTFOLIO_TOKEN }}
-          FMP_KEY:         ${{ secrets.FMP_KEY }}
+        # Secrets (FMP_KEY, PORTFOLIO_TOKEN) are set once via `wrangler secret put`
+        # and must NOT be listed here — the wrangler-action would overwrite them
+        # with empty strings if the GitHub secrets are not configured.
