@@ -64,6 +64,7 @@ function goTo(idx) {
   const panels = document.querySelectorAll('.panel');
   _cur = idx;
   window._curTab = idx;
+  try { localStorage.setItem('dk_active_tab', idx); } catch(_) {}
   tabs.forEach((t, i)   => t.classList.toggle('on', i === idx));
   panels.forEach(p      => p.classList.remove('on'));
   const pid = tabs[idx]?.dataset?.p;
@@ -3181,9 +3182,12 @@ const App = (() => {
     /* Init swipe */
     initSwipe();
 
-    /* Render accueil */
+    /* Render accueil (toujours pré-rendu) */
     renderPanel('accueil', document.getElementById('panel-accueil'));
-    goTo(0);
+
+    /* Restaure l'onglet actif depuis la dernière session */
+    const _savedTab = parseInt(localStorage.getItem('dk_active_tab') || '0', 10);
+    goTo(Number.isFinite(_savedTab) && _savedTab >= 0 && _savedTab < allTabs.length ? _savedTab : 0);
 
     /* Lance refresh marché + fondamentaux en arrière-plan (non bloquant) */
     const tickers = Calc.getPositions().map(p => p.ticker).filter((t,i,a) => a.indexOf(t) === i);
