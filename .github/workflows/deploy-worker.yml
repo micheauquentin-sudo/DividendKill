@@ -1,0 +1,37 @@
+name: Deploy Worker to Cloudflare
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'worker/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply D1 schema (idempotent)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:         ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId:        ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command:          d1 execute dividendkill --file=schema.sql --remote
+
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:         ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId:        ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command:          deploy
+          secrets: |
+            PORTFOLIO_TOKEN
+            FMP_KEY
+        env:
+          PORTFOLIO_TOKEN: ${{ secrets.PORTFOLIO_TOKEN }}
+          FMP_KEY:         ${{ secrets.FMP_KEY }}
