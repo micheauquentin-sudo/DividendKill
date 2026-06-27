@@ -1,5 +1,3 @@
-import { Storage } from './storage.js';
-
 export const D1Client = (() => {
   const BASE   = 'https://divkiller.michooo-45.workers.dev';
   const TK_KEY = 'dk_bearer';
