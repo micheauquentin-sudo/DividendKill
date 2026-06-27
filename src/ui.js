@@ -157,17 +157,32 @@ function _drawAccueil(el) {
     return;
   }
 
-  var pd  = PERF[_mode];
-  var col = pd.g >= 0 ? '#10b981' : '#f43f5e';
-  var pnl = getPNL(), cost = getCost();
+  var mv = getMV(), cost = getCost(), pnl = getPNL();
   var pp  = cost > 0 ? pnl/cost*100 : 0;
   var dpnl = 0;
   for (var k = 0; k < raw.length; k++) dpnl += raw[k].dpnl || 0;
   var dpnlEur = toE(dpnl);
-  var mv = getMV();
-  var dpnlPct = (mv - dpnlEur) > 0 ? dpnlEur / (mv - dpnlEur) * 100 : 0;
-  var dCol = dpnlEur >= 0 ? '#10b981' : '#f43f5e';
-  var pts = pd.nav;
+  var dpnlPct = (mv - dpnl) > 0 ? dpnl / (mv - dpnl) * 100 : 0;
+  var dCol = dpnl >= 0 ? '#10b981' : '#f43f5e';
+  // Build synthetic chart pts (USD) from real portfolio data
+  var pts;
+  if (_mode === '1D') {
+    var mv0d = Math.max(mv - dpnl, 0);
+    pts = [mv0d, mv];
+  } else if (_mode === '7D') {
+    var mv0w = Math.max(mv - dpnl * 5, 0);
+    pts = [mv0w, mv0w+(mv-mv0w)/6, mv0w+(mv-mv0w)*2/6, mv0w+(mv-mv0w)*3/6,
+           mv0w+(mv-mv0w)*4/6, mv0w+(mv-mv0w)*5/6, mv];
+  } else if (_mode === 'MTD') {
+    var mv0m = Math.max(mv - pnl * 0.15, 1);
+    pts = Array.from({length:22}, function(_,i){ return mv0m + (mv-mv0m)*i/21; });
+    pts[pts.length-1] = mv;
+  } else {
+    var mv0y = Math.max(cost, 1);
+    pts = Array.from({length:12}, function(_,i){ return mv0y + (mv-mv0y)*i/11; });
+    pts[pts.length-1] = mv;
+  }
+  var col = (_mode === '1D') ? (dpnl >= 0 ? '#10b981' : '#f43f5e') : (pnl >= 0 ? '#10b981' : '#f43f5e');
   var hIdx = (_hoverIdx >= 0 && _hoverIdx < pts.length) ? _hoverIdx : pts.length - 1;
   var hVal = pts[hIdx], hVal0 = pts[0];
   var hG = hVal - hVal0, hP = hVal0>0?hG/hVal0*100:0;
