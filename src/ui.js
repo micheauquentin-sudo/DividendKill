@@ -3564,9 +3564,76 @@ function submitFABTx() {
   }
 }
 
-/* ── Auth Google ─────────────────────────────────────────────── */
+/* ── Auth ────────────────────────────────────────────────────── */
 function authLogin()  { D1Client.login(); }
 function authLogout() { D1Client.logout(); }
+
+function loginTabSwitch(tab) {
+  document.getElementById('ltab-google').classList.toggle('on', tab === 'google');
+  document.getElementById('ltab-email').classList.toggle('on', tab === 'email');
+  document.getElementById('login-panel-google').style.display = tab === 'google' ? '' : 'none';
+  document.getElementById('login-panel-email').style.display  = tab === 'email'  ? '' : 'none';
+}
+
+var _loginMode = 'login';
+function loginToggleMode() {
+  _loginMode = _loginMode === 'login' ? 'register' : 'login';
+  var isReg = _loginMode === 'register';
+  document.getElementById('loginSubmitBtn').textContent  = isReg ? 'Créer un compte' : 'Connexion';
+  var tog = document.getElementById('loginModeToggle');
+  if (tog) tog.innerHTML = isReg ? 'Déjà un compte ? <span>Connexion</span>' : 'Pas encore de compte ? <span>Créer un compte</span>';
+  var nameField = document.getElementById('loginName');
+  if (nameField) nameField.style.display = isReg ? '' : 'none';
+  var pwField = document.getElementById('loginPassword');
+  if (pwField) pwField.placeholder = isReg ? 'Mot de passe (8 car. min.)' : 'Mot de passe';
+  var pwAutoComplete = document.getElementById('loginPassword');
+  if (pwAutoComplete) pwAutoComplete.autocomplete = isReg ? 'new-password' : 'current-password';
+  document.getElementById('loginError').style.display = 'none';
+}
+
+async function authLoginEmail() {
+  var email = (document.getElementById('loginEmail').value || '').trim();
+  var password = document.getElementById('loginPassword').value || '';
+  var errEl = document.getElementById('loginError');
+  var btn   = document.getElementById('loginSubmitBtn');
+
+  if (!email || !password) {
+    errEl.textContent = 'Email et mot de passe requis'; errEl.style.display = '';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '...';
+  errEl.style.display = 'none';
+
+  var endpoint = _loginMode === 'register' ? '/auth/register' : '/auth/login/email';
+  var body = { email, password };
+  if (_loginMode === 'register') {
+    var n = (document.getElementById('loginName').value || '').trim();
+    if (n) body.name = n;
+  }
+
+  try {
+    var res = await fetch(endpoint, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    var data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Erreur';
+      errEl.style.display = '';
+      btn.disabled = false;
+      btn.textContent = _loginMode === 'register' ? 'Créer un compte' : 'Connexion';
+      return;
+    }
+    window.location.reload();
+  } catch(e) {
+    errEl.textContent = 'Erreur réseau';
+    errEl.style.display = '';
+    btn.disabled = false;
+    btn.textContent = _loginMode === 'register' ? 'Créer un compte' : 'Connexion';
+  }
+}
 
 /* ── Expandable portfolio cards ─────────────────────────────── */
 function toggleRndCard(ticker) {
@@ -3583,7 +3650,7 @@ function toggleRndCard(ticker) {
 // ── Expose global functions for inline HTML event handlers ──
 Object.assign(window, {
   syncIBKR,
-  authLogin, authLogout,
+  authLogin, authLogout, authLoginEmail, loginTabSwitch, loginToggleMode,
   openFABSheet, closeFABSheet, submitFABTx, fabTickerInput, fabSelectTicker,
   showDSESheet, closeDSESheet,
   toggleRndCard,

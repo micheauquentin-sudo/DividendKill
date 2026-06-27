@@ -58,6 +58,21 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
   transition:box-shadow .15s,transform .1s;font-family:inherit}
 .login-google-btn:hover{box-shadow:0 4px 20px rgba(66,133,244,.35);transform:translateY(-1px)}
 .login-google-btn:active{transform:translateY(0)}
+.login-tabs{display:flex;gap:0;margin-bottom:24px;background:var(--surface2);border-radius:10px;padding:3px}
+.login-tab{flex:1;padding:8px;border-radius:8px;font-size:13px;font-weight:600;color:var(--muted);transition:all .15s;cursor:pointer;border:none;background:none}
+.login-tab.on{background:var(--surface);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.login-input{width:100%;box-sizing:border-box;background:#1a1a2e;border:1px solid var(--border);
+  border-radius:10px;padding:12px 14px;font-size:13px;color:#fff;font-family:"DM Sans",sans-serif;
+  margin-bottom:10px;outline:none;transition:border-color .15s}
+.login-input:focus{border-color:var(--violet)}
+.login-error{font-size:12px;color:var(--red);margin-bottom:10px;padding:8px 12px;background:rgba(244,63,94,.1);border-radius:8px}
+.login-submit-btn{width:100%;padding:13px;border-radius:12px;background:linear-gradient(135deg,var(--violet),#a78bfa);
+  color:#fff;font-size:14px;font-weight:700;cursor:pointer;border:none;font-family:inherit;
+  margin-bottom:12px;transition:opacity .15s}
+.login-submit-btn:hover{opacity:.9}
+.login-submit-btn:disabled{opacity:.5;cursor:not-allowed}
+.login-mode-toggle{width:100%;font-size:12px;color:var(--muted);background:none;border:none;cursor:pointer;padding:4px}
+.login-mode-toggle span{color:var(--violet);font-weight:600}
 .login-note{font-size:10px;color:var(--muted);margin-top:20px;opacity:.6}
 /* ── PANELS ─────────────────────────────────────────────── */
 .panel{display:none;min-height:calc(100vh - var(--nav-h) - var(--tab-h));padding:16px 14px 80px}

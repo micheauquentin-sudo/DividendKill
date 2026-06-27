@@ -105,6 +105,26 @@ async function getUser(req, env) {
   return null;
 }
 
+// ── Hachage mot de passe (PBKDF2-SHA256) ────────────────────
+async function hashPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key  = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const hash = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256);
+  return `${_b64u(salt)}:${_b64u(hash)}`;
+}
+
+async function verifyPassword(password, stored) {
+  const [saltB64, hashB64] = stored.split(':');
+  const salt    = _b64uDec(saltB64);
+  const expected = _b64uDec(hashB64);
+  const key     = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const hash    = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256));
+  if (hash.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < hash.length; i++) diff |= hash[i] ^ expected[i];
+  return diff === 0;
+}
+
 // ── Migrations D1 ────────────────────────────────────────────
 let _migDone = false;
 async function ensureMigrations(db) {
@@ -116,6 +136,8 @@ async function ensureMigrations(db) {
       ['add_user_id',    "ALTER TABLE transactions ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"],
       ['idx_tx_user',    "CREATE INDEX IF NOT EXISTS idx_tx_user ON transactions(user_id)"],
       ['user_settings',  "CREATE TABLE IF NOT EXISTS user_settings (user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (user_id, key))"],
+      ['users_table',    "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, pw_hash TEXT NOT NULL, name TEXT, created_at INTEGER NOT NULL DEFAULT (unixepoch()))"],
+      ['users_idx_email',"CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)"],
     ];
     for (const [id, sql] of migs) {
       if (done.has(id)) continue;
@@ -126,6 +148,52 @@ async function ensureMigrations(db) {
     }
     _migDone = true;
   } catch(e) { console.warn('[Mig] init:', e.message); }
+}
+
+// ── Auth: inscription email/mot de passe ─────────────────────
+async function handleAuthRegister(req, env) {
+  if (!env.SESSION_SECRET) return err('Auth non configurée', 500);
+  let body;
+  try { body = await req.json(); } catch { return err('invalid JSON'); }
+  const { email, password, name } = body;
+  if (!email || !password) return err('Email et mot de passe requis');
+  if (password.length < 8)  return err('Mot de passe trop court (8 caractères min.)');
+
+  if (env.DB) await ensureMigrations(env.DB);
+  const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email.toLowerCase()).first();
+  if (existing) return err('Cette adresse email est déjà utilisée', 409);
+
+  const userId = crypto.randomUUID();
+  const pwHash = await hashPassword(password);
+  const displayName = (name || '').trim() || email.split('@')[0];
+  await env.DB.prepare('INSERT INTO users (id,email,pw_hash,name) VALUES (?,?,?,?)').bind(userId, email.toLowerCase(), pwHash, displayName).run();
+
+  const session = await signJWT({ sub: userId, email: email.toLowerCase(), name: displayName, exp: Math.floor(Date.now() / 1000) + 30 * 24 * 3600 }, env.SESSION_SECRET);
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 201,
+    headers: { 'Content-Type': 'application/json', 'Set-Cookie': mkCookie('dk_session', session, 30 * 24 * 3600) },
+  });
+}
+
+// ── Auth: connexion email/mot de passe ───────────────────────
+async function handleAuthLoginEmail(req, env) {
+  if (!env.SESSION_SECRET) return err('Auth non configurée', 500);
+  let body;
+  try { body = await req.json(); } catch { return err('invalid JSON'); }
+  const { email, password } = body;
+  if (!email || !password) return err('Email et mot de passe requis');
+
+  if (env.DB) await ensureMigrations(env.DB);
+  const user = await env.DB.prepare('SELECT id,pw_hash,name FROM users WHERE email = ?').bind(email.toLowerCase()).first();
+  if (!user || !(await verifyPassword(password, user.pw_hash))) {
+    return err('Email ou mot de passe incorrect', 401);
+  }
+
+  const session = await signJWT({ sub: user.id, email: email.toLowerCase(), name: user.name || email.split('@')[0], exp: Math.floor(Date.now() / 1000) + 30 * 24 * 3600 }, env.SESSION_SECRET);
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', 'Set-Cookie': mkCookie('dk_session', session, 30 * 24 * 3600) },
+  });
 }
 
 // ── Google OAuth ─────────────────────────────────────────────
@@ -455,10 +523,12 @@ export default {
     if (url.searchParams.has('fmp'))     return fmpProxy(req, env);
 
     // Routes auth
-    if (path === '/auth/login')    return handleAuthLogin(req, env);
-    if (path === '/auth/callback') return handleAuthCallback(req, env);
-    if (path === '/auth/logout')   return handleAuthLogout(req);
-    if (path === '/auth/me')       return handleAuthMe(req, env);
+    if (path === '/auth/login')       return handleAuthLogin(req, env);
+    if (path === '/auth/callback')    return handleAuthCallback(req, env);
+    if (path === '/auth/logout')      return handleAuthLogout(req);
+    if (path === '/auth/me')          return handleAuthMe(req, env);
+    if (path === '/auth/register'  && method === 'POST') return handleAuthRegister(req, env);
+    if (path === '/auth/login/email' && method === 'POST') return handleAuthLoginEmail(req, env);
 
     // Routes protégées
     if (path.startsWith('/api/')) {
