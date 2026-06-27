@@ -97,7 +97,9 @@ async function priceProxy(request, env) {
   if (missing.length > 0) {
     try {
       const fmpUrl = `https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent(missing.join(','))}?apikey=${env.FMP_KEY}`;
-      const res = await fetch(fmpUrl);
+      const res = await fetch(fmpUrl, {
+        headers: { 'Accept': 'application/json', 'User-Agent': 'DividendKill/1.0' },
+      });
 
       if (!res.ok) {
         if (!Object.keys(cached).length) return err(`FMP HTTP ${res.status}`, 502);
@@ -133,7 +135,9 @@ async function handleScheduled(env) {
   const exchanges = ['NYSE', 'NASDAQ', 'EURONEXT', 'LSE', 'TSX'];
   for (const exchange of exchanges) {
     try {
-      const res = await fetch(`https://financialmodelingprep.com/api/v3/quotes/${exchange}?apikey=${env.FMP_KEY}`);
+      const res = await fetch(`https://financialmodelingprep.com/api/v3/quotes/${exchange}?apikey=${env.FMP_KEY}`, {
+        headers: { 'Accept': 'application/json', 'User-Agent': 'DividendKill/1.0' },
+      });
       if (!res.ok) { console.warn(`[Cron] ${exchange} HTTP ${res.status}`); continue; }
       const data = await res.json();
       if (!Array.isArray(data)) { console.warn(`[Cron] ${exchange} réponse inattendue`); continue; }
