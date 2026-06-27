@@ -11,6 +11,24 @@
 </head>
 <body>
 
+<!-- Écran de connexion -->
+<div class="login-overlay" id="loginOverlay" style="display:none">
+  <div class="login-card">
+    <div class="login-logo">port<em>folio</em></div>
+    <p class="login-tagline">Tes dividendes, un clic</p>
+    <button class="login-google-btn" onclick="authLogin()">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908C16.658 14.233 17.64 11.925 17.64 9.2z" fill="#4285F4"/>
+        <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
+        <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+        <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+      </svg>
+      Continuer avec Google
+    </button>
+    <p class="login-note">Accès sécurisé · Données privées</p>
+  </div>
+</div>
+
 <!-- NAV -->
 <nav class="nav">
   <div class="logo">port<em>folio</em><span class="logo-tag">BETA</span></div>
@@ -18,32 +36,23 @@
     <div class="status-dot" id="statusDot"></div>
     <span id="statusTxt">Prix...</span>
   </div>
-  <button class="sync-btn" onclick="syncIBKR()">&#8635; Sync</button>
+  <div class="nav-right">
+    <button class="sync-btn" onclick="syncIBKR()">&#8635; Sync</button>
+    <button class="nav-user-btn" id="navUserBtn" onclick="authLogout()" title="Déconnexion" style="display:none">
+      <span id="navUserInitial" class="nav-user-initial"></span>
+    </button>
+  </div>
 </nav>
 
-<!-- KPI BAR — always visible, 4 metrics -->
+<!-- KPI BAR -->
 <div class="kpi-bar on" id="kpiBar">
   <div class="kc"><div class="kc-l">Portfolio</div><div class="kc-v" id="kv0">--</div><div class="kc-s" id="ks0">--</div></div>
   <div class="kc"><div class="kc-l">Revenu/mois</div><div class="kc-v up" id="kv1">--</div><div class="kc-s" id="ks1">--</div></div>
   <div class="kc"><div class="kc-l">Yield</div><div class="kc-v up" id="kv2">--</div><div class="kc-s" id="ks2">--</div></div>
   <div class="kc"><div class="kc-l">FIRE</div><div class="kc-v" id="kv3">--</div><div class="kc-s" id="ks3">--</div></div>
-  <div class="kpi-sync" onclick="openTokenModal()" title="Sync D1">
+  <div class="kpi-sync" title="D1 Sync">
     <div class="kpi-sync-dot" id="syncDot"></div>
     <div class="kpi-sync-lbl">D1</div>
-  </div>
-</div>
-
-<!-- Token / Sync modal -->
-<div class="token-modal-overlay" id="tokenModalOverlay" onclick="if(event.target===this)closeTokenModal()">
-  <div class="token-modal">
-    <h3>&#9729; Sync multi-appareils</h3>
-    <p>Entre ton Bearer token pour synchroniser tes transactions via Cloudflare D1. Le token est stocké localement sur cet appareil.</p>
-    <input id="tokenInput" type="password" placeholder="Bearer token…" autocomplete="off" spellcheck="false">
-    <div id="tokenStatus" style="font-size:11px;margin-bottom:12px;color:var(--muted)"></div>
-    <div class="token-modal-btns">
-      <button class="token-modal-cancel" onclick="closeTokenModal()">Annuler</button>
-      <button class="token-modal-save" onclick="saveToken()">Enregistrer</button>
-    </div>
   </div>
 </div>
 

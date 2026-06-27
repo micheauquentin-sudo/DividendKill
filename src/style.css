@@ -39,20 +39,26 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .kpi-sync-dot.error{background:#f43f5e}
 .kpi-sync-lbl{font-size:7px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:700}
 @keyframes syncPulse{0%,100%{opacity:1}50%{opacity:.35}}
-/* ── Token modal ─────────────────────────────────────────── */
-.token-modal-overlay{position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.7);display:none;align-items:flex-end;justify-content:center}
-.token-modal-overlay.open{display:flex}
-.token-modal{background:#10101e;border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:24px 20px 32px;animation:slideUp .25s ease}
-.token-modal h3{margin:0 0 6px;font-size:16px;font-weight:700}
-.token-modal p{margin:0 0 16px;font-size:12px;color:var(--muted);line-height:1.5}
-.token-modal input{width:100%;box-sizing:border-box;background:#1a1a2e;border:1px solid var(--border);
-  border-radius:10px;padding:12px 14px;font-size:13px;color:#fff;font-family:"DM Mono",monospace;
-  margin-bottom:12px;outline:none}
-.token-modal input:focus{border-color:#7c6dff}
-.token-modal-btns{display:flex;gap:10px}
-.token-modal-btns button{flex:1;padding:13px;border-radius:12px;border:none;font-size:14px;font-weight:700;cursor:pointer}
-.token-modal-save{background:linear-gradient(135deg,#7c6dff,#a78bfa);color:#fff}
-.token-modal-cancel{background:var(--surface);color:var(--muted)}
+/* ── Nav right ───────────────────────────────────────────── */
+.nav-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.nav-user-btn{width:30px;height:30px;border-radius:50%;background:var(--violet);border:none;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.nav-user-initial{font-size:13px;font-weight:700;color:#fff;line-height:1;pointer-events:none}
+/* ── Login overlay ──────────────────────────────────────── */
+.login-overlay{position:fixed;inset:0;z-index:9000;background:#08080f;display:flex;
+  align-items:center;justify-content:center;padding:24px}
+.login-card{background:#111120;border-radius:24px;padding:40px 28px;width:100%;max-width:360px;
+  text-align:center;border:1px solid var(--border);box-shadow:0 32px 80px rgba(0,0,0,.6)}
+.login-logo{font-weight:700;font-size:26px;letter-spacing:-.8px;margin-bottom:10px}
+.login-logo em{color:var(--violet);font-style:normal}
+.login-tagline{font-size:13px;color:var(--muted);margin-bottom:36px}
+.login-google-btn{display:flex;align-items:center;justify-content:center;gap:12px;
+  width:100%;padding:14px 20px;border-radius:14px;border:1px solid rgba(255,255,255,.12);
+  background:#fff;color:#3c4043;font-size:14px;font-weight:600;cursor:pointer;
+  transition:box-shadow .15s,transform .1s;font-family:inherit}
+.login-google-btn:hover{box-shadow:0 4px 20px rgba(66,133,244,.35);transform:translateY(-1px)}
+.login-google-btn:active{transform:translateY(0)}
+.login-note{font-size:10px;color:var(--muted);margin-top:20px;opacity:.6}
 /* ── PANELS ─────────────────────────────────────────────── */
 .panel{display:none;min-height:calc(100vh - var(--nav-h) - var(--tab-h));padding:16px 14px 80px}
 .panel.on{display:block}

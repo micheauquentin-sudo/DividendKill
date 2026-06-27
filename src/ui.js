@@ -3153,6 +3153,19 @@ const App = (() => {
   };
 
   const boot = async () => {
+    /* Vérification auth Google OAuth */
+    const user = await D1Client.me();
+    const overlay = document.getElementById('loginOverlay');
+    const userBtn = document.getElementById('navUserBtn');
+    const userInitial = document.getElementById('navUserInitial');
+    if (!user) {
+      if (overlay) overlay.style.display = 'flex';
+      return; // ne pas booter l'app sans auth
+    }
+    if (overlay) overlay.style.display = 'none';
+    if (userBtn) userBtn.style.display = 'flex';
+    if (userInitial) userInitial.textContent = (user.name || user.email || '?')[0].toUpperCase();
+
     /* Init IndexedDB + migration localStorage + hydrate cache */
     await Storage.init();
 
@@ -3551,44 +3564,9 @@ function submitFABTx() {
   }
 }
 
-/* ── Sync / Token modal ─────────────────────────────────────── */
-function openTokenModal() {
-  var inp = document.getElementById('tokenInput');
-  var st  = document.getElementById('tokenStatus');
-  if (inp) inp.value = D1Client.getToken();
-  if (st)  st.textContent = D1Client.hasToken() ? '✓ Token configuré' : 'Aucun token — sync désactivé';
-  var overlay = document.getElementById('tokenModalOverlay');
-  if (overlay) overlay.classList.add('open');
-}
-function closeTokenModal() {
-  var overlay = document.getElementById('tokenModalOverlay');
-  if (overlay) overlay.classList.remove('open');
-}
-async function saveToken() {
-  var inp = document.getElementById('tokenInput');
-  var st  = document.getElementById('tokenStatus');
-  var val = (inp ? inp.value : '').trim();
-  if (!val) {
-    if (st) { st.style.color='#f43f5e'; st.textContent='Token vide — sync désactivé'; }
-    return;
-  }
-  D1Client.setToken(val);
-  if (st) { st.style.color='#f5a623'; st.textContent='Test de connexion…'; }
-  /* Test immédiat */
-  var d1 = await D1Client.sync();
-  if (d1) {
-    if (st) { st.style.color='#22d47a'; st.textContent='✓ Connecté — sync OK'; }
-    setTimeout(closeTokenModal, 1200);
-    /* Re-apply D1 data */
-    if (d1.transactions && d1.transactions.length) {
-      Storage.hydrate && Storage.hydrate();
-      BrokerImport.applyToPortfolio();
-      buildKPI();
-    }
-  } else {
-    if (st) { st.style.color='#f43f5e'; st.textContent='Erreur — token invalide ou Worker hors ligne'; }
-  }
-}
+/* ── Auth Google ─────────────────────────────────────────────── */
+function authLogin()  { D1Client.login(); }
+function authLogout() { D1Client.logout(); }
 
 /* ── Expandable portfolio cards ─────────────────────────────── */
 function toggleRndCard(ticker) {
@@ -3605,7 +3583,7 @@ function toggleRndCard(ticker) {
 // ── Expose global functions for inline HTML event handlers ──
 Object.assign(window, {
   syncIBKR,
-  openTokenModal, closeTokenModal, saveToken,
+  authLogin, authLogout,
   openFABSheet, closeFABSheet, submitFABTx, fabTickerInput, fabSelectTicker,
   showDSESheet, closeDSESheet,
   toggleRndCard,
