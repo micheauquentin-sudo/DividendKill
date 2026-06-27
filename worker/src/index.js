@@ -96,7 +96,7 @@ async function priceProxy(request, env) {
   // 2. Fetch FMP uniquement pour les tickers absents du cache
   if (missing.length > 0) {
     try {
-      const fmpUrl = `https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent(missing.join(','))}?apikey=${env.FMP_KEY}`;
+      const fmpUrl = `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(missing.join(','))}&apikey=${env.FMP_KEY}`;
       const res = await fetch(fmpUrl, {
         headers: { 'Accept': 'application/json', 'User-Agent': 'DividendKill/1.0' },
       });
@@ -138,7 +138,7 @@ async function handleScheduled(env) {
   const exchanges = ['NYSE', 'NASDAQ', 'EURONEXT', 'LSE', 'TSX'];
   for (const exchange of exchanges) {
     try {
-      const res = await fetch(`https://financialmodelingprep.com/api/v3/quotes/${exchange}?apikey=${env.FMP_KEY}`, {
+      const res = await fetch(`https://financialmodelingprep.com/stable/quotes/${exchange}?apikey=${env.FMP_KEY}`, {
         headers: { 'Accept': 'application/json', 'User-Agent': 'DividendKill/1.0' },
       });
       if (!res.ok) { console.warn(`[Cron] ${exchange} HTTP ${res.status}`); continue; }
@@ -162,10 +162,10 @@ async function fmpProxy(request, env) {
   if (!symbol)       return err('missing symbol');
   if (!env.FMP_KEY)  return err('FMP_KEY not configured', 500);
 
-  const base = `https://financialmodelingprep.com/api/v3`;
+  const base = `https://financialmodelingprep.com/stable`;
   const [profile, metrics] = await Promise.all([
-    fetch(`${base}/profile/${symbol}?apikey=${env.FMP_KEY}`).then(r => r.json()),
-    fetch(`${base}/key-metrics-ttm/${symbol}?apikey=${env.FMP_KEY}`).then(r => r.json()),
+    fetch(`${base}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.json()),
+    fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.json()),
   ]);
   return json({ profile, metrics });
 }
