@@ -48,13 +48,27 @@ async function priceProxy(request) {
   const symbols = url.searchParams.get('symbols');
   if (!symbols) return err('missing symbols');
 
-  const yfUrl = 'https://query1.finance.yahoo.com/v7/finance/quote'
-    + `?symbols=${encodeURIComponent(symbols)}`
-    + '&fields=regularMarketPrice,currency,shortName,regularMarketChangePercent,regularMarketPreviousClose';
+  const fields = 'regularMarketPrice,currency,shortName,regularMarketChangePercent,regularMarketPreviousClose,trailingPE,forwardPE,dividendYield,trailingAnnualDividendRate,exDividendDate,marketState,longName,beta,marketCap,fiftyTwoWeekHigh,fiftyTwoWeekLow';
+  const yfHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Origin': 'https://finance.yahoo.com',
+    'Referer': 'https://finance.yahoo.com/',
+  };
 
-  const res = await fetch(yfUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-  const data = await res.json();
-  return json(data);
+  const hosts = ['query1', 'query2'];
+  for (const host of hosts) {
+    try {
+      const yfUrl = `https://${host}.finance.yahoo.com/v7/finance/quote`
+        + `?symbols=${encodeURIComponent(symbols)}&fields=${fields}`;
+      const res = await fetch(yfUrl, { headers: yfHeaders });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data?.quoteResponse?.result?.length) return json(data);
+    } catch (_) { /* try next host */ }
+  }
+  return err('Yahoo Finance indisponible', 502);
 }
 
 // ── Proxy: FMP fundamentals ──────────────────────────────────
