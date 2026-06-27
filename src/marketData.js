@@ -43,23 +43,10 @@ export const MarketData = (() => {
   }
 
   async function _fetchYahooQuotes(tickers) {
-    // Twelvedata plan gratuit : max 8 symboles par requête
-    const BATCH = 8;
-    const batches = [];
-    for (let i = 0; i < tickers.length; i += BATCH) {
-      batches.push(tickers.slice(i, i + BATCH));
-    }
-    const allResults = [];
-    for (const batch of batches) {
-      try {
-        const res = await _fetchOneBatch(batch);
-        allResults.push(...res);
-      } catch(e) {
-        console.warn('[MarketData] batch error:', batch.join(','), e.message);
-      }
-    }
-    if (allResults.length === 0) throw new Error('Aucun résultat reçu du worker');
-    return allResults;
+    // FMP accepte tous les symboles en une seule requête = 1 crédit peu importe le nombre
+    const res = await _fetchOneBatch(tickers);
+    if (res.length === 0) throw new Error('Aucun résultat reçu du worker');
+    return res;
   }
 
   function _normalize(q) {
