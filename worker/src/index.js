@@ -2,7 +2,7 @@
  * DividendKill — Cloudflare Worker API
  *
  * Routes (no auth):
- *   GET  /?symbols=JNJ,MMM        → proxy Twelve Data prices
+ *   GET  /?symbols=JNJ,MMM        → proxy FMP prices (batch)
  *   GET  /?fmp=all&symbol=JNJ     → proxy FMP fundamentals
  *
  * Routes (Bearer auth required):
@@ -15,8 +15,7 @@
  *
  * Env vars (secrets via `wrangler secret put`):
  *   PORTFOLIO_TOKEN  — Bearer token pour toutes les routes /api/*
- *   FMP_KEY          — clé API Financial Modeling Prep
- *   TD_KEY           — clé API Twelve Data (twelvedata.com)
+ *   FMP_KEY          — clé API Financial Modeling Prep (prix + fondamentaux)
  */
 
 const CORS = {
@@ -43,45 +42,41 @@ function checkAuth(request, env) {
   return null;
 }
 
-// ── Proxy: Twelve Data prices ─────────────────────────────────
+// ── Proxy: FMP prices (batch, 1 crédit/requête) ───────────────
 async function priceProxy(request, env) {
   const url = new URL(request.url);
   const symbols = url.searchParams.get('symbols');
   if (!symbols) return err('missing symbols');
-  if (!env.TD_KEY) return err('TD_KEY not configured', 500);
+  if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
 
-  const tdUrl = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbols)}&apikey=${env.TD_KEY}&dp=4`;
+  const fmpUrl = `https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent(symbols)}?apikey=${env.FMP_KEY}`;
 
   try {
-    const res = await fetch(tdUrl);
-    if (!res.ok) return err(`Twelve Data HTTP ${res.status}`, 502);
+    const res = await fetch(fmpUrl);
+    if (!res.ok) return err(`FMP HTTP ${res.status}`, 502);
     const data = await res.json();
+    if (!Array.isArray(data) || !data.length) return err('FMP: aucun résultat', 502);
 
-    // Twelve Data: objet plat pour 1 symbole, objet indexé par symbole pour plusieurs
-    const symbolList = symbols.split(',').map(s => s.trim().toUpperCase());
-    const results = symbolList.map(sym => {
-      const q = symbolList.length === 1 ? data : data[sym];
-      if (!q || q.status === 'error' || !q.close) return null;
-      return {
-        symbol:                        sym,
-        regularMarketPrice:            parseFloat(q.close)           || null,
-        regularMarketChange:           parseFloat(q.change)          || 0,
-        regularMarketChangePercent:    parseFloat(q.percent_change)  || 0,
-        regularMarketPreviousClose:    parseFloat(q.previous_close)  || null,
-        regularMarketVolume:           parseInt(q.volume)            || null,
-        longName:                      q.name  || null,
-        shortName:                     q.name  || null,
-        currency:                      q.currency || 'USD',
-        fiftyTwoWeekHigh:              parseFloat(q.fifty_two_week?.high) || null,
-        fiftyTwoWeekLow:               parseFloat(q.fifty_two_week?.low)  || null,
-        marketState:                   q.is_market_open ? 'REGULAR' : 'CLOSED',
-      };
-    }).filter(Boolean);
+    const results = data.map(q => ({
+      symbol:                     q.symbol,
+      regularMarketPrice:         q.price           || null,
+      regularMarketChange:        q.change          || 0,
+      regularMarketChangePercent: q.changesPercentage || 0,
+      regularMarketPreviousClose: q.previousClose   || null,
+      regularMarketVolume:        q.volume          || null,
+      longName:                   q.name            || null,
+      shortName:                  q.name            || null,
+      currency:                   'USD',
+      trailingPE:                 q.pe              || null,
+      marketCap:                  q.marketCap       || null,
+      fiftyTwoWeekHigh:           q.yearHigh        || null,
+      fiftyTwoWeekLow:            q.yearLow         || null,
+      marketState:                'REGULAR',
+    }));
 
-    if (!results.length) return err('Twelve Data: aucun résultat', 502);
     return json({ quoteResponse: { result: results, error: null } });
   } catch(e) {
-    return err(`Twelve Data error: ${e.message}`, 502);
+    return err(`FMP error: ${e.message}`, 502);
   }
 }
 

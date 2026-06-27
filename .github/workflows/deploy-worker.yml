@@ -37,8 +37,6 @@ jobs:
           secrets: |
             PORTFOLIO_TOKEN
             FMP_KEY
-            TD_KEY
         env:
           PORTFOLIO_TOKEN: ${{ secrets.PORTFOLIO_TOKEN }}
           FMP_KEY:         ${{ secrets.FMP_KEY }}
-          TD_KEY:          ${{ secrets.TD_KEY }}
