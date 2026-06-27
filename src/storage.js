@@ -1,3 +1,4 @@
+import { Config } from './config.js';
 import { Data } from './data.js';
 import { D1Client } from './d1client.js';
 

@@ -33,7 +33,11 @@ export const MarketData = (() => {
     const url = `${Config.YF_BASE}?symbols=${encodeURIComponent(symbols)}`;
     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
     if (res.status === 429) throw new Error('QUOTA');
-    if (!res.ok) throw new Error(`Worker HTTP ${res.status}`);
+    if (!res.ok) {
+      let detail = `Worker HTTP ${res.status}`;
+      try { const b = await res.json(); if (b?.error) detail = `Worker: ${b.error}`; } catch(_) {}
+      throw new Error(detail);
+    }
     const json = await res.json();
     if (json.error === 'FMP_QUOTA') throw new Error('QUOTA');
     if (json.error) throw new Error(`Worker: ${json.error}`);
