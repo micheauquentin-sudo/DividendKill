@@ -341,6 +341,7 @@ async function priceProxy(req, env) {
   if (env.PRICES_KV) {
     await Promise.all(tickers.map(async t => {
       const val = await env.PRICES_KV.get(`p:${t}`, { type: 'json' });
+      // Ignore KV entries with null price — force re-fetch from FMP
       if (val && val.regularMarketPrice != null) cached[t] = val;
       else missing.push(t);
     }));

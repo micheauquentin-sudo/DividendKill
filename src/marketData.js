@@ -33,13 +33,20 @@ export const MarketData = (() => {
     const url = `${Config.YF_BASE}?symbols=${encodeURIComponent(symbols)}`;
     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
     if (res.status === 429) throw new Error('QUOTA');
-    if (!res.ok) throw new Error(`Worker HTTP ${res.status}`);
+    if (!res.ok) {
+      let detail = `Worker HTTP ${res.status}`;
+      try { const b = await res.json(); if (b?.error) detail = `Worker: ${b.error}`; } catch(_) {}
+      throw new Error(detail);
+    }
     const json = await res.json();
     if (json.error === 'FMP_QUOTA') throw new Error('QUOTA');
     if (json.error) throw new Error(`Worker: ${json.error}`);
     const results = json?.quoteResponse?.result;
     if (!results || results.length === 0) throw new Error('Worker: aucun résultat');
-    return results.filter(Boolean);
+    const valid = results.filter(Boolean);
+    const nullPrices = valid.filter(q => !q.regularMarketPrice).map(q => q.symbol);
+    if (nullPrices.length) console.warn('[MarketData] prix null reçus du worker:', nullPrices);
+    return valid;
   }
 
   async function _fetchYahooQuotes(tickers) {
