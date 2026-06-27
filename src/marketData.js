@@ -30,7 +30,7 @@ export const MarketData = (() => {
   /* ── Fetch batch Yahoo Finance ── */
   async function _fetchOneBatch(batchTickers) {
     const symbols = batchTickers.join(',');
-    const url = `${Config.YF_BASE}?symbols=${encodeURIComponent(symbols)}`;
+    const url = `/api/prices?symbols=${encodeURIComponent(symbols)}`;
     const res = await fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
     if (res.status === 429) throw new Error('QUOTA');
     if (!res.ok) {

@@ -16,8 +16,8 @@
  *   POST   /api/restore           → restaurer depuis backup
  *
  * Routes publiques:
- *   GET  /?symbols=JNJ,MMM        → prix FMP (KV cache 30min)
- *   GET  /?fmp=all&symbol=JNJ     → fondamentaux FMP
+ *   GET  /api/prices?symbols=JNJ,MMM   → prix FMP (KV cache 30min)
+ *   GET  /api/funda?symbol=JNJ         → fondamentaux FMP
  *
  * Cron (toutes les 30min):
  *   Pré-cache les tickers du portefeuille D1 dans KV
@@ -648,9 +648,9 @@ export default {
     if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
     // Routes publiques (prix / fondamentaux)
-    if (url.searchParams.has('symbols')) return priceProxy(req, env);
-    if (url.searchParams.has('fmp'))     return fmpProxy(req, env);
-    if (path === '/api/debug/price')     return debugPrice(req, env);
+    if (path === '/api/prices')      return priceProxy(req, env);
+    if (path === '/api/funda')       return fmpProxy(req, env);
+    if (path === '/api/debug/price') return debugPrice(req, env);
 
     // Routes auth
     if (path === '/auth/login')       return handleAuthLogin(req, env);

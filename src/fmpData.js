@@ -24,7 +24,7 @@ export const FmpData = (() => {
   }
 
   async function _fetchOne(ticker) {
-    const url = `${Config.YF_BASE}?fmp=all&symbol=${encodeURIComponent(ticker)}`;
+    const url = `/api/funda?symbol=${encodeURIComponent(ticker)}`;
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(`FMP worker HTTP ${res.status}`);
     const data = await res.json();
