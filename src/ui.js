@@ -3326,8 +3326,13 @@ function syncIBKR() {
         setTimeout(() => { btn.textContent = '⟳ Sync'; }, 3000);
       }
       Storage.saveFundamentals(Data.assets);
+      Calc.recompute();
       _rendered = {};
       buildKPI();
+      const _panels = ['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation','news','impots','import'];
+      const _curP = _panels[window._curTab || 0];
+      const _curEl = document.getElementById('panel-' + _curP);
+      if (_curEl) { try { renderPanel(_curP, _curEl); } catch(_) {} }
       console.log('[syncIBKR] prix OK:', success + '/' + tickers.length, '— FMP fondamentaux chargés');
     })
     .catch(e => {
