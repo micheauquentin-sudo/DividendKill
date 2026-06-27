@@ -8,6 +8,7 @@ import { DividendSafety, calculateDividendSafety, dseColor, dseLabel, DSE_WEIGHT
 import { Storage, loadImportedTx, saveImportedTx, clearImportedTx } from './storage.js';
 import { D1Client } from './d1client.js';
 import { BrokerImport, processCsv, applyImportedToPortfolio } from './brokerImport.js';
+import { getDivBadge } from './dividendTiers.js';
 
 // Expose Calc.raw as a live window getter so render functions can access 'raw' as bare variable
 Object.defineProperty(window, 'raw', { get: () => Calc.raw, configurable: true });
@@ -407,7 +408,7 @@ function renderRendement(el) {
       +'<div class="rnd-head" onclick="toggleRndCard(\''+d.ticker+'\')">'
       +'<div style="flex:1;min-width:0;margin-right:10px">'
       +'<div style="display:flex;align-items:baseline;gap:7px;margin-bottom:5px">'
-      +'<span style="font-size:16px;font-weight:700;letter-spacing:-.3px">'+d.ticker+'</span>'
+      +'<span style="font-size:16px;font-weight:700;letter-spacing:-.3px">'+d.ticker+getDivBadge(d.ticker)+'</span>'
       +'<span style="font-size:10px;color:var(--muted)">'+d.sec+'</span>'
       +'</div>'
       +(div2>0
@@ -580,7 +581,7 @@ function renderSecteurs(el) {
       var pplC = ppl>=0?'#22d47a':'#f43f5e';
       var divAnn = (meta[dd.ticker]&&meta[dd.ticker].d||0)*dd.qty;
       h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid rgba(255,255,255,.04)">'
-        +'<div><span style="font-size:12.5px;font-weight:700">'+dd.ticker+'</span>'
+        +'<div><span style="font-size:12.5px;font-weight:700">'+dd.ticker+getDivBadge(dd.ticker)+'</span>'
         +'<span style="font-size:10px;color:var(--muted);margin-left:6px">\u00d7'+dd.qty+'</span></div>'
         +'<div style="text-align:right">'
         +'<span style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+Math.round(toE(dd.mv)).toLocaleString('fr-FR')+'\u20ac</span>'
@@ -1911,7 +1912,7 @@ function renderValorisation(el) {
         /* ── Ligne 1 : ticker + signal + P&L ── */
         + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">'
         + '<div>'
-        + '<div style="font-size:17px;font-weight:700;letter-spacing:-.4px">'+d.ticker+'</div>'
+        + '<div style="font-size:17px;font-weight:700;letter-spacing:-.4px">'+d.ticker+getDivBadge(d.ticker)+'</div>'
         + '<div style="font-size:10px;color:var(--muted);margin-top:1px">'+d.name+'</div>'
         + '</div>'
         + '<div style="text-align:right">'
