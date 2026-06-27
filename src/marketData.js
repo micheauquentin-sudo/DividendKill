@@ -135,8 +135,7 @@ export const MarketData = (() => {
           _scheduleRefresh(tickers, onUpdate);
           return { success, errors: toFetch.length };
         }
-        console.error('[MarketData] batch error:', e.message);
-        _setNavStatus('err', e.message);
+        console.warn('[MarketData] batch error:', e.message);
         errors = toFetch.length;
       }
     }
@@ -169,7 +168,7 @@ export const MarketData = (() => {
     if (txt) {
       if (type === 'loading') txt.textContent = 'Prix...';
       else if (type === 'quota') txt.textContent = 'Quota FMP';
-      else if (type === 'err')   txt.textContent = msg ? `ERR: ${msg.slice(0, 30)}` : 'Prix ERR';
+      else if (type === 'err')   txt.textContent = 'Prix ERR';
       else txt.textContent = 'Prix OK';
     }
   }
