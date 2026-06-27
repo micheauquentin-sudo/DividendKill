@@ -266,7 +266,7 @@ tbody td{padding:9px 6px;vertical-align:middle}
   <div class="logo">port<em>folio</em><span class="logo-tag">BETA</span></div>
   <div class="nav-status" id="navStatus">
     <div class="status-dot" id="statusDot"></div>
-    <span id="statusTxt">Sync...</span>
+    <span id="statusTxt">Prix...</span>
   </div>
   <button class="sync-btn" onclick="syncIBKR()">&#8635; Sync</button>
 </nav>
@@ -455,6 +455,10 @@ const MarketData = (() => {
   }
 
   async function refreshAll(tickers, onUpdate) {
+    if (!tickers || tickers.length === 0) {
+      _setNavStatus('ok', '');
+      return { success: 0, errors: 0 };
+    }
     _status = 'loading';
     _onUpdateCb = onUpdate || null;
     _setNavStatus('loading', 'Actualisation prix...');
@@ -485,7 +489,7 @@ const MarketData = (() => {
       }
     }
 
-    _status = errors === tickers.length ? 'error' : 'ok';
+    _status = tickers.length > 0 && errors === tickers.length ? 'error' : 'ok';
     _setNavStatus(_status === 'error' ? 'err' : 'ok', '');
     _scheduleRefresh(tickers, onUpdate);
     return { success, errors };
@@ -511,9 +515,9 @@ const MarketData = (() => {
     const txt = document.getElementById('statusTxt');
     if (dot) dot.className = 'status-dot' + (type === 'loading' ? ' load' : type === 'err' ? ' err' : '');
     if (txt) {
-      if (type === 'loading') txt.textContent = 'Sync...';
-      else if (type === 'err') txt.textContent = 'Sync ERR';
-      else txt.textContent = 'Sync OK';
+      if (type === 'loading') txt.textContent = 'Prix...';
+      else if (type === 'err') txt.textContent = 'Prix ERR';
+      else txt.textContent = 'Prix OK';
     }
   }
 
