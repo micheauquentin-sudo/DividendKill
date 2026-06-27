@@ -132,26 +132,33 @@ async function priceProxy(request, env) {
   return json({ quoteResponse: { result: results, error: null } });
 }
 
-// ── Cron: pré-cache tout le marché dans KV (toutes les 30min) ─
+// ── Cron: pré-cache les tickers du portefeuille D1 dans KV (toutes les 30min) ─
 async function handleScheduled(env) {
-  if (!env.FMP_KEY || !env.PRICES_KV) return;
-  const exchanges = ['NYSE', 'NASDAQ', 'EURONEXT', 'LSE', 'TSX'];
-  for (const exchange of exchanges) {
-    try {
-      const res = await fetch(`https://financialmodelingprep.com/stable/quotes/${exchange}?apikey=${env.FMP_KEY}`, {
-        headers: { 'Accept': 'application/json', 'User-Agent': 'DividendKill/1.0' },
-      });
-      if (!res.ok) { console.warn(`[Cron] ${exchange} HTTP ${res.status}`); continue; }
-      const data = await res.json();
-      if (!Array.isArray(data)) { console.warn(`[Cron] ${exchange} réponse inattendue`); continue; }
-      const toStore = data.map(normalizeFmpQuote).filter(q => q.regularMarketPrice != null);
-      await Promise.all(
-        toStore.map(q => env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(q), { expirationTtl: 3600 }))
-      );
-      console.log(`[Cron] ${exchange}: ${data.length} prix mis en cache KV`);
-    } catch(e) {
-      console.warn(`[Cron] ${exchange} error:`, e.message);
-    }
+  if (!env.FMP_KEY || !env.PRICES_KV || !env.DB) return;
+  try {
+    // Lire les tickers distincts depuis D1
+    const { results } = await env.DB.prepare(
+      "SELECT DISTINCT ticker FROM transactions WHERE type IN ('buy','sell')"
+    ).all();
+    const tickers = results.map(r => r.ticker).filter(Boolean);
+    if (!tickers.length) { console.log('[Cron] Aucun ticker en portefeuille'); return; }
+
+    // Fetch FMP en une seule requête (1 crédit)
+    const res = await fetch(
+      `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(tickers.join(','))}&apikey=${env.FMP_KEY}`,
+      { headers: { 'Accept': 'application/json', 'User-Agent': 'DividendKill/1.0' } }
+    );
+    if (!res.ok) { console.warn('[Cron] FMP HTTP', res.status); return; }
+    const data = await res.json();
+    if (!Array.isArray(data)) { console.warn('[Cron] Réponse FMP inattendue'); return; }
+
+    const toStore = data.map(normalizeFmpQuote).filter(q => q.regularMarketPrice != null);
+    await Promise.all(
+      toStore.map(q => env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(q), { expirationTtl: 3600 }))
+    );
+    console.log(`[Cron] ${toStore.length}/${tickers.length} tickers mis en cache KV (1 crédit FMP)`);
+  } catch(e) {
+    console.warn('[Cron] error:', e.message);
   }
 }
 
