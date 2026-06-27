@@ -410,7 +410,8 @@ async function fmpProxy(req, env) {
 async function handleScheduled(env) {
   if (!env.FMP_KEY || !env.PRICES_KV || !env.DB) return;
   const TTL_PRICE = 86400;
-  const TTL_FUNDA = 10368000; // 4 mois
+  // Jitter ±15j autour de 4 mois → évite que tous les caches expirent le même jour
+  const ttlFunda  = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
   const FMP_BASE  = 'https://financialmodelingprep.com/stable';
   const HEADERS   = { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' };
 
@@ -422,7 +423,7 @@ async function handleScheduled(env) {
         fetch(`${FMP_BASE}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
         fetch(`${FMP_BASE}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
       ]);
-      await env.PRICES_KV.put(`funda:${symbol}`, JSON.stringify({ profile, metrics }), { expirationTtl: TTL_FUNDA });
+      await env.PRICES_KV.put(`funda:${symbol}`, JSON.stringify({ profile, metrics }), { expirationTtl: ttlFunda() });
       console.log(`[Cron] funda:${symbol} mis à jour — ${reason}`);
       return true;
     } catch(e) { console.warn(`[Cron] funda ${symbol}:`, e.message); return false; }
@@ -469,7 +470,7 @@ async function handleScheduled(env) {
                   || prev.declarationDate !== d.declarationDate
                   || prev.amount         !== d.dividend;
                 if (isNew) {
-                  await env.PRICES_KV.put(declKey, JSON.stringify({ amount: d.dividend, declarationDate: d.declarationDate }), { expirationTtl: TTL_FUNDA });
+                  await env.PRICES_KV.put(declKey, JSON.stringify({ amount: d.dividend, declarationDate: d.declarationDate }), { expirationTtl: ttlFunda() });
                   declaredChanges.add(sym);
                   console.log(`[Cron] Nouvelle déclaration dividende ${sym}: ${d.dividend} (déclaré ${d.declarationDate}, paiement ${d.paymentDate})`);
                 }
