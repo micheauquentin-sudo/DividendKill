@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'worker/**'
+  workflow_dispatch:  # bouton "Run workflow" manuel dans l'onglet Actions
 
 jobs:
   deploy:
