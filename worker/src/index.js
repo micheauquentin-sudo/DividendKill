@@ -601,6 +601,41 @@ async function postRestore(req, env, userId) {
   return json({ ok: true, restored: transactions.length });
 }
 
+// ── Debug prix (diagnostic mobile) ───────────────────────────
+async function debugPrice(req, env) {
+  const symbol = (new URL(req.url).searchParams.get('symbol') || 'JNJ').toUpperCase();
+  const out = { symbol, fmp_key_set: !!env.FMP_KEY, kv_bound: !!env.PRICES_KV };
+
+  if (env.PRICES_KV) {
+    try {
+      const kv = await env.PRICES_KV.get(`p:${symbol}`, { type: 'json' });
+      out.kv_cached = kv;
+    } catch(e) { out.kv_error = e.message; }
+  }
+
+  if (env.FMP_KEY) {
+    const fmpUrl = `https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${env.FMP_KEY}`;
+    out.fmp_url = fmpUrl.replace(env.FMP_KEY, '***');
+    try {
+      const res = await fetch(fmpUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_status = res.status;
+      const text = await res.text();
+      out.fmp_raw_first200 = text.slice(0, 200);
+      try {
+        const data = JSON.parse(text);
+        out.fmp_is_array = Array.isArray(data);
+        out.fmp_count = Array.isArray(data) ? data.length : null;
+        if (Array.isArray(data) && data.length > 0) {
+          out.fmp_first = data[0];
+          out.normalized = normalizeFmpQuote(data[0]);
+        }
+      } catch(e) { out.fmp_parse_error = e.message; }
+    } catch(e) { out.fmp_fetch_error = e.message; }
+  }
+
+  return json(out);
+}
+
 // ── Router ───────────────────────────────────────────────────
 export default {
   async fetch(req, env, ctx) {
@@ -613,6 +648,7 @@ export default {
     // Routes publiques (prix / fondamentaux)
     if (url.searchParams.has('symbols')) return priceProxy(req, env);
     if (url.searchParams.has('fmp'))     return fmpProxy(req, env);
+    if (path === '/api/debug/price')     return debugPrice(req, env);
 
     // Routes auth
     if (path === '/auth/login')       return handleAuthLogin(req, env);
