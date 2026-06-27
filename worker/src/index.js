@@ -2,7 +2,7 @@
  * DividendKill — Cloudflare Worker API
  *
  * Routes (no auth):
- *   GET  /?symbols=JNJ,MMM        → proxy Yahoo Finance prices
+ *   GET  /?symbols=JNJ,MMM        → proxy FMP prices (batch)
  *   GET  /?fmp=all&symbol=JNJ     → proxy FMP fundamentals
  *
  * Routes (Bearer auth required):
@@ -15,7 +15,7 @@
  *
  * Env vars (secrets via `wrangler secret put`):
  *   PORTFOLIO_TOKEN  — Bearer token pour toutes les routes /api/*
- *   FMP_KEY          — clé API Financial Modeling Prep
+ *   FMP_KEY          — clé API Financial Modeling Prep (prix + fondamentaux)
  */
 
 const CORS = {
@@ -42,33 +42,42 @@ function checkAuth(request, env) {
   return null;
 }
 
-// ── Proxy: Yahoo Finance prices ──────────────────────────────
-async function priceProxy(request) {
+// ── Proxy: FMP prices (batch, 1 crédit/requête) ───────────────
+async function priceProxy(request, env) {
   const url = new URL(request.url);
   const symbols = url.searchParams.get('symbols');
   if (!symbols) return err('missing symbols');
+  if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
 
-  const fields = 'regularMarketPrice,currency,shortName,regularMarketChangePercent,regularMarketPreviousClose,trailingPE,forwardPE,dividendYield,trailingAnnualDividendRate,exDividendDate,marketState,longName,beta,marketCap,fiftyTwoWeekHigh,fiftyTwoWeekLow';
-  const yfHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Origin': 'https://finance.yahoo.com',
-    'Referer': 'https://finance.yahoo.com/',
-  };
+  const fmpUrl = `https://financialmodelingprep.com/api/v3/quote/${encodeURIComponent(symbols)}?apikey=${env.FMP_KEY}`;
 
-  const hosts = ['query1', 'query2'];
-  for (const host of hosts) {
-    try {
-      const yfUrl = `https://${host}.finance.yahoo.com/v7/finance/quote`
-        + `?symbols=${encodeURIComponent(symbols)}&fields=${fields}`;
-      const res = await fetch(yfUrl, { headers: yfHeaders });
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data?.quoteResponse?.result?.length) return json(data);
-    } catch (_) { /* try next host */ }
+  try {
+    const res = await fetch(fmpUrl);
+    if (!res.ok) return err(`FMP HTTP ${res.status}`, 502);
+    const data = await res.json();
+    if (!Array.isArray(data) || !data.length) return err('FMP: aucun résultat', 502);
+
+    const results = data.map(q => ({
+      symbol:                     q.symbol,
+      regularMarketPrice:         q.price           || null,
+      regularMarketChange:        q.change          || 0,
+      regularMarketChangePercent: q.changesPercentage || 0,
+      regularMarketPreviousClose: q.previousClose   || null,
+      regularMarketVolume:        q.volume          || null,
+      longName:                   q.name            || null,
+      shortName:                  q.name            || null,
+      currency:                   'USD',
+      trailingPE:                 q.pe              || null,
+      marketCap:                  q.marketCap       || null,
+      fiftyTwoWeekHigh:           q.yearHigh        || null,
+      fiftyTwoWeekLow:            q.yearLow         || null,
+      marketState:                'REGULAR',
+    }));
+
+    return json({ quoteResponse: { result: results, error: null } });
+  } catch(e) {
+    return err(`FMP error: ${e.message}`, 502);
   }
-  return err('Yahoo Finance indisponible', 502);
 }
 
 // ── Proxy: FMP fundamentals ──────────────────────────────────
@@ -195,7 +204,7 @@ export default {
     }
 
     // Legacy proxy routes — no auth, backward-compatible
-    if (url.searchParams.has('symbols')) return priceProxy(request);
+    if (url.searchParams.has('symbols')) return priceProxy(request, env);
     if (url.searchParams.has('fmp'))     return fmpProxy(request, env);
 
     // API routes — auth required

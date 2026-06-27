@@ -14,3 +14,4 @@ bucket_name = "dividendkill-backups"
 # Secrets — set via CLI (never commit these):
 #   wrangler secret put PORTFOLIO_TOKEN   ← token Bearer pour l'auth
 #   wrangler secret put FMP_KEY           ← clé API Financial Modeling Prep
+#   wrangler secret put TD_KEY            ← clé API Twelve Data (twelvedata.com)
