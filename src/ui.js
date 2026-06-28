@@ -138,6 +138,7 @@ function buildSVG(pts, col, H) {
 /* -- ACCUEIL ---------------------------------------------- */
 var _mode = '1Y';
 var _hoverIdx = -1;
+var _navHistory = null; // { nav: [{date, nav_usd}] } chargé depuis /api/nav
 
 function _logo(ticker, size) {
   size = size || 28;
@@ -151,6 +152,53 @@ function _logo(ticker, size) {
 function renderAccueil(el) {
   el._drawAcc = _drawAccueil;
   _drawAccueil(el);
+}
+
+function _buildNavPts(mv, dpnl, pnl, cost) {
+  var hist = _navHistory && _navHistory.length >= 2 ? _navHistory : null;
+  if (hist) {
+    var now = new Date();
+    var isoToday = now.toISOString().slice(0, 10);
+    // S'assure que le dernier point reflète la valeur live actuelle
+    var pts_hist = hist.map(function(d) { return d.nav_usd; });
+    pts_hist[pts_hist.length - 1] = mv; // remplace par valeur live
+    if (_mode === '1D') {
+      // Hier vs aujourd'hui
+      var prev = pts_hist.length >= 2 ? pts_hist[pts_hist.length - 2] : Math.max(mv - dpnl, 0.01);
+      return [prev, mv];
+    }
+    if (_mode === '7D') {
+      var slice7 = pts_hist.slice(-7);
+      if (slice7.length < 2) slice7 = [Math.max(mv - dpnl * 5, 0.01), mv];
+      return slice7;
+    }
+    if (_mode === 'MTD') {
+      var y = now.getFullYear(), m = now.getMonth();
+      var firstOfMonth = new Date(y, m, 1).toISOString().slice(0, 10);
+      var mtdSlice = [];
+      for (var i = 0; i < hist.length; i++) { if (hist[i].date >= firstOfMonth) mtdSlice.push(hist[i].nav_usd); }
+      mtdSlice[mtdSlice.length > 0 ? mtdSlice.length - 1 : 0] = mv;
+      return mtdSlice.length >= 2 ? mtdSlice : [Math.max(mv - pnl * 0.1, 0.01), mv];
+    }
+    // 1Y — dernier 365 jours (max 260 points de trading)
+    var oneYearAgo = new Date(now.getTime() - 365 * 86400000).toISOString().slice(0, 10);
+    var y1Slice = [];
+    for (var j = 0; j < hist.length; j++) { if (hist[j].date >= oneYearAgo) y1Slice.push(hist[j].nav_usd); }
+    y1Slice[y1Slice.length > 0 ? y1Slice.length - 1 : 0] = mv;
+    return y1Slice.length >= 2 ? y1Slice : [Math.max(cost, 0.01), mv];
+  }
+  // Fallback synthétique (avant que le cron ait tourné)
+  if (_mode === '1D') return [Math.max(mv - dpnl, 0.01), mv];
+  if (_mode === '7D') {
+    var w0 = Math.max(mv - dpnl * 5, 0.01);
+    return [w0, w0+(mv-w0)/6, w0+(mv-w0)*2/6, w0+(mv-w0)*3/6, w0+(mv-w0)*4/6, w0+(mv-w0)*5/6, mv];
+  }
+  if (_mode === 'MTD') {
+    var m0 = Math.max(mv - pnl * 0.15, 0.01);
+    return Array.from({length:22}, function(_,i){ return m0 + (mv-m0)*i/21; }).map(function(v,i,a){ return i===a.length-1?mv:v; });
+  }
+  var y0 = Math.max(cost, 0.01);
+  return Array.from({length:12}, function(_,i){ return y0 + (mv-y0)*i/11; }).map(function(v,i,a){ return i===a.length-1?mv:v; });
 }
 
 function _drawAccueil(el) {
@@ -173,24 +221,8 @@ function _drawAccueil(el) {
   var dpnlEur = toE(dpnl);
   var dpnlPct = (mv - dpnl) > 0 ? dpnl / (mv - dpnl) * 100 : 0;
   var dCol = dpnl >= 0 ? '#10b981' : '#f43f5e';
-  // Build synthetic chart pts (USD) from real portfolio data
-  var pts;
-  if (_mode === '1D') {
-    var mv0d = Math.max(mv - dpnl, 0);
-    pts = [mv0d, mv];
-  } else if (_mode === '7D') {
-    var mv0w = Math.max(mv - dpnl * 5, 0);
-    pts = [mv0w, mv0w+(mv-mv0w)/6, mv0w+(mv-mv0w)*2/6, mv0w+(mv-mv0w)*3/6,
-           mv0w+(mv-mv0w)*4/6, mv0w+(mv-mv0w)*5/6, mv];
-  } else if (_mode === 'MTD') {
-    var mv0m = Math.max(mv - pnl * 0.15, 1);
-    pts = Array.from({length:22}, function(_,i){ return mv0m + (mv-mv0m)*i/21; });
-    pts[pts.length-1] = mv;
-  } else {
-    var mv0y = Math.max(cost, 1);
-    pts = Array.from({length:12}, function(_,i){ return mv0y + (mv-mv0y)*i/11; });
-    pts[pts.length-1] = mv;
-  }
+  // Build chart pts (USD) — vraies données si disponibles, sinon synthétique
+  var pts = _buildNavPts(mv, dpnl, pnl, cost);
   var col = (_mode === '1D') ? (dpnl >= 0 ? '#10b981' : '#f43f5e') : (pnl >= 0 ? '#10b981' : '#f43f5e');
   var hIdx = (_hoverIdx >= 0 && _hoverIdx < pts.length) ? _hoverIdx : pts.length - 1;
   var hVal = pts[hIdx], hVal0 = pts[0];
@@ -3247,6 +3279,15 @@ const App = (() => {
     /* Restaure l'onglet actif depuis la dernière session */
     const _savedTab = parseInt(localStorage.getItem('dk_active_tab') || '0', 10);
     goTo(Number.isFinite(_savedTab) && _savedTab >= 0 && _savedTab < allTabs.length ? _savedTab : 0);
+
+    /* Charge l'historique NAV (non bloquant) */
+    fetch('/api/nav').then(r => r.json()).then(data => {
+      if (data && Array.isArray(data.nav) && data.nav.length >= 2) {
+        _navHistory = data.nav;
+        const accEl = document.getElementById('panel-accueil');
+        if (accEl && accEl.classList.contains('on')) renderPanel('accueil', accEl);
+      }
+    }).catch(() => {});
 
     /* Lance refresh marché + fondamentaux en arrière-plan (non bloquant) */
     const tickers = Calc.getPositions().map(p => p.ticker).filter((t,i,a) => a.indexOf(t) === i);

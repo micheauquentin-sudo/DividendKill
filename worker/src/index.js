@@ -138,6 +138,8 @@ async function ensureMigrations(db) {
       ['user_settings',  "CREATE TABLE IF NOT EXISTS user_settings (user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (user_id, key))"],
       ['users_table',    "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, pw_hash TEXT NOT NULL, name TEXT, created_at INTEGER NOT NULL DEFAULT (unixepoch()))"],
       ['users_idx_email',"CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)"],
+      ['portfolio_nav',  "CREATE TABLE IF NOT EXISTS portfolio_nav (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, date TEXT NOT NULL, nav_usd REAL NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()), UNIQUE(user_id, date))"],
+      ['idx_nav_user',   "CREATE INDEX IF NOT EXISTS idx_nav_user ON portfolio_nav(user_id, date)"],
     ];
     for (const [id, sql] of migs) {
       if (done.has(id)) continue;
@@ -534,6 +536,37 @@ async function handleScheduled(env) {
     }
 
     console.log(`[Cron] ${toStore.length} prix · ${fundaInit} inits · ${divChanged} versements changés · ${declUpdated} déclarations anticipées`);
+
+    // ── Snapshot NAV par utilisateur (1 ligne/jour, 0 crédit FMP) ─
+    try {
+      const priceMap = {};
+      toStore.forEach(q => { if (q.regularMarketPrice) priceMap[q.symbol] = q.regularMarketPrice; });
+
+      const today_date = fmt(new Date());
+      const { results: positions } = await env.DB.prepare(
+        `SELECT user_id, ticker,
+           SUM(CASE WHEN type='buy' THEN shares ELSE -shares END) AS net_shares
+         FROM transactions WHERE type IN ('buy','sell')
+         GROUP BY user_id, ticker
+         HAVING net_shares > 0`
+      ).all();
+
+      const navByUser = {};
+      for (const { user_id, ticker, net_shares } of positions) {
+        const price = priceMap[ticker.toUpperCase()];
+        if (price && net_shares > 0) {
+          navByUser[user_id] = (navByUser[user_id] || 0) + net_shares * price;
+        }
+      }
+
+      await Promise.all(Object.entries(navByUser).map(([uid, nav_usd]) =>
+        env.DB.prepare(
+          'INSERT OR REPLACE INTO portfolio_nav (user_id, date, nav_usd) VALUES (?,?,?)'
+        ).bind(uid, today_date, Math.round(nav_usd * 100) / 100).run()
+      ));
+      console.log(`[Cron] NAV snapshot: ${Object.keys(navByUser).length} utilisateur(s) · ${today_date}`);
+    } catch(e) { console.warn('[Cron] NAV snapshot:', e.message); }
+
   } catch(e) { console.warn('[Cron]', e.message); }
 }
 
@@ -549,6 +582,14 @@ async function getSync(env, userId) {
     settings = Object.fromEntries(gs.results.map(r => [r.key, r.value]));
   }
   return json({ transactions: txRes.results, settings });
+}
+
+// ── D1: GET /api/nav ─────────────────────────────────────────
+async function getNav(env, userId) {
+  const { results } = await env.DB.prepare(
+    'SELECT date, nav_usd FROM portfolio_nav WHERE user_id = ? ORDER BY date ASC'
+  ).bind(userId).all();
+  return json({ nav: results });
 }
 
 // ── D1: POST /api/transaction ────────────────────────────────
@@ -693,6 +734,7 @@ export default {
       const uid = user.sub;
 
       if (path === '/api/sync'        && method === 'GET')  return getSync(env, uid);
+      if (path === '/api/nav'         && method === 'GET')  return getNav(env, uid);
       if (path === '/api/transaction' && method === 'POST') return postTransaction(req, env, uid);
       if (path === '/api/settings'    && method === 'PUT')  return putSettings(req, env, uid);
       if (path === '/api/backup'      && method === 'GET')  return getBackup(env, uid);
