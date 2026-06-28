@@ -415,18 +415,24 @@ async function fmpProxy(req, env) {
   }
 }
 
-async function searchProxy(req, env) {
+async function searchProxy(req) {
   const q = new URL(req.url).searchParams.get('q') || '';
   if (!q || q.length < 2) return json({ results: [] });
-  if (!env.FMP_KEY) return json({ error: 'FMP_KEY not configured' }, 500);
   try {
-    const url = `https://financialmodelingprep.com/stable/search?query=${encodeURIComponent(q)}&limit=10&apikey=${env.FMP_KEY}`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!res.ok) throw new Error(`FMP HTTP ${res.status}`);
+    // Yahoo Finance autocomplete — gratuit, sans clé API, pas de CORS depuis le worker
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=10&newsCount=0&listsCount=0`;
+    const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' } });
+    if (!res.ok) throw new Error(`YF HTTP ${res.status}`);
     const data = await res.json();
-    const results = (Array.isArray(data) ? data : [])
-      .filter(r => r.exchangeShortName && ['NYSE','NASDAQ','AMEX','TSX','LSE','EURONEXT','XETRA'].includes(r.exchangeShortName))
-      .slice(0, 8);
+    const ALLOWED_EXCHANGES = new Set(['NYSE','NMS','NGM','NCM','ASE','TSX','LSE','PAR','AMS','XETRA','MCE']);
+    const results = (data.quotes || [])
+      .filter(r => r.quoteType === 'EQUITY' && ALLOWED_EXCHANGES.has(r.exchange))
+      .slice(0, 8)
+      .map(r => ({
+        symbol: r.symbol,
+        name: r.shortname || r.longname || r.symbol,
+        exchangeShortName: r.exchange,
+      }));
     return json({ results });
   } catch(e) {
     return json({ error: e.message }, 502);
