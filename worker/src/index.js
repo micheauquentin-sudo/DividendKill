@@ -155,11 +155,15 @@ async function ensureMigrations(db) {
 // ── Auth: inscription email/mot de passe ─────────────────────
 async function handleAuthRegister(req, env) {
   if (!env.SESSION_SECRET) return err('Auth non configurée', 500);
+  const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
+  if (await isRateLimited(env, `reg:${ip}`, 5)) return err('Trop de tentatives, réessaie dans une minute', 429);
   let body;
   try { body = await req.json(); } catch { return err('invalid JSON'); }
   const { email, password, name } = body;
   if (!email || !password) return err('Email et mot de passe requis');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('Adresse email invalide');
   if (password.length < 8)  return err('Mot de passe trop court (8 caractères min.)');
+  if (password.length > 128) return err('Mot de passe trop long');
 
   if (env.DB) await ensureMigrations(env.DB);
   const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email.toLowerCase()).first();
@@ -180,6 +184,8 @@ async function handleAuthRegister(req, env) {
 // ── Auth: connexion email/mot de passe ───────────────────────
 async function handleAuthLoginEmail(req, env) {
   if (!env.SESSION_SECRET) return err('Auth non configurée', 500);
+  const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
+  if (await isRateLimited(env, `login:${ip}`, 10)) return err('Trop de tentatives, réessaie dans une minute', 429);
   let body;
   try { body = await req.json(); } catch { return err('invalid JSON'); }
   const { email, password } = body;
@@ -229,15 +235,15 @@ async function handleAuthCallback(req, env) {
 
   if (!code) return Response.redirect(`${origin}/?auth_error=no_code`, 302);
 
-  // Vérification state CSRF
+  // Vérification state CSRF — obligatoire
+  if (!state) return Response.redirect(`${origin}/?auth_error=state`, 302);
   const stTok = getCookie(req, 'dk_oauth_state');
-  if (stTok && env.SESSION_SECRET) {
-    try {
-      const p = await verifyJWT(stTok, env.SESSION_SECRET);
-      if (p.state !== state) return Response.redirect(`${origin}/?auth_error=state`, 302);
-    } catch(_) {
-      return Response.redirect(`${origin}/?auth_error=state`, 302);
-    }
+  if (!stTok || !env.SESSION_SECRET) return Response.redirect(`${origin}/?auth_error=state`, 302);
+  try {
+    const p = await verifyJWT(stTok, env.SESSION_SECRET);
+    if (p.state !== state) return Response.redirect(`${origin}/?auth_error=state`, 302);
+  } catch(_) {
+    return Response.redirect(`${origin}/?auth_error=state`, 302);
   }
 
   // Échange code → tokens
@@ -334,6 +340,39 @@ function normalizeFmpQuote(q) {
   };
 }
 
+
+function normalizeProfile(t, p) {
+  const prevClose = +(p.price - (p.changes || 0)).toFixed(4);
+  const chgPct    = p.changesPercentage ?? (prevClose > 0 ? +(((p.changes || 0) / prevClose) * 100).toFixed(4) : 0);
+  return {
+    symbol:                     t.toUpperCase(),
+    regularMarketPrice:         p.price,
+    regularMarketChange:        p.changes        || 0,
+    regularMarketChangePercent: chgPct,
+    regularMarketPreviousClose: prevClose > 0 ? prevClose : null,
+    regularMarketVolume:        p.volAvg         || null,
+    longName:                   p.companyName    || null,
+    shortName:                  p.companyName    || null,
+    currency:                   p.currency       || 'USD',
+    trailingPE:                 null,
+    marketCap:                  p.mktCap         || null,
+    fiftyTwoWeekHigh:           null,
+    fiftyTwoWeekLow:            null,
+    marketState:                'REGULAR',
+    lastDiv:                    p.lastDiv        || null,
+    dividendYield:              (p.lastDiv && p.price > 0) ? +(p.lastDiv / p.price).toFixed(6) : null,
+  };
+}
+
+async function isRateLimited(env, key, limit) {
+  if (!env.PRICES_KV) return false;
+  const window = Math.floor(Date.now() / 60000);
+  const kvKey  = `rl:${key}:${window}`;
+  const cur    = parseInt(await env.PRICES_KV.get(kvKey) || '0', 10);
+  if (cur >= limit) return true;
+  await env.PRICES_KV.put(kvKey, String(cur + 1), { expirationTtl: 120 });
+  return false;
+}
 
 // ── Prix FMP avec cache KV ───────────────────────────────────
 async function priceProxy(req, env) {
@@ -470,31 +509,33 @@ async function fmpProxy(req, env) {
     if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: ttlFunda() });
     return json(result);
   } catch(e) {
-    return err(`FMP fondamentaux: ${e.message}`, 502);
+    console.error('[fmpProxy]', e.message);
+    return err('Données fondamentales indisponibles', 502);
   }
 }
 
-async function searchProxy(req) {
+async function searchProxy(req, env) {
   const q = new URL(req.url).searchParams.get('q') || '';
   if (!q || q.length < 2) return json({ results: [] });
+  if (!env.FMP_KEY) return json({ results: [] });
   try {
-    // Yahoo Finance autocomplete — gratuit, sans clé API, pas de CORS depuis le worker
-    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=10&newsCount=0&listsCount=0`;
-    const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' } });
-    if (!res.ok) throw new Error(`YF HTTP ${res.status}`);
+    // FMP search — pas de Yahoo Finance (Play Store TOS)
+    const url = `https://financialmodelingprep.com/stable/search-symbol?query=${encodeURIComponent(q)}&limit=10&apikey=${env.FMP_KEY}`;
+    const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!res.ok) throw new Error(`FMP HTTP ${res.status}`);
     const data = await res.json();
-    const ALLOWED_EXCHANGES = new Set(['NYSE','NMS','NGM','NCM','ASE','TSX','LSE','PAR','AMS','XETRA','MCE']);
-    const results = (data.quotes || [])
-      .filter(r => r.quoteType === 'EQUITY' && ALLOWED_EXCHANGES.has(r.exchange))
+    const ALLOWED_EXCHANGES = new Set(['NYSE','NASDAQ','AMEX','NYSE ARCA','TSX','LSE','EURONEXT','XETRA','BME']);
+    const results = (Array.isArray(data) ? data : [])
+      .filter(r => r.exchangeShortName && ALLOWED_EXCHANGES.has(r.exchangeShortName))
       .slice(0, 8)
       .map(r => ({
-        symbol: r.symbol,
-        name: r.shortname || r.longname || r.symbol,
-        exchangeShortName: r.exchange,
+        symbol:            r.symbol,
+        name:              r.name || r.symbol,
+        exchangeShortName: r.exchangeShortName,
       }));
     return json({ results });
   } catch(e) {
-    return json({ error: e.message }, 502);
+    return json({ results: [], error: 'Recherche indisponible' }, 502);
   }
 }
 
@@ -505,26 +546,25 @@ async function benchmarkProxy(req, env) {
     const cached = await env.PRICES_KV.get(CACHE_KEY);
     if (cached) return new Response(cached, { headers: { ...CORS, 'Content-Type': 'application/json' } });
   }
+  if (!env.FMP_KEY) return json({ entries: [] });
   try {
-    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=2y';
-    const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' } });
-    if (!res.ok) throw new Error(`YF HTTP ${res.status}`);
+    // FMP historical EOD — pas de Yahoo Finance (Play Store TOS)
+    const url = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=SPY&apikey=${env.FMP_KEY}`;
+    const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!res.ok) throw new Error(`FMP HTTP ${res.status}`);
     const data = await res.json();
-    const result = data.chart && data.chart.result && data.chart.result[0];
-    if (!result) throw new Error('No chart result');
-    const timestamps = result.timestamp || [];
-    const closes = (result.indicators.quote[0] || {}).close || [];
-    const entries = [];
-    for (let i = 0; i < timestamps.length; i++) {
-      if (closes[i] == null) continue;
-      const date = new Date(timestamps[i] * 1000).toISOString().slice(0, 10);
-      entries.push({ date, close: closes[i] });
-    }
+    const historical = Array.isArray(data) ? data : (data.historical || []);
+    // FMP renvoie du plus récent au plus ancien — on inverse et on limite à 2 ans
+    const entries = historical
+      .filter(d => d.date && d.close != null)
+      .map(d => ({ date: d.date, close: +d.close }))
+      .reverse()
+      .slice(-730);
     const body = JSON.stringify({ entries });
     if (env.PRICES_KV && entries.length > 10) await env.PRICES_KV.put(CACHE_KEY, body, { expirationTtl: TTL });
     return new Response(body, { headers: { ...CORS, 'Content-Type': 'application/json' } });
   } catch(e) {
-    return json({ error: e.message, entries: [] }, 502);
+    return json({ error: 'Benchmark indisponible', entries: [] }, 502);
   }
 }
 
@@ -588,19 +628,7 @@ async function handleScheduled(env) {
           const d = await r.json();
           const p = Array.isArray(d) ? d[0] : d;
           if (!p || !p.price) return null;
-          const prevClose = +(p.price - (p.changes || 0)).toFixed(4);
-          const chgPct    = p.changesPercentage ?? (prevClose > 0 ? +(((p.changes||0)/prevClose)*100).toFixed(4) : 0);
-          return {
-            symbol: t.toUpperCase(), regularMarketPrice: p.price,
-            regularMarketChange: p.changes||0, regularMarketChangePercent: chgPct,
-            regularMarketPreviousClose: prevClose > 0 ? prevClose : null,
-            regularMarketVolume: p.volAvg||null, longName: p.companyName||null,
-            shortName: p.companyName||null, currency: p.currency||'USD',
-            trailingPE: null, marketCap: p.mktCap||null,
-            fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null,
-            marketState: 'REGULAR', lastDiv: p.lastDiv||null,
-            dividendYield: (p.lastDiv&&p.price>0) ? +(p.lastDiv/p.price).toFixed(6) : null,
-          };
+          return normalizeProfile(t, p);
         } catch(e) { console.warn(`[Cron] Profile ${t}:`, e.message); return null; }
       }));
       toStore.push(...profileResults.filter(Boolean));
@@ -702,8 +730,10 @@ async function getSync(env, userId) {
   ]);
   let settings = Object.fromEntries(stRes.results.map(r => [r.key, r.value]));
   if (!Object.keys(settings).length) {
-    const gs = await env.DB.prepare('SELECT key, value FROM settings').all();
-    settings = Object.fromEntries(gs.results.map(r => [r.key, r.value]));
+    try {
+      const gs = await env.DB.prepare('SELECT key, value FROM settings').all();
+      settings = Object.fromEntries(gs.results.map(r => [r.key, r.value]));
+    } catch(_) {} // table legacy peut ne pas exister
   }
   return json({ transactions: txRes.results, settings });
 }
@@ -721,9 +751,13 @@ async function postTransaction(req, env, userId) {
   let body;
   try { body = await req.json(); } catch { return err('invalid JSON'); }
   const { type, ticker, shares, price, amount, date, currency = 'USD' } = body;
-  if (!type)   return err('type required');
-  if (!ticker) return err('ticker required');
-  if (!date)   return err('date required');
+  const VALID_TYPES = new Set(['buy', 'sell', 'dividend']);
+  if (!type || !VALID_TYPES.has(type))   return err('type invalide (buy/sell/dividend)');
+  if (!ticker || typeof ticker !== 'string') return err('ticker requis');
+  if (ticker.length > 20 || !/^[A-Za-z0-9.\-^=]+$/.test(ticker)) return err('ticker invalide');
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return err('date invalide (YYYY-MM-DD)');
+  if (shares != null && (isNaN(shares) || +shares <= 0)) return err('shares invalide');
+  if (price  != null && (isNaN(price)  || +price  <  0)) return err('prix invalide');
 
   const r = await env.DB
     .prepare('INSERT INTO transactions (type,ticker,shares,price,amount,date,currency,user_id) VALUES (?,?,?,?,?,?,?,?)')
@@ -747,10 +781,12 @@ async function deleteTransaction(path, env, userId) {
 async function putSettings(req, env, userId) {
   let body;
   try { body = await req.json(); } catch { return err('invalid JSON'); }
-  const stmts = Object.entries(body).map(([key, value]) =>
-    env.DB.prepare('INSERT OR REPLACE INTO user_settings (user_id,key,value) VALUES (?,?,?)').bind(userId, key, String(value))
+  const ALLOWED_KEYS = new Set(['target','contrib','horizon','currency','pseudo','display_name','pfu','drip','fire_target']);
+  const entries = Object.entries(body).filter(([k]) => ALLOWED_KEYS.has(k));
+  if (!entries.length) return err('aucune clé valide');
+  const stmts = entries.map(([key, value]) =>
+    env.DB.prepare('INSERT OR REPLACE INTO user_settings (user_id,key,value) VALUES (?,?,?)').bind(userId, key, String(value).slice(0, 500))
   );
-  if (!stmts.length) return err('empty body');
   await env.DB.batch(stmts);
   return json({ ok: true });
 }
@@ -770,9 +806,12 @@ async function getBackup(env, userId) {
 
 // ── R2: POST /api/restore ────────────────────────────────────
 async function postRestore(req, env, userId) {
+  const contentLength = parseInt(req.headers.get('content-length') || '0', 10);
+  if (contentLength > 5_000_000) return err('Payload trop grand (max 5 Mo)', 413);
   let body;
   try { body = await req.json(); } catch { return err('invalid JSON'); }
   const { transactions = [], settings = {} } = body;
+  if (!Array.isArray(transactions) || transactions.length > 10000) return err('Format invalide');
   const stmts = [
     env.DB.prepare('DELETE FROM transactions WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM user_settings WHERE user_id = ?').bind(userId),

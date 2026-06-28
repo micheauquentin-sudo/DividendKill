@@ -105,6 +105,10 @@ function safetyLabel(sc) { return Calc.safetyLabel(sc); }
 function getPortfolioDSE() { return DividendSafety.getPortfolioDSE(); }
 
 /* ── Helper état vide générique ── */
+function _esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function _emptyState(icon, title, subtitle) {
   return '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:55vh;padding:24px 16px;text-align:center">'
     + '<div style="font-size:48px;margin-bottom:16px">' + icon + '</div>'
@@ -745,7 +749,7 @@ function renderSecteurs(el) {
         +'<div class="sb-top">'
         +'<div style="display:flex;align-items:center;gap:7px">' + _logo(dd.ticker, 24)
         +'<span class="sb-name" style="font-size:13px;font-weight:700">'+dd.ticker+getDivBadge(dd.ticker)+'</span>'
-        +(dd.name?'<span style="font-size:10px;color:var(--muted)">'+dd.name+'</span>':'')
+        +(dd.name?'<span style="font-size:10px;color:var(--muted)">'+_esc(dd.name)+'</span>':'')
         +'</div>'
         +'<span class="sb-info">'+w.toFixed(1)+'% · <span class="'+pC+'">'+(dd.pnl>=0?'+':'')+Math.round(toE(dd.pnl))+'€</span></span>'
         +'</div>'
@@ -2530,13 +2534,13 @@ function renderNews(el) {
     var n = items[i];
     h += '<div class="news-card">'
       +'<div class="news-top"><div style="display:flex;align-items:center;gap:8px">'
-      +'<span class="news-tk">'+n.t+'</span>'
+      +'<span class="news-tk">'+_esc(n.t)+'</span>'
       +'<span class="news-tag" style="background:'+n.tc+'22;color:'+n.tc+'">'+n.tag+'</span>'
       +'</div>'
       +'<span style="font-size:10px;color:var(--muted)">'+n.date+'</span>'
       +'</div>'
-      +'<div class="news-title">'+n.title+'</div>'
-      +'<div class="news-body">'+n.body+'</div>'
+      +'<div class="news-title">'+_esc(n.title)+'</div>'
+      +'<div class="news-body">'+_esc(n.body)+'</div>'
       +'</div>';
   }
   el.innerHTML = h;
@@ -3235,7 +3239,7 @@ function handleDrop(e) { e.preventDefault(); const f = e.dataTransfer.files[0]; 
 function handleFile(file) {
   if (!file) return;
   const st = document.getElementById('imp-status');
-  st.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:8px 0">↻ Lecture de ${file.name}…</div>`;
+  st.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:8px 0">↻ Lecture de ${_esc(file.name)}…</div>`;
   document.getElementById('imp-preview').innerHTML = '';
   const reader = new FileReader();
   reader.onload = e => { _importResult = BrokerImport.process(e.target.result); renderImportStatus(_importResult); renderImportPreview(_importResult); };
