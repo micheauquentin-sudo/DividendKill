@@ -379,18 +379,54 @@ async function priceProxy(req, env) {
           await Promise.all(data.map(async q => {
             const n = normalizeFmpQuote(q);
             cached[q.symbol] = n;
-            if (env.PRICES_KV) await env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(n), { expirationTtl: 86400 });
+            if (env.PRICES_KV && n.regularMarketPrice != null)
+              await env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(n), { expirationTtl: 86400 });
           }));
-          // Tickers retournés par FMP mais sans prix valide
-          const noPriceTickers = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null);
-          if (noPriceTickers.length) fmpError = `no price: ${noPriceTickers.join(',')}`;
         }
       }
     } catch(e) {
       fmpError = e.message;
       if (!Object.keys(cached).length) return err(`FMP: ${e.message}`, 502);
     }
+
+    // ── Fallback historique EOD pour tickers encore sans prix (marché fermé, plan free) ──
+    if (fmpError !== 'QUOTA') {
+      const noPx = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null);
+      if (noPx.length > 0) {
+        await Promise.all(noPx.map(async t => {
+          try {
+            const url = `https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${t}&limit=2&apikey=${env.FMP_KEY}`;
+            const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+            if (!r.ok) return;
+            const d = await r.json();
+            if (!Array.isArray(d) || !d.length || !d[0].close) return;
+            const last  = d[0];
+            const prev  = d[1];
+            const chg   = prev ? +(last.close - prev.close).toFixed(4) : 0;
+            const chgPct= prev ? +(chg / prev.close * 100).toFixed(4) : 0;
+            const n = {
+              symbol: t, regularMarketPrice: last.close,
+              regularMarketChange: chg, regularMarketChangePercent: chgPct,
+              regularMarketPreviousClose: prev?.close || last.close,
+              regularMarketVolume: null, longName: null, shortName: null,
+              currency: 'USD', trailingPE: null, marketCap: null,
+              fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null,
+              marketState: 'CLOSED', lastDiv: null, dividendYield: null,
+            };
+            cached[t] = n;
+            if (env.PRICES_KV)
+              await env.PRICES_KV.put(`p:${t}`, JSON.stringify(n), { expirationTtl: 86400 });
+            console.log(`[price] EOD fallback ${t}: ${last.close} (${last.date})`);
+          } catch(e2) { console.warn(`[price] EOD fallback ${t}:`, e2.message); }
+        }));
+      }
+    }
   }
+
+  // Tickers encore sans prix après tous les essais
+  const stillNoPx = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null);
+  if (stillNoPx.length) fmpError = (fmpError === 'QUOTA' ? 'QUOTA' : `no price: ${stillNoPx.join(',')}`);
+  else if (!fmpError) fmpError = null;
 
   const results = tickers.map(t => cached[t]).filter(Boolean);
   if (!results.length) return err('FMP: aucun résultat', 502);
