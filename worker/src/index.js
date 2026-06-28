@@ -390,20 +390,23 @@ async function priceProxy(req, env) {
     }
 
     // ── Fallback historique EOD pour tickers encore sans prix (marché fermé, plan free) ──
+    // Utilise /api/v3/historical-price-full (endpoint classique, disponible plan free FMP)
     if (fmpError !== 'QUOTA') {
       const noPx = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null);
       if (noPx.length > 0) {
         await Promise.all(noPx.map(async t => {
           try {
-            const url = `https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${t}&limit=2&apikey=${env.FMP_KEY}`;
+            const url = `https://financialmodelingprep.com/api/v3/historical-price-full/${encodeURIComponent(t)}?timeseries=2&serietype=line&apikey=${env.FMP_KEY}`;
             const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
             if (!r.ok) return;
             const d = await r.json();
-            if (!Array.isArray(d) || !d.length || !d[0].close) return;
-            const last  = d[0];
-            const prev  = d[1];
-            const chg   = prev ? +(last.close - prev.close).toFixed(4) : 0;
-            const chgPct= prev ? +(chg / prev.close * 100).toFixed(4) : 0;
+            // v3 format: { symbol, historical: [{date, close}, ...] }
+            const hist = d?.historical;
+            if (!Array.isArray(hist) || !hist.length || !hist[0].close) return;
+            const last  = hist[0];
+            const prev  = hist[1];
+            const chg    = prev ? +(last.close - prev.close).toFixed(4) : 0;
+            const chgPct = prev ? +(chg / prev.close * 100).toFixed(4) : 0;
             const n = {
               symbol: t, regularMarketPrice: last.close,
               regularMarketChange: chg, regularMarketChangePercent: chgPct,
@@ -416,8 +419,8 @@ async function priceProxy(req, env) {
             cached[t] = n;
             if (env.PRICES_KV)
               await env.PRICES_KV.put(`p:${t}`, JSON.stringify(n), { expirationTtl: 86400 });
-            console.log(`[price] EOD fallback ${t}: ${last.close} (${last.date})`);
-          } catch(e2) { console.warn(`[price] EOD fallback ${t}:`, e2.message); }
+            console.log(`[price] EOD v3 fallback ${t}: ${last.close} (${last.date})`);
+          } catch(e2) { console.warn(`[price] EOD v3 fallback ${t}:`, e2.message); }
         }));
       }
     }
@@ -758,13 +761,14 @@ async function debugPrice(req, env) {
   out.price_test_url = `https://${new URL(req.url).host}/?symbols=${symbol}`;
 
   if (env.FMP_KEY) {
+    // Test 1: /stable/quote (endpoint principal)
     const fmpUrl = `https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${env.FMP_KEY}`;
     out.fmp_url = fmpUrl.replace(env.FMP_KEY, '***');
     try {
       const res = await fetch(fmpUrl, { headers: { Accept: 'application/json' } });
       out.fmp_status = res.status;
       const text = await res.text();
-      out.fmp_raw_first200 = text.slice(0, 200);
+      out.fmp_raw_first200 = text.slice(0, 300);
       try {
         const data = JSON.parse(text);
         out.fmp_is_array = Array.isArray(data);
@@ -775,6 +779,20 @@ async function debugPrice(req, env) {
         }
       } catch(e) { out.fmp_parse_error = e.message; }
     } catch(e) { out.fmp_fetch_error = e.message; }
+
+    // Test 2: /api/v3/historical-price-full (fallback EOD)
+    try {
+      const histUrl = `https://financialmodelingprep.com/api/v3/historical-price-full/${symbol}?timeseries=2&serietype=line&apikey=${env.FMP_KEY}`;
+      out.fmp_hist_url = histUrl.replace(env.FMP_KEY, '***');
+      const hr = await fetch(histUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_hist_status = hr.status;
+      const ht = await hr.text();
+      out.fmp_hist_raw = ht.slice(0, 300);
+      try {
+        const hd = JSON.parse(ht);
+        out.fmp_hist_first = hd?.historical?.[0] || null;
+      } catch(e) { out.fmp_hist_parse_error = e.message; }
+    } catch(e) { out.fmp_hist_fetch_error = e.message; }
   }
 
   return json(out);
