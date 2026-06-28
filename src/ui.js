@@ -75,6 +75,8 @@ function goTo(idx) {
     if (pid === 'dividendes') { renderPanel(pid, el); }
     else if (!_rendered[pid]) { _rendered[pid] = 1; renderPanel(pid, el); }
   }
+  const inner = document.getElementById('panels-inner');
+  if (inner) inner.style.transform = `translateX(calc(-${idx} * 100vw))`;
   tabs[idx]?.scrollIntoView({behavior:'smooth', block:'nearest', inline:'center'});
   buildKPI();
 }
@@ -3264,21 +3266,96 @@ async function clearAll() {
 const App = (() => {
 
   const initSwipe = () => {
-    let sx = 0, sy = 0, startTarget = null;
+    let sx = 0, sy = 0, startTarget = null, swiping = false;
+    const getInner = () => document.getElementById('panels-inner');
+
+    // ── Pull-to-refresh ball ──────────────────────────────────
+    const ptr = document.createElement('div');
+    ptr.id = 'ptr-ball';
+    ptr.style.cssText = 'position:fixed;top:62px;left:50%;transform:translateX(-50%) translateY(-70px);z-index:5000;width:38px;height:38px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 14px rgba(0,0,0,.6);transition:transform .22s,opacity .22s;opacity:0;pointer-events:none';
+    ptr.innerHTML = '<svg id="ptr-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
+    document.body.appendChild(ptr);
+
+    const _ptrHide = () => {
+      ptr.style.transform = 'translateX(-50%) translateY(-70px)';
+      ptr.style.opacity = '0';
+      const ic = document.getElementById('ptr-icon');
+      if (ic) { ic.style.transform = ''; ic.style.animation = ''; }
+    };
+
     document.addEventListener('touchstart', e => {
       sx = e.touches[0].clientX;
       sy = e.touches[0].clientY;
       startTarget = e.target;
+      swiping = false;
+      const inn = getInner();
+      if (inn) inn.style.transition = 'none';
     }, {passive:true});
-    document.addEventListener('touchend', e => {
+
+    document.addEventListener('touchmove', e => {
       if (startTarget && startTarget.closest('.tabs')) return;
+      const dx = e.touches[0].clientX - sx;
+      const dy = e.touches[0].clientY - sy;
+      const inn = getInner();
+
+      // Detect horizontal swipe intent
+      if (!swiping && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.3) swiping = true;
+
+      if (swiping && inn) {
+        // Live drag: panels follow finger with rubber-band at edges
+        const nP = document.querySelectorAll('.panel').length;
+        let raw = -(_cur * window.innerWidth) + dx;
+        if (raw > 0)                           raw = raw * 0.25;
+        if (raw < -((nP - 1) * window.innerWidth)) raw = -((nP - 1) * window.innerWidth) + (raw + ((nP - 1) * window.innerWidth)) * 0.25;
+        inn.style.transform = `translateX(${raw}px)`;
+        return;
+      }
+
+      // Pull-to-refresh: vertical pull from top
+      if (!swiping && dy > 0 && Math.abs(dy) > Math.abs(dx) * 1.5) {
+        const ap = document.querySelector('.panel.on');
+        if (!ap || ap.scrollTop <= 2) {
+          const progress = Math.min(1, dy / 90);
+          ptr.style.transform = `translateX(-50%) translateY(${Math.min(dy * 0.45, 38) - 70}px)`;
+          ptr.style.opacity = progress.toFixed(2);
+          const ic = document.getElementById('ptr-icon');
+          if (ic) ic.style.transform = `rotate(${progress * 180}deg)`;
+        }
+      }
+    }, {passive:true});
+
+    document.addEventListener('touchend', e => {
+      const inn = getInner();
+      if (inn) inn.style.transition = 'transform .28s cubic-bezier(.25,.46,.45,.94)';
+
+      if (startTarget && startTarget.closest('.tabs')) { _ptrHide(); return; }
       const dx = e.changedTouches[0].clientX - sx;
       const dy = e.changedTouches[0].clientY - sy;
-      const tabs = document.querySelectorAll('.tab');
-      if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-        if (dx < 0 && _cur < tabs.length - 1) goTo(_cur + 1);
-        if (dx > 0 && _cur > 0)               goTo(_cur - 1);
+
+      // Commit or bounce horizontal swipe
+      if (swiping) {
+        const tabs = document.querySelectorAll('.tab');
+        if (Math.abs(dx) > 55) {
+          if (dx < 0 && _cur < tabs.length - 1) { goTo(_cur + 1); return; }
+          if (dx > 0 && _cur > 0)               { goTo(_cur - 1); return; }
+        }
+        // Bounce back
+        if (inn) inn.style.transform = `translateX(${-_cur * window.innerWidth}px)`;
+        return;
       }
+
+      // Pull-to-refresh trigger
+      const ap = document.querySelector('.panel.on');
+      if (dy > 70 && Math.abs(dy) > Math.abs(dx) * 1.5 && (!ap || ap.scrollTop <= 2)) {
+        ptr.style.transform = 'translateX(-50%) translateY(0px)';
+        const ic = document.getElementById('ptr-icon');
+        if (ic) { ic.style.transform = ''; ic.style.animation = 'ptr-spin .8s linear infinite'; }
+        syncIBKR();
+        setTimeout(_ptrHide, 2200);
+        return;
+      }
+
+      _ptrHide();
     }, {passive:true});
   };
 
@@ -3335,6 +3412,16 @@ const App = (() => {
     const allTabs = document.querySelectorAll('.tab');
     allTabs.forEach((tab, idx) => tab.addEventListener('click', () => goTo(idx)));
 
+    /* Wrap panels in slide container */
+    const _allPanelEls = [...document.querySelectorAll('.panel')];
+    const _panelsWrap = document.createElement('div');
+    _panelsWrap.id = 'panels-wrap';
+    const _panelsInner = document.createElement('div');
+    _panelsInner.id = 'panels-inner';
+    _allPanelEls[0].parentNode.insertBefore(_panelsWrap, _allPanelEls[0]);
+    _panelsWrap.appendChild(_panelsInner);
+    _allPanelEls.forEach(p => _panelsInner.appendChild(p));
+
     /* Init DSE bottom sheet */
     initDSESheet();
 
@@ -3344,9 +3431,11 @@ const App = (() => {
     /* Render accueil (toujours pré-rendu) */
     renderPanel('accueil', document.getElementById('panel-accueil'));
 
-    /* Restaure l'onglet actif depuis la dernière session */
+    /* Restaure l'onglet actif depuis la dernière session (sans animation) */
     const _savedTab = parseInt(localStorage.getItem('dk_active_tab') || '0', 10);
+    _panelsInner.style.transition = 'none';
     goTo(Number.isFinite(_savedTab) && _savedTab >= 0 && _savedTab < allTabs.length ? _savedTab : 0);
+    requestAnimationFrame(() => { _panelsInner.style.transition = ''; });
 
     /* Charge l'historique NAV (non bloquant) */
     fetch('/api/nav').then(r => r.json()).then(data => {

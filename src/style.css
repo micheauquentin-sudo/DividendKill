@@ -1,7 +1,7 @@
 /* ── RESET & BASE ─────────────────────────────────────── */
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%}
-body{background:#08080f;color:#e2e2ec;font-family:"DM Sans",system-ui,sans-serif;font-size:14px;min-height:100vh;overflow-x:hidden}
+body{background:#08080f;color:#e2e2ec;font-family:"DM Sans",system-ui,sans-serif;font-size:14px;min-height:100dvh;overflow-x:hidden;display:flex;flex-direction:column}
 a{color:inherit;text-decoration:none}
 button{font-family:inherit;cursor:pointer;border:none;background:none}
 /* ── CSS VARS ──────────────────────────────────────────── */
@@ -75,8 +75,13 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .login-mode-toggle span{color:var(--violet);font-weight:600}
 .login-note{font-size:10px;color:var(--muted);margin-top:20px;opacity:.6}
 /* ── PANELS ─────────────────────────────────────────────── */
+#panels-wrap{flex:1;overflow:hidden;min-height:0;position:relative}
+#panels-inner{display:flex;height:100%;will-change:transform}
+#panels-inner>.panel{display:block!important;flex-shrink:0;width:100vw;height:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;box-sizing:border-box;min-height:0;padding:16px 14px 80px}
+#panels-inner>#panel-accueil{display:flex!important;flex-direction:column}
 .panel{display:none;min-height:calc(100vh - var(--nav-h) - var(--tab-h));padding:16px 14px 80px}
 .panel.on{display:block}
+@keyframes ptr-spin{to{transform:rotate(360deg)}}
 /* ── TABS ───────────────────────────────────────────────── */
 .tabs{position:sticky;bottom:0;z-index:300;height:var(--tab-h);background:#0c0c18;border-top:1px solid var(--border);display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .tabs::-webkit-scrollbar{display:none}
