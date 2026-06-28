@@ -378,6 +378,7 @@ async function isRateLimited(env, key, limit) {
 }
 
 // ── Prix FMP avec cache KV ───────────────────────────────────
+// Utilise /stable/profile (plan free) — /stable/quote requiert plan payant (402)
 async function priceProxy(req, env) {
   const symbols = new URL(req.url).searchParams.get('symbols');
   if (!symbols)     return err('missing symbols');
@@ -390,7 +391,6 @@ async function priceProxy(req, env) {
   if (env.PRICES_KV) {
     await Promise.all(tickers.map(async t => {
       const val = await env.PRICES_KV.get(`p:${t}`, { type: 'json' });
-      // Ignore KV entries with null price — force re-fetch from FMP
       if (val && val.regularMarketPrice != null) cached[t] = val;
       else missing.push(t);
     }));
@@ -398,67 +398,27 @@ async function priceProxy(req, env) {
     missing.push(...tickers);
   }
 
-  let fmpError = null;
-
+  // /stable/profile : endpoint gratuit, 1 appel par ticker manquant, résultat mis en KV 24h
   if (missing.length > 0) {
-    try {
-      const fmpUrl = `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(missing.join(','))}&apikey=${env.FMP_KEY}`;
-      const res = await fetch(fmpUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-      if (!res.ok) {
-        let e = `FMP HTTP ${res.status}`;
-        try { const b = await res.json(); e = b?.['Error Message'] || b?.message || e; } catch(_) {}
-        console.error('[price] FMP error:', e);
-        fmpError = e;
-        if (!Object.keys(cached).length) return err(e, 502);
-      } else {
-        const data = await res.json();
-        if (!Array.isArray(data)) {
-          const msg = data?.['Error Message'] || data?.message || 'FMP: réponse inattendue';
-          const isQ = msg.toLowerCase().includes('limit') || msg.toLowerCase().includes('upgrade');
-          fmpError = isQ ? 'QUOTA' : msg;
-          if (!Object.keys(cached).length) return err(isQ ? 'FMP_QUOTA' : msg, isQ ? 429 : 502);
-        } else {
-          await Promise.all(data.map(async q => {
-            const n = normalizeFmpQuote(q);
-            cached[q.symbol] = n;
-            if (env.PRICES_KV && n.regularMarketPrice != null)
-              await env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(n), { expirationTtl: 86400 });
-          }));
-        }
-      }
-    } catch(e) {
-      fmpError = e.message;
-      if (!Object.keys(cached).length) return err(`FMP: ${e.message}`, 502);
-    }
-
-    // ── Fallback: /stable/profile (gratuit FMP, contient le prix courant) ──
-    // /stable/quote requiert plan payant; /stable/profile est disponible plan free
-    if (fmpError !== 'QUOTA') {
-      const noPx = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null);
-      if (noPx.length > 0) {
-        await Promise.all(noPx.map(async t => {
-          try {
-            const url = `https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(t)}&apikey=${env.FMP_KEY}`;
-            const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-            if (!r.ok) return;
-            const d = await r.json();
-            const p = Array.isArray(d) ? d[0] : d;
-            if (!p || !p.price) return;
-            const n = normalizeProfile(t, p);
-            cached[t] = n;
-            if (env.PRICES_KV && n.regularMarketPrice != null)
-              await env.PRICES_KV.put(`p:${t}`, JSON.stringify(n), { expirationTtl: 86400 });
-            console.log(`[price] Profile fallback ${t}: ${p.price} (${n.regularMarketChange >= 0 ? '+' : ''}${n.regularMarketChange})`);
-          } catch(e2) { console.warn(`[price] Profile fallback ${t}:`, e2.message); }
-        }));
-      }
-    }
+    await Promise.all(missing.map(async t => {
+      try {
+        const url = `https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(t)}&apikey=${env.FMP_KEY}`;
+        const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+        if (!r.ok) { console.warn(`[price] Profile ${t}: HTTP ${r.status}`); return; }
+        const d = await r.json();
+        const p = Array.isArray(d) ? d[0] : d;
+        if (!p || !p.price) return;
+        const n = normalizeProfile(t, p);
+        cached[t] = n;
+        if (env.PRICES_KV && n.regularMarketPrice != null)
+          await env.PRICES_KV.put(`p:${t}`, JSON.stringify(n), { expirationTtl: 86400 });
+      } catch(e) { console.warn(`[price] Profile ${t}:`, e.message); }
+    }));
   }
 
-  // Tickers encore sans prix après tous les essais
-  const stillNoPx = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null);
-  if (stillNoPx.length) fmpError = (fmpError === 'QUOTA' ? 'QUOTA' : `no price: ${stillNoPx.join(',')}`);
-  else if (!fmpError) fmpError = null;
+  const fmpError = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null).length
+    ? `no price: ${missing.filter(t => !cached[t]).join(',')}`
+    : null;
 
   const results = tickers.map(t => cached[t]).filter(Boolean);
   if (!results.length) return err('FMP: aucun résultat', 502);
@@ -582,40 +542,19 @@ async function handleScheduled(env) {
     if (!tickers.length) { console.log('[Cron] Aucun ticker'); return; }
     const tickerSet = new Set(tickers.map(t => t.toUpperCase()));
 
-    // ── Appel 1 : prix de tous les tickers (batch /stable/quote) ─
-    let toStore = [];
-    const priceRes = await fetch(
-      `${FMP_BASE}/quote?symbol=${encodeURIComponent(tickers.join(','))}&apikey=${env.FMP_KEY}`,
-      { headers: HEADERS }
-    );
-    if (priceRes.ok) {
-      const priceData = await priceRes.json();
-      if (Array.isArray(priceData)) {
-        toStore = priceData.map(normalizeFmpQuote).filter(q => q.regularMarketPrice != null);
-      } else {
-        console.warn('[Cron] Réponse /stable/quote inattendue — fallback profile');
-      }
-    } else {
-      console.warn('[Cron] FMP /stable/quote HTTP', priceRes.status, '— fallback profile individuel');
-    }
-
-    // ── Fallback profile: tickers sans prix après batch ───────
-    const gotSymbols = new Set(toStore.map(q => q.symbol));
-    const cronMissing = tickers.filter(t => !gotSymbols.has(t.toUpperCase()));
-    if (cronMissing.length > 0) {
-      console.log(`[Cron] Profile fallback pour ${cronMissing.length} tickers: ${cronMissing.join(',')}`);
-      const profileResults = await Promise.all(cronMissing.map(async t => {
-        try {
-          const r = await fetch(`${FMP_BASE}/profile?symbol=${encodeURIComponent(t)}&apikey=${env.FMP_KEY}`, { headers: HEADERS });
-          if (!r.ok) return null;
-          const d = await r.json();
-          const p = Array.isArray(d) ? d[0] : d;
-          if (!p || !p.price) return null;
-          return normalizeProfile(t, p);
-        } catch(e) { console.warn(`[Cron] Profile ${t}:`, e.message); return null; }
-      }));
-      toStore.push(...profileResults.filter(Boolean));
-    }
+    // ── Prix via /stable/profile (plan free, 1 appel/ticker) ──
+    // /stable/quote est payant (402) — on utilise profile directement
+    const profileResults = await Promise.all(tickers.map(async t => {
+      try {
+        const r = await fetch(`${FMP_BASE}/profile?symbol=${encodeURIComponent(t)}&apikey=${env.FMP_KEY}`, { headers: HEADERS });
+        if (!r.ok) return null;
+        const d = await r.json();
+        const p = Array.isArray(d) ? d[0] : d;
+        if (!p || !p.price) return null;
+        return normalizeProfile(t, p);
+      } catch(e) { console.warn(`[Cron] Profile ${t}:`, e.message); return null; }
+    }));
+    const toStore = profileResults.filter(Boolean);
 
     // ── Appel 2 : calendrier dividendes déclarés (30 jours) ──
     const today  = new Date();
