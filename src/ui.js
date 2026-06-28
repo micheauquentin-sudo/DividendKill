@@ -1297,6 +1297,16 @@ const TICKER_DB = {
   UNM:  {pe_cur:7.8, pe_5y:9.4, fair:115,streak:15,safe:78,sector:'Finance',  beta:0.90,d:1.56,moat:'#1 assurance invalidit\u00e9 USA/UK. Pricing power.',risk:'Long\u00e9vit\u00e9. R\u00e9gulation assurance.',why:'UNM +122% vs PRU. P/E 7.8x. Rerating significatif.'}
 };
 
+const _TICKER_NAMES = {
+  ACN:'Accenture', ADP:'Automatic Data Processing', APD:'Air Products',
+  BMY:'Bristol-Myers Squibb', CMCSA:'Comcast', CTBI:'Community Bankshares',
+  HRL:'Hormel Foods', HTO:'H&T Group', JNJ:'Johnson & Johnson',
+  MDT:'Medtronic', MMM:'3M Company', NEE:'NextEra Energy',
+  NFG:'National Fuel Gas', NNN:'NNN REIT', NWN:'Northwest Natural',
+  O:'Realty Income', PPG:'PPG Industries', SON:'Sonoco Products',
+  TGT:'Target', TSN:'Tyson Foods', UGI:'UGI Corporation', UNM:'Unum Group'
+};
+
 function seedAssetsFromDB() {
   for (const [ticker, info] of Object.entries(TICKER_DB)) {
     if (!Data.assets[ticker]) Data.assets[ticker] = {};
@@ -3430,51 +3440,61 @@ function fabTickerInput(val) {
 async function _fabDoSearch(q) {
   var el = document.getElementById('fab-suggestions');
   if (!el) return;
-  el.innerHTML = '<div class="fab-sug-loading">🔍 Recherche…</div>';
+  el.innerHTML = '<div class="fab-sug-loading">\u{1F50D} Recherche…</div>';
   try {
-    /* Yahoo Finance search — fonctionne sans clé API */
-    var url = 'https://query1.finance.yahoo.com/v1/finance/search?q='
-      + encodeURIComponent(q) + '&quotesCount=8&newsCount=0&listsCount=0&lang=fr-FR';
-    var res = await fetch(url, {mode:'cors'});
+    var res = await fetch('/api/search?q=' + encodeURIComponent(q));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     var data = await res.json();
-    var quotes = (data.quotes || []).filter(function(r){ return r.quoteType === 'EQUITY'; }).slice(0,7);
-    if (!quotes.length) {
-      el.innerHTML = '<div class="fab-sug-loading">Aucun résultat pour « ' + q + ' »</div>';
-      return;
-    }
-    el.innerHTML = quotes.map(function(r) {
-      var flag = _EXCH_FLAG[r.exchange] || '🏳️';
-      var nameSafe = (r.shortname || r.longname || r.symbol).replace(/'/g, '&#39;');
-      var exchSafe = (r.exchange || '').replace(/'/g, '');
+    if (data.error) throw new Error(data.error);
+    var results = data.results || [];
+    if (!results.length) { _fabOfflineSearch(q, el); return; }
+    var _EXCH_TO_FLAG = {NASDAQ:'\U0001F1FA\U0001F1F8',NYSE:'\U0001F1FA\U0001F1F8',AMEX:'\U0001F1FA\U0001F1F8',TSX:'\U0001F1E8\U0001F1E6',LSE:'\U0001F1EC\U0001F1E7',EURONEXT:'\U0001F1EA\U0001F1FA',XETRA:'\U0001F1E9\U0001F1EA'};
+    el.innerHTML = results.map(function(r) {
+      var flag = _EXCH_TO_FLAG[r.exchangeShortName] || '\U0001F3F3️';
+      var nameSafe = (r.name || r.symbol).replace(/'/g, '&#39;');
+      var exchSafe = (r.exchangeShortName || '').replace(/'/g, '');
       return '<div class="fab-sug-item" onclick="fabSelectTicker(\''
         + r.symbol + '\',\'' + nameSafe + '\',\'' + exchSafe + '\')">'
+        + _logo(r.symbol, 24)
+        + '<div style="flex:1;min-width:0;margin-left:8px">'
         + '<span class="fab-sug-tk">' + r.symbol + '</span>'
-        + '<span class="fab-sug-name">' + (r.shortname || r.longname || '') + '</span>'
-        + '<div class="fab-sug-right"><span class="fab-sug-flag">' + flag + '</span>'
-        + '<span class="fab-sug-isin" id="isin-' + r.symbol + '">ISIN…</span></div>'
+        + '<span class="fab-sug-name">' + (r.name || '') + '</span>'
+        + '</div>'
+        + '<div class="fab-sug-right"><span class="fab-sug-flag">' + flag + '</span></div>'
         + '</div>';
     }).join('');
-    /* Enrichissement ISIN en parallèle via OpenFIGI */
-    _fabEnrichISINs(quotes);
   } catch(e) {
-    /* Si CORS bloqué : afficher les tickers statiques du portefeuille */
-    var matches = Object.keys(TICKER_DB).filter(function(t){
-      return t.toLowerCase().startsWith(q.toLowerCase());
-    }).slice(0,6);
-    if (!matches.length) {
-      el.innerHTML = '<div class="fab-sug-loading" style="color:#f5a623">Recherche hors ligne · Saisis le ticker manuellement</div>';
-      return;
-    }
-    el.innerHTML = matches.map(function(t) {
-      var info = TICKER_DB[t];
-      return '<div class="fab-sug-item" onclick="fabSelectTicker(\'' + t + '\',\'' + t + '\',\'NMS\')">'
-        + '<span class="fab-sug-tk">' + t + '</span>'
-        + '<span class="fab-sug-name">' + (info.why || info.sector || '') + '</span>'
-        + '<div class="fab-sug-right"><span class="fab-sug-flag">🇺🇸</span></div>'
-        + '</div>';
-    }).join('');
+    _fabOfflineSearch(q, el);
   }
+}
+
+function _fabOfflineSearch(q, el) {
+  var ql = q.toLowerCase();
+  var dbMatches = Object.keys(TICKER_DB).filter(function(t) {
+    var name = (_TICKER_NAMES[t] || '').toLowerCase();
+    return t.toLowerCase().includes(ql) || name.includes(ql);
+  });
+  var portMatches = raw.map(function(r){ return r.ticker; }).filter(function(t) {
+    var name = (Data.assets[t] && Data.assets[t].name || '').toLowerCase();
+    return !TICKER_DB[t] && (t.toLowerCase().includes(ql) || name.includes(ql));
+  });
+  var matches = dbMatches.concat(portMatches).slice(0, 7);
+  if (!matches.length) {
+    el.innerHTML = '<div class="fab-sug-loading" style="color:#f5a623">Hors ligne · Saisis le ticker (ex : TSLA)</div>';
+    return;
+  }
+  el.innerHTML = matches.map(function(t) {
+    var name = _TICKER_NAMES[t] || (Data.assets[t] && Data.assets[t].name) || '';
+    var nameSafe = name.replace(/'/g, '&#39;');
+    return '<div class="fab-sug-item" onclick="fabSelectTicker(\'' + t + '\',\'' + nameSafe + '\',\'NMS\')">'
+      + _logo(t, 24)
+      + '<div style="flex:1;min-width:0;margin-left:8px">'
+      + '<span class="fab-sug-tk">' + t + '</span>'
+      + '<span class="fab-sug-name">' + name + '</span>'
+      + '</div>'
+      + '<div class="fab-sug-right"><span class="fab-sug-flag">\U0001F1FA\U0001F1F8</span></div>'
+      + '</div>';
+  }).join('');
 }
 
 async function _fabEnrichISINs(quotes) {

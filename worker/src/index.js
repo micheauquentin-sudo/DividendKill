@@ -415,6 +415,24 @@ async function fmpProxy(req, env) {
   }
 }
 
+async function searchProxy(req, env) {
+  const q = new URL(req.url).searchParams.get('q') || '';
+  if (!q || q.length < 2) return json({ results: [] });
+  if (!env.FMP_KEY) return json({ error: 'FMP_KEY not configured' }, 500);
+  try {
+    const url = `https://financialmodelingprep.com/stable/search?query=${encodeURIComponent(q)}&limit=10&apikey=${env.FMP_KEY}`;
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`FMP HTTP ${res.status}`);
+    const data = await res.json();
+    const results = (Array.isArray(data) ? data : [])
+      .filter(r => r.exchangeShortName && ['NYSE','NASDAQ','AMEX','TSX','LSE','EURONEXT','XETRA'].includes(r.exchangeShortName))
+      .slice(0, 8);
+    return json({ results });
+  } catch(e) {
+    return json({ error: e.message }, 502);
+  }
+}
+
 // ── Cron: prix + fondamentaux automatiques à la clôture marché ─
 const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
 
@@ -650,6 +668,7 @@ export default {
     // Routes publiques (prix / fondamentaux)
     if (path === '/api/prices')      return priceProxy(req, env);
     if (path === '/api/funda')       return fmpProxy(req, env);
+    if (path === '/api/search')      return searchProxy(req, env);
     if (path === '/api/debug/price') return debugPrice(req, env);
 
     // Routes auth
