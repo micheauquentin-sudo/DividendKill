@@ -62,7 +62,7 @@
   </div>
   <div class="nav-right">
     <button class="sync-btn" onclick="syncIBKR()">&#8635; Sync</button>
-    <button class="nav-user-btn" id="navUserBtn" onclick="authLogout()" title="Déconnexion" style="display:none">
+    <button class="nav-user-btn" id="navUserBtn" onclick="openProfileModal()" title="Mon profil" style="display:none">
       <span id="navUserInitial" class="nav-user-initial"></span>
     </button>
   </div>
@@ -150,6 +150,24 @@
     <button class="bs-btn-cancel" onclick="closeFABSheet()">Annuler</button>
     <button class="bs-btn" onclick="submitFABTx()">Enregistrer</button>
   </div>
+</div>
+
+
+<!-- Profile overlay -->
+<div id="pm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1100" onclick="closeProfileModal()"></div>
+
+<!-- Profile modal (bottom sheet) -->
+<div id="profile-modal" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:1101;background:var(--surface,#14141f);border-radius:20px 20px 0 0;padding:20px 18px 36px;flex-direction:column;gap:12px;max-width:480px;margin:0 auto">
+  <div style="width:36px;height:4px;background:rgba(255,255,255,.15);border-radius:2px;margin:0 auto 14px;flex-shrink:0"></div>
+  <div style="font-size:17px;font-weight:700;color:var(--text,#e2e2ec);margin-bottom:4px">Mon profil</div>
+  <div style="font-size:12px;color:var(--muted,#52527a);margin-bottom:2px">Adresse email</div>
+  <div id="pm-email" style="font-size:13px;color:var(--text,#e2e2ec);background:rgba(255,255,255,.05);border-radius:9px;padding:10px 12px;margin-bottom:4px;word-break:break-all"></div>
+  <label style="font-size:12px;color:var(--muted,#52527a)">Pseudo</label>
+  <input id="pm-pseudo" type="text" placeholder="Ton pseudo…" autocomplete="nickname" style="width:100%;box-sizing:border-box;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:10px 12px;color:var(--text,#e2e2ec);font-size:13px;font-family:inherit;outline:none">
+  <label style="font-size:12px;color:var(--muted,#52527a)">Prénom / Nom</label>
+  <input id="pm-name" type="text" placeholder="Prénom Nom" autocomplete="name" style="width:100%;box-sizing:border-box;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:10px 12px;color:var(--text,#e2e2ec);font-size:13px;font-family:inherit;outline:none">
+  <button onclick="saveProfile()" style="margin-top:6px;width:100%;padding:12px;border-radius:10px;border:none;background:#6c63ff;color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">Enregistrer</button>
+  <button onclick="authLogout()" style="width:100%;padding:12px;border-radius:10px;border:1px solid rgba(244,63,94,.3);background:rgba(244,63,94,.08);color:#f43f5e;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Se déconnecter</button>
 </div>
 
 <script type="module" src="./main.js"></script>
