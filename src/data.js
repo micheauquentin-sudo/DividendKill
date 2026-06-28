@@ -40,7 +40,12 @@ export const Data = (() => {
     '1D' : {g:120,p:0.48,nav:[24880,25000]}
   };
 
-  return { currentPrices, dailyChange, assets, get transactions() { return transactions; }, set transactions(v) { transactions = v; }, PERF };
+  /* Fixe un prix de repli (PRU) pour un ticker tant que le marché n'a pas chargé */
+  const setFallbackPrice = (ticker, price) => {
+    if (ticker && price > 0) _fallbackPrices[ticker] = price;
+  };
+
+  return { currentPrices, dailyChange, assets, setFallbackPrice, get transactions() { return transactions; }, set transactions(v) { transactions = v; }, PERF };
 })();
 
 export const assets = Data.assets;

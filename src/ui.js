@@ -3536,8 +3536,8 @@ function syncIBKR() {
   const btn = document.querySelector('.sync-btn');
   if (btn) { btn.textContent = '⟳ Sync...'; btn.disabled = true; }
 
-  // Vide le cache prix pour forcer un re-fetch complet
-  MarketData.clearCache();
+  // Invalide les TTL (force re-fetch) sans effacer les données (anciens prix conservés si FMP échoue)
+  MarketData.invalidateCache();
 
   let successCount = 0;
 
@@ -3814,6 +3814,10 @@ function submitFABTx() {
     }
   }).catch(function(){});
   BrokerImport.applyToPortfolio();
+  /* Prix de repli = PRU tant que le marché n'a pas chargé → évite -100% */
+  if ((type === 'buy' || type === 'sell') && price > 0 && !MarketData.getCachedPrice(ticker)) {
+    Data.setFallbackPrice(ticker, price);
+  }
   _rendered = {};
   buildKPI();
   closeFABSheet();

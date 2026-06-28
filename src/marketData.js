@@ -194,12 +194,20 @@ export const MarketData = (() => {
     try { localStorage.removeItem(CACHE_KEY); } catch(e) {}
   }
 
+  /* Invalide les TTL sans effacer les données — les anciens prix restent disponibles
+     si la prochaine requête FMP échoue (évite de repasser à 0$ après Sync) */
+  function invalidateCache() {
+    for (const k in _cache) if (_cache[k]) _cache[k].ts = 0;
+    try { localStorage.removeItem(CACHE_KEY); } catch(e) {}
+  }
+
   return {
     getQuote,
     getDividendData,
     getFundamentals,
     refreshAll,
     clearCache,
+    invalidateCache,
     getCachedPrice,
     getCachedChange,
     getStatus,

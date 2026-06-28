@@ -33,8 +33,9 @@ export const Calc = (() => {
       const p2 = pos[ticker];
       if (p2.shares <= 0) continue;
       const a   = Data.assets[ticker] || {};
-      const price = Data.currentPrices[ticker] || 0;
       const avg   = p2.shares > 0 ? p2.totalCost / p2.shares : 0;
+      // Fallback au PRU si le prix de marché n'est pas encore chargé → évite -100%
+      const price = Data.currentPrices[ticker] || avg;
       const mv    = p2.shares * price;
       result.push({
         ticker, name: a.name || ticker, sec: a.sector || '?',
