@@ -389,38 +389,45 @@ async function priceProxy(req, env) {
       if (!Object.keys(cached).length) return err(`FMP: ${e.message}`, 502);
     }
 
-    // ── Fallback historique EOD pour tickers encore sans prix (marché fermé, plan free) ──
-    // Utilise /api/v3/historical-price-full (endpoint classique, disponible plan free FMP)
+    // ── Fallback: /stable/profile (gratuit FMP, contient le prix courant) ──
+    // /stable/quote requiert plan payant; /stable/profile est disponible plan free
     if (fmpError !== 'QUOTA') {
       const noPx = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null);
       if (noPx.length > 0) {
         await Promise.all(noPx.map(async t => {
           try {
-            const url = `https://financialmodelingprep.com/api/v3/historical-price-full/${encodeURIComponent(t)}?timeseries=2&serietype=line&apikey=${env.FMP_KEY}`;
+            const url = `https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(t)}&apikey=${env.FMP_KEY}`;
             const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
             if (!r.ok) return;
             const d = await r.json();
-            // v3 format: { symbol, historical: [{date, close}, ...] }
-            const hist = d?.historical;
-            if (!Array.isArray(hist) || !hist.length || !hist[0].close) return;
-            const last  = hist[0];
-            const prev  = hist[1];
-            const chg    = prev ? +(last.close - prev.close).toFixed(4) : 0;
-            const chgPct = prev ? +(chg / prev.close * 100).toFixed(4) : 0;
+            // Profile format: [{ symbol, price, changes, changesPercentage, companyName, mktCap, lastDiv, ... }]
+            const p = Array.isArray(d) ? d[0] : d;
+            if (!p || !p.price) return;
+            const prevClose = +(p.price - (p.changes || 0)).toFixed(4);
+            const chgPct    = p.changesPercentage ?? (prevClose > 0 ? +(((p.changes || 0) / prevClose) * 100).toFixed(4) : 0);
             const n = {
-              symbol: t, regularMarketPrice: last.close,
-              regularMarketChange: chg, regularMarketChangePercent: chgPct,
-              regularMarketPreviousClose: prev?.close || last.close,
-              regularMarketVolume: null, longName: null, shortName: null,
-              currency: 'USD', trailingPE: null, marketCap: null,
-              fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null,
-              marketState: 'CLOSED', lastDiv: null, dividendYield: null,
+              symbol:                     t,
+              regularMarketPrice:         p.price,
+              regularMarketChange:        p.changes        || 0,
+              regularMarketChangePercent: chgPct,
+              regularMarketPreviousClose: prevClose > 0 ? prevClose : null,
+              regularMarketVolume:        p.volAvg         || null,
+              longName:                   p.companyName    || null,
+              shortName:                  p.companyName    || null,
+              currency:                   p.currency       || 'USD',
+              trailingPE:                 null,
+              marketCap:                  p.mktCap         || null,
+              fiftyTwoWeekHigh:           null,
+              fiftyTwoWeekLow:            null,
+              marketState:                'REGULAR',
+              lastDiv:                    p.lastDiv        || null,
+              dividendYield:              (p.lastDiv && p.price > 0) ? +(p.lastDiv / p.price).toFixed(6) : null,
             };
             cached[t] = n;
-            if (env.PRICES_KV)
+            if (env.PRICES_KV && n.regularMarketPrice != null)
               await env.PRICES_KV.put(`p:${t}`, JSON.stringify(n), { expirationTtl: 86400 });
-            console.log(`[price] EOD v3 fallback ${t}: ${last.close} (${last.date})`);
-          } catch(e2) { console.warn(`[price] EOD v3 fallback ${t}:`, e2.message); }
+            console.log(`[price] Profile fallback ${t}: ${p.price} (${(p.changes||0) >= 0 ? '+' : ''}${p.changes||0})`);
+          } catch(e2) { console.warn(`[price] Profile fallback ${t}:`, e2.message); }
         }));
       }
     }
@@ -552,15 +559,52 @@ async function handleScheduled(env) {
     if (!tickers.length) { console.log('[Cron] Aucun ticker'); return; }
     const tickerSet = new Set(tickers.map(t => t.toUpperCase()));
 
-    // ── Appel 1 : prix de tous les tickers (batch) ───────────
+    // ── Appel 1 : prix de tous les tickers (batch /stable/quote) ─
+    let toStore = [];
     const priceRes = await fetch(
       `${FMP_BASE}/quote?symbol=${encodeURIComponent(tickers.join(','))}&apikey=${env.FMP_KEY}`,
       { headers: HEADERS }
     );
-    if (!priceRes.ok) { console.warn('[Cron] FMP prix HTTP', priceRes.status); return; }
-    const priceData = await priceRes.json();
-    if (!Array.isArray(priceData)) { console.warn('[Cron] Réponse prix inattendue'); return; }
-    const toStore = priceData.map(normalizeFmpQuote).filter(q => q.regularMarketPrice != null);
+    if (priceRes.ok) {
+      const priceData = await priceRes.json();
+      if (Array.isArray(priceData)) {
+        toStore = priceData.map(normalizeFmpQuote).filter(q => q.regularMarketPrice != null);
+      } else {
+        console.warn('[Cron] Réponse /stable/quote inattendue — fallback profile');
+      }
+    } else {
+      console.warn('[Cron] FMP /stable/quote HTTP', priceRes.status, '— fallback profile individuel');
+    }
+
+    // ── Fallback profile: tickers sans prix après batch ───────
+    const gotSymbols = new Set(toStore.map(q => q.symbol));
+    const cronMissing = tickers.filter(t => !gotSymbols.has(t.toUpperCase()));
+    if (cronMissing.length > 0) {
+      console.log(`[Cron] Profile fallback pour ${cronMissing.length} tickers: ${cronMissing.join(',')}`);
+      const profileResults = await Promise.all(cronMissing.map(async t => {
+        try {
+          const r = await fetch(`${FMP_BASE}/profile?symbol=${encodeURIComponent(t)}&apikey=${env.FMP_KEY}`, { headers: HEADERS });
+          if (!r.ok) return null;
+          const d = await r.json();
+          const p = Array.isArray(d) ? d[0] : d;
+          if (!p || !p.price) return null;
+          const prevClose = +(p.price - (p.changes || 0)).toFixed(4);
+          const chgPct    = p.changesPercentage ?? (prevClose > 0 ? +(((p.changes||0)/prevClose)*100).toFixed(4) : 0);
+          return {
+            symbol: t.toUpperCase(), regularMarketPrice: p.price,
+            regularMarketChange: p.changes||0, regularMarketChangePercent: chgPct,
+            regularMarketPreviousClose: prevClose > 0 ? prevClose : null,
+            regularMarketVolume: p.volAvg||null, longName: p.companyName||null,
+            shortName: p.companyName||null, currency: p.currency||'USD',
+            trailingPE: null, marketCap: p.mktCap||null,
+            fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null,
+            marketState: 'REGULAR', lastDiv: p.lastDiv||null,
+            dividendYield: (p.lastDiv&&p.price>0) ? +(p.lastDiv/p.price).toFixed(6) : null,
+          };
+        } catch(e) { console.warn(`[Cron] Profile ${t}:`, e.message); return null; }
+      }));
+      toStore.push(...profileResults.filter(Boolean));
+    }
 
     // ── Appel 2 : calendrier dividendes déclarés (30 jours) ──
     const today  = new Date();
@@ -780,19 +824,23 @@ async function debugPrice(req, env) {
       } catch(e) { out.fmp_parse_error = e.message; }
     } catch(e) { out.fmp_fetch_error = e.message; }
 
-    // Test 2: /api/v3/historical-price-full (fallback EOD)
+    // Test 2: /stable/profile (fallback gratuit FMP)
     try {
-      const histUrl = `https://financialmodelingprep.com/api/v3/historical-price-full/${symbol}?timeseries=2&serietype=line&apikey=${env.FMP_KEY}`;
-      out.fmp_hist_url = histUrl.replace(env.FMP_KEY, '***');
-      const hr = await fetch(histUrl, { headers: { Accept: 'application/json' } });
-      out.fmp_hist_status = hr.status;
-      const ht = await hr.text();
-      out.fmp_hist_raw = ht.slice(0, 300);
+      const profUrl = `https://financialmodelingprep.com/stable/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`;
+      out.fmp_profile_url = profUrl.replace(env.FMP_KEY, '***');
+      const pr = await fetch(profUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_profile_status = pr.status;
+      const pt = await pr.text();
+      out.fmp_profile_raw = pt.slice(0, 400);
       try {
-        const hd = JSON.parse(ht);
-        out.fmp_hist_first = hd?.historical?.[0] || null;
-      } catch(e) { out.fmp_hist_parse_error = e.message; }
-    } catch(e) { out.fmp_hist_fetch_error = e.message; }
+        const pd = JSON.parse(pt);
+        const p0 = Array.isArray(pd) ? pd[0] : pd;
+        out.fmp_profile_price    = p0?.price    ?? null;
+        out.fmp_profile_changes  = p0?.changes  ?? null;
+        out.fmp_profile_company  = p0?.companyName ?? null;
+        out.fmp_profile_lastDiv  = p0?.lastDiv  ?? null;
+      } catch(e) { out.fmp_profile_parse_error = e.message; }
+    } catch(e) { out.fmp_profile_fetch_error = e.message; }
   }
 
   return json(out);
