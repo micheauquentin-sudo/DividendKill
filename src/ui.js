@@ -3818,6 +3818,25 @@ function submitFABTx() {
   buildKPI();
   closeFABSheet();
   if (navigator.vibrate) navigator.vibrate([10,40,10]);
+  /* Refresh prix du ticker si achat/vente (peut être nouveau dans le portfolio) */
+  if (type === 'buy' || type === 'sell') {
+    MarketData.refreshAll([ticker], function(tk, quote) {
+      if (!Data.assets[tk]) Data.assets[tk] = {};
+      var a = Data.assets[tk];
+      if (quote.annual_div != null) a.d = quote.annual_div;
+      else if (quote.div_yield > 0 && quote.price > 0) a.d = +(quote.div_yield * quote.price).toFixed(4);
+      if (quote.name        != null) a.name       = quote.name;
+      if (quote.pe_cur      != null) a.pe_cur     = quote.pe_cur;
+      if (quote.beta        != null) a.beta       = quote.beta;
+      if (quote.market_cap  != null) a.market_cap = quote.market_cap;
+      a._from_api = true;
+      Calc.recompute();
+      _rendered = {};
+      buildKPI();
+      const cur = document.querySelector('.panel.on');
+      if (cur) renderPanel(cur.id.replace('panel-', ''), cur);
+    }).catch(function(){});
+  }
   /* Success flash on FAB */
   var fab = document.getElementById('mainFAB');
   if (fab) {
