@@ -398,22 +398,41 @@ async function priceProxy(req, env) {
     missing.push(...tickers);
   }
 
-  // /stable/profile : endpoint gratuit, 1 appel par ticker manquant, résultat mis en KV 24h
+  // /stable/profile batch : 1 seul appel FMP pour tous les tickers manquants
   if (missing.length > 0) {
-    await Promise.all(missing.map(async t => {
-      try {
-        const url = `https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(t)}&apikey=${env.FMP_KEY}`;
-        const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-        if (!r.ok) { console.warn(`[price] Profile ${t}: HTTP ${r.status}`); return; }
+    try {
+      const batchUrl = `https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(missing.join(','))}&apikey=${env.FMP_KEY}`;
+      const r = await fetch(batchUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+      if (r.ok) {
         const d = await r.json();
-        const p = Array.isArray(d) ? d[0] : d;
-        if (!p || !p.price) return;
-        const n = normalizeProfile(t, p);
-        cached[t] = n;
-        if (env.PRICES_KV && n.regularMarketPrice != null)
-          await env.PRICES_KV.put(`p:${t}`, JSON.stringify(n), { expirationTtl: 86400 });
-      } catch(e) { console.warn(`[price] Profile ${t}:`, e.message); }
-    }));
+        const profiles = Array.isArray(d) ? d : (d && d.price ? [d] : []);
+        await Promise.all(profiles.map(async p => {
+          const sym = (p.symbol || '').toUpperCase();
+          if (!sym || !p.price) return;
+          const n = normalizeProfile(sym, p);
+          cached[sym] = n;
+          if (env.PRICES_KV && n.regularMarketPrice != null)
+            await env.PRICES_KV.put(`p:${sym}`, JSON.stringify(n), { expirationTtl: 86400 });
+        }));
+        // Retente en individuel les tickers non retournés par le batch
+        const stillMissing = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null);
+        await Promise.all(stillMissing.map(async t => {
+          try {
+            const r2 = await fetch(`https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(t)}&apikey=${env.FMP_KEY}`, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+            if (!r2.ok) return;
+            const d2 = await r2.json();
+            const p2 = Array.isArray(d2) ? d2[0] : d2;
+            if (!p2 || !p2.price) return;
+            const n2 = normalizeProfile(t, p2);
+            cached[t] = n2;
+            if (env.PRICES_KV && n2.regularMarketPrice != null)
+              await env.PRICES_KV.put(`p:${t}`, JSON.stringify(n2), { expirationTtl: 86400 });
+          } catch(e2) { console.warn(`[price] Profile individuel ${t}:`, e2.message); }
+        }));
+      } else {
+        console.warn(`[price] Batch profile HTTP ${r.status}`);
+      }
+    } catch(e) { console.warn('[price] Batch profile:', e.message); }
   }
 
   const fmpError = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null).length
@@ -542,19 +561,34 @@ async function handleScheduled(env) {
     if (!tickers.length) { console.log('[Cron] Aucun ticker'); return; }
     const tickerSet = new Set(tickers.map(t => t.toUpperCase()));
 
-    // ── Prix via /stable/profile (plan free, 1 appel/ticker) ──
+    // ── Prix via /stable/profile batch (1 seul appel FMP) ───────
     // /stable/quote est payant (402) — on utilise profile directement
-    const profileResults = await Promise.all(tickers.map(async t => {
-      try {
-        const r = await fetch(`${FMP_BASE}/profile?symbol=${encodeURIComponent(t)}&apikey=${env.FMP_KEY}`, { headers: HEADERS });
-        if (!r.ok) return null;
+    let toStore = [];
+    try {
+      const r = await fetch(`${FMP_BASE}/profile?symbol=${encodeURIComponent(tickers.join(','))}&apikey=${env.FMP_KEY}`, { headers: HEADERS });
+      if (r.ok) {
         const d = await r.json();
-        const p = Array.isArray(d) ? d[0] : d;
-        if (!p || !p.price) return null;
-        return normalizeProfile(t, p);
-      } catch(e) { console.warn(`[Cron] Profile ${t}:`, e.message); return null; }
-    }));
-    const toStore = profileResults.filter(Boolean);
+        const profiles = Array.isArray(d) ? d : (d && d.price ? [d] : []);
+        toStore = profiles.map(p => p && p.price ? normalizeProfile((p.symbol || '').toUpperCase(), p) : null).filter(Boolean);
+      } else {
+        console.warn('[Cron] Batch profile HTTP', r.status);
+      }
+    } catch(e) { console.warn('[Cron] Batch profile:', e.message); }
+    // Retente en individuel les tickers absents du batch
+    const gotBatch = new Set(toStore.map(q => q.symbol));
+    const stillMissing = tickers.filter(t => !gotBatch.has(t.toUpperCase()));
+    if (stillMissing.length > 0) {
+      const fallback = await Promise.all(stillMissing.map(async t => {
+        try {
+          const r = await fetch(`${FMP_BASE}/profile?symbol=${encodeURIComponent(t)}&apikey=${env.FMP_KEY}`, { headers: HEADERS });
+          if (!r.ok) return null;
+          const d = await r.json();
+          const p = Array.isArray(d) ? d[0] : d;
+          return (p && p.price) ? normalizeProfile(t, p) : null;
+        } catch(e) { console.warn(`[Cron] Profile fallback ${t}:`, e.message); return null; }
+      }));
+      toStore.push(...fallback.filter(Boolean));
+    }
 
     // ── Appel 2 : calendrier dividendes déclarés (30 jours) ──
     const today  = new Date();
