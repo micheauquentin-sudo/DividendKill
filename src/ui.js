@@ -139,6 +139,7 @@ function buildSVG(pts, col, H) {
 var _mode = '1Y';
 var _hoverIdx = -1;
 var _navHistory = null; // { nav: [{date, nav_usd}] } chargé depuis /api/nav
+var _spyHistory = null; // [{date, close}] chargé depuis /api/benchmark
 
 function _logo(ticker, size) {
   size = size || 28;
@@ -152,6 +153,37 @@ function _logo(ticker, size) {
 function renderAccueil(el) {
   el._drawAcc = _drawAccueil;
   _drawAccueil(el);
+}
+
+function _buildSpyOverlay(pts) {
+  if (!_spyHistory || _spyHistory.length < 2 || !_navHistory || _navHistory.length < 2) return null;
+  var now = new Date();
+  var spyMap = {};
+  for (var i = 0; i < _spyHistory.length; i++) spyMap[_spyHistory[i].date] = _spyHistory[i].close;
+  var hist = _navHistory;
+  var dates = [];
+  if (_mode === '1D') {
+    var sl = hist.slice(-2); for (var a=0;a<sl.length;a++) dates.push(sl[a].date);
+  } else if (_mode === '7D') {
+    var sl7 = hist.slice(-7); for (var b=0;b<sl7.length;b++) dates.push(sl7[b].date);
+  } else if (_mode === 'MTD') {
+    var firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+    for (var c=0;c<hist.length;c++) { if (hist[c].date >= firstOfMonth) dates.push(hist[c].date); }
+  } else {
+    var oneYearAgo = new Date(now.getTime() - 365*86400000).toISOString().slice(0,10);
+    for (var d=0;d<hist.length;d++) { if (hist[d].date >= oneYearAgo) dates.push(hist[d].date); }
+  }
+  if (dates.length < 2 || dates.length !== pts.length) return null;
+  var closes = []; var lastC = null;
+  for (var n=0;n<dates.length;n++) {
+    var cv = spyMap[dates[n]]; if (cv != null) lastC = cv; closes.push(lastC);
+  }
+  var firstVal = null;
+  for (var p=0;p<closes.length;p++) { if (closes[p] != null) { firstVal = closes[p]; break; } }
+  if (!firstVal) return null;
+  for (var q=0;q<closes.length;q++) { if (closes[q] == null) closes[q] = firstVal; }
+  var spyStart = closes[0];
+  return closes.map(function(cv){ return cv / spyStart * pts[0]; });
 }
 
 function _buildNavPts(mv, dpnl, pnl, cost) {
@@ -223,11 +255,17 @@ function _drawAccueil(el) {
   var dCol = dpnl >= 0 ? '#10b981' : '#f43f5e';
   // Build chart pts (USD) — vraies données si disponibles, sinon synthétique
   var pts = _buildNavPts(mv, dpnl, pnl, cost);
+  var spyPts = _buildSpyOverlay(pts);
   var col = (_mode === '1D') ? (dpnl >= 0 ? '#10b981' : '#f43f5e') : (pnl >= 0 ? '#10b981' : '#f43f5e');
   var hIdx = (_hoverIdx >= 0 && _hoverIdx < pts.length) ? _hoverIdx : pts.length - 1;
   var hVal = pts[hIdx], hVal0 = pts[0];
   var hG = hVal - hVal0, hP = hVal0>0?hG/hVal0*100:0;
   var hCol = hG >= 0 ? '#10b981' : '#f43f5e';
+  var spyInitPct = null, spyInitAlpha = null;
+  if (spyPts && spyPts.length === pts.length) {
+    var _sV = spyPts[hIdx], _sG = _sV - hVal0, _sP = hVal0 > 0 ? _sG/hVal0*100 : 0;
+    spyInitPct = _sP; spyInitAlpha = hP - _sP;
+  }
   var sorted;
   if (_mode === '1D') {
     // 1 jour : trier par % variation du jour (dpnl / mv)
@@ -316,6 +354,7 @@ function _drawAccueil(el) {
     + '</div>'
     + '<div class="home-chart" id="accChart"></div>'
     + '<div class="chart-toggle">' + ctbtn('1Y','1 an') + ctbtn('MTD','Mois') + ctbtn('7D','7 j') + ctbtn('1D','Auj.') + '</div>'
+    + (spyPts ? '<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 2px 2px;margin-top:2px"><span id="accSpyPct" style="font-size:11px;color:#6b7280;font-family:DM Mono,monospace">S&amp;P 500 '+(spyInitPct!==null?(spyInitPct>=0?'+':'')+spyInitPct.toFixed(2)+'%':'--')+'</span><span id="accAlpha" class="'+(spyInitAlpha!==null&&spyInitAlpha>=0?'badge-up':'badge-dn')+'" style="font-size:10px">\u03b1 '+(spyInitAlpha!==null?(spyInitAlpha>=0?'+':'')+spyInitAlpha.toFixed(2)+'%':'--')+'</span></div>' : '')
     + '<div class="row3">'
     +   '<div class="mini-k"><div class="mini-k-l">Yield</div><div class="mini-k-v up">' + yld.toFixed(2) + '%</div><div class="mini-k-s">' + Math.round(getDivA()/eu()) + '\u20ac/an</div></div>'
     +   '<div class="mini-k"><div class="mini-k-l">YoC</div><div class="mini-k-v" style="color:#86efad">' + yoc.toFixed(2) + '%</div><div class="mini-k-s">Sur co\u00fbt</div></div>'
@@ -327,7 +366,7 @@ function _drawAccueil(el) {
     + '</div>'
     + '</div>';
   var chartEl = document.getElementById('accChart');
-  if (chartEl) _buildInteractiveChart(chartEl, pts, col, hIdx);
+  if (chartEl) _buildInteractiveChart(chartEl, pts, col, hIdx, spyPts);
   var btns = el.querySelectorAll('.ctbtn');
   for (var ci = 0; ci < btns.length; ci++) {
     (function(b) {
@@ -338,10 +377,13 @@ function _drawAccueil(el) {
   }
 }
 
-function _buildInteractiveChart(container, pts, col, activeIdx) {
+function _buildInteractiveChart(container, pts, col, activeIdx, spyPts) {
   var W = 360, H = Math.max(115, container.offsetHeight || 130);
   var mn = pts[0], mx = pts[0];
   for (var i=1;i<pts.length;i++){if(pts[i]<mn)mn=pts[i];if(pts[i]>mx)mx=pts[i];}
+  if (spyPts && spyPts.length === pts.length) {
+    for (var si=0;si<spyPts.length;si++){if(spyPts[si]<mn)mn=spyPts[si];if(spyPts[si]>mx)mx=spyPts[si];}
+  }
   var rng = mx - mn || 1;
   function px(i){ return ((i/(pts.length-1))*W).toFixed(1); }
   function py(v){ return (H - ((v-mn)/rng*(H*0.82)+H*0.09)).toFixed(1); }
@@ -351,14 +393,23 @@ function _buildInteractiveChart(container, pts, col, activeIdx) {
   var gid='gc'+(col.replace('#',''));
   var aIdx = activeIdx >= 0 ? activeIdx : pts.length-1;
   var ax = parseFloat(px(aIdx)), ay = parseFloat(py(pts[aIdx]));
+  var spyLine = '', spyDotSvg = '';
+  if (spyPts && spyPts.length === pts.length) {
+    var ds='M'+px(0)+' '+py(spyPts[0]);
+    for(var sk=1;sk<spyPts.length;sk++) ds+=' L'+px(sk)+' '+py(spyPts[sk]);
+    spyLine = '<path d="'+ds+'" fill="none" stroke="#6b7280" stroke-width="1.4" stroke-dasharray="4,3" stroke-linejoin="round" opacity="0.7"/>';
+    spyDotSvg = '<circle id="chartSpyDot" cx="'+ax+'" cy="'+parseFloat(py(spyPts[aIdx]))+'" r="3.5" fill="#6b7280" stroke="#08080f" stroke-width="2"/>';
+  }
   container.innerHTML = '<svg id="accSvg" viewBox="0 0 '+W+' '+H+'" style="width:100%;display:block;height:100%;min-height:'+H+'px;touch-action:pan-y;cursor:crosshair" preserveAspectRatio="none">'
     +'<defs><linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1">'
     +'<stop offset="0%" stop-color="'+col+'" stop-opacity="0.28"/>'
     +'<stop offset="100%" stop-color="'+col+'" stop-opacity="0.02"/>'
     +'</linearGradient></defs>'
     +'<path d="'+fill+'" fill="url(#'+gid+')" />'
+    +spyLine
     +'<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="1.8" stroke-linejoin="round"/>'
     +'<line id="chartCursor" x1="'+ax+'" y1="0" x2="'+ax+'" y2="'+H+'" stroke="rgba(255,255,255,.25)" stroke-width="1" stroke-dasharray="3,3"/>'
+    +spyDotSvg
     +'<circle id="chartDot" cx="'+ax+'" cy="'+ay+'" r="5" fill="'+col+'" stroke="#08080f" stroke-width="2.5"/>'
     +'</svg>';
   var svg = document.getElementById('accSvg');
@@ -371,21 +422,38 @@ function _buildInteractiveChart(container, pts, col, activeIdx) {
   function updateCursor(idx) {
     var cursor = document.getElementById('chartCursor');
     var dot    = document.getElementById('chartDot');
+    var spyDot = document.getElementById('chartSpyDot');
     var navEl  = document.getElementById('accNav');
     var pnlEl  = document.getElementById('accPnl');
     var pctEl  = document.getElementById('accPct');
     var lblEl  = document.getElementById('accLabel');
+    var spyEl  = document.getElementById('accSpyPct');
+    var alphaEl= document.getElementById('accAlpha');
     if (!cursor) return;
     var x = parseFloat(px(idx)), y = parseFloat(py(pts[idx]));
     cursor.setAttribute('x1',x); cursor.setAttribute('x2',x);
     if (dot) { dot.setAttribute('cx',x); dot.setAttribute('cy',y); }
+    if (spyDot && spyPts && spyPts.length === pts.length) {
+      spyDot.setAttribute('cx', x);
+      spyDot.setAttribute('cy', parseFloat(py(spyPts[idx])));
+    }
     _hoverIdx = idx;
     var hV=pts[idx], h0=pts[0], hG=hV-h0, hP=h0>0?hG/h0*100:0;
     var hC=hG>=0?'#10b981':'#f43f5e';
-    if (navEl) navEl.textContent=Math.round(hV/eu()).toLocaleString('fr-FR')+' \u20ac';
-    if (pnlEl){pnlEl.textContent=(hG>=0?'+':'')+Math.round(hG/eu()).toLocaleString('fr-FR')+' \u20ac';pnlEl.style.color=hC;}
+    if (navEl) navEl.textContent=Math.round(hV/eu()).toLocaleString('fr-FR')+' €';
+    if (pnlEl){pnlEl.textContent=(hG>=0?'+':'')+Math.round(hG/eu()).toLocaleString('fr-FR')+' €';pnlEl.style.color=hC;}
     if (pctEl){pctEl.textContent=(hG>=0?'+':'')+hP.toFixed(2)+'%';pctEl.className=(hG>=0?'badge-up':'badge-dn');}
     if (lblEl) lblEl.textContent=idx===pts.length-1?'Actuel':'J-'+(pts.length-1-idx);
+    if (spyEl && spyPts && spyPts.length === pts.length) {
+      var sV=spyPts[idx], sG=sV-h0, sP=h0>0?sG/h0*100:0;
+      spyEl.textContent='S&P 500 '+(sP>=0?'+':'')+sP.toFixed(2)+'%';
+      if (alphaEl) {
+        var alpha=hP-sP;
+        alphaEl.textContent='α '+(alpha>=0?'+':'')+alpha.toFixed(2)+'%';
+        alphaEl.className=alpha>=0?'badge-up':'badge-dn';
+        alphaEl.style.fontSize='10px';
+      }
+    }
   }
   svg.addEventListener('mousemove', function(e){ updateCursor(getIdx(e.clientX)); });
   svg.addEventListener('touchstart', function(e){ e.preventDefault(); updateCursor(getIdx(e.touches[0].clientX)); }, {passive:false});
@@ -3286,6 +3354,15 @@ const App = (() => {
         _navHistory = data.nav;
         const accEl = document.getElementById('panel-accueil');
         if (accEl && accEl.classList.contains('on')) renderPanel('accueil', accEl);
+      }
+    }).catch(() => {});
+
+    /* Charge le benchmark S&P 500 (non bloquant) */
+    fetch('/api/benchmark').then(r => r.json()).then(data => {
+      if (data && Array.isArray(data.entries) && data.entries.length >= 2) {
+        _spyHistory = data.entries;
+        const accEl2 = document.getElementById('panel-accueil');
+        if (accEl2 && accEl2.classList.contains('on')) renderPanel('accueil', accEl2);
       }
     }).catch(() => {});
 
