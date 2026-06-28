@@ -334,9 +334,20 @@ function _drawAccueil(el) {
   var gH = '', lH = '';
   var topN = Math.min(3, sorted.length);
   for (var a = 0; a < topN; a++) gH += mrow(sorted[a], 'up');
-  var botStart = sorted.length - 1;
-  var botEnd = Math.max(sorted.length - 3, topN);
-  for (var b = botStart; b >= botEnd; b--) lH += mrow(sorted[b], 'dn');
+  // FLOP : exclure les entrées déjà en TOP et ne montrer que les vrais sous-performants
+  var flopCount = 0;
+  for (var b = sorted.length - 1; b >= topN && flopCount < 3; b--) {
+    var _pct = sorted[b].avg > 0 ? (sorted[b].price - sorted[b].avg) / sorted[b].avg * 100 : 0;
+    var _val = _mode === '1D' ? (sorted[b].dpnl || 0)
+             : _mode === '7D' ? (sorted[b].dpnl || 0) * 5
+             : sorted[b].pnl || 0;
+    // Pour 1Y/MTD : ne montrer que si performance négative
+    // Pour 1D/7D  : montrer les pires même si positifs (variations intraday)
+    if (_mode === '1D' || _mode === '7D' || _pct < 0) {
+      lH += mrow(sorted[b], 'dn');
+      flopCount++;
+    }
+  }
   function ctbtn(v, lbl) {
     return '<button class="ctbtn' + (_mode === v ? ' on' : '') + '" data-m="' + v + '">' + lbl + '</button>';
   }
