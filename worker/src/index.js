@@ -790,6 +790,20 @@ async function postRestore(req, env, userId) {
   return json({ ok: true, restored: transactions.length });
 }
 
+// ── DELETE /api/account ─────────────────────────────────────
+async function deleteAccount(env, userId) {
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM transactions WHERE user_id = ?').bind(userId),
+    env.DB.prepare('DELETE FROM user_settings WHERE user_id = ?').bind(userId),
+    env.DB.prepare('DELETE FROM portfolio_nav WHERE user_id = ?').bind(userId),
+    env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId),
+  ]);
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { ...CORS, 'Content-Type': 'application/json', 'Set-Cookie': 'session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0' },
+  });
+}
+
 // ── Debug prix (diagnostic mobile) ───────────────────────────
 // Par défaut: vérifie KV uniquement (pas d'appel FMP — économise les crédits)
 // Avec ?live=1 : teste aussi les endpoints FMP en direct
@@ -885,6 +899,8 @@ export default {
       if (path === '/api/restore'     && method === 'POST') return postRestore(req, env, uid);
       if (path.startsWith('/api/transaction/') && method === 'DELETE')
         return deleteTransaction(path, env, uid);
+      if (path === '/api/account' && method === 'DELETE')
+        return deleteAccount(env, uid);
 
       return err('route not found', 404);
     }

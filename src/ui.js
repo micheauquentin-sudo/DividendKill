@@ -617,8 +617,8 @@ function renderRendement(el) {
 }
 
 
-var _secteursTab = 'secteur';
 function renderSecteurs(el) {
+  if (window._secteursTab === undefined) window._secteursTab = 'secteur';
   if (raw.length === 0) { el.innerHTML = _emptyState('\U0001F3AF', 'Aucun secteur', 'La diversification sectorielle s\'affiche dès que tu as des positions.'); return; }
   var mv = getMV();
   var cols = {
@@ -682,7 +682,7 @@ function renderSecteurs(el) {
 
   var h = '<div class="section-title">Diversification</div>' + toggle;
 
-  if (_secteursTab === 'secteur') {
+  if (window._secteursTab === 'secteur') {
     var map = {};
     for (var i = 0; i < raw.length; i++) {
       var d = raw[i];
@@ -3944,6 +3944,16 @@ function closeProfileModal() {
   var ov = document.getElementById('pm-overlay');
   if (ov) ov.style.display = 'none';
 }
+async function deleteAccount() {
+  if (!confirm('Supprimer définitivement ton compte et toutes tes données ?\n\nCette action est irréversible.')) return;
+  if (!confirm('Dernière confirmation : toutes tes transactions et données seront effacées.')) return;
+  try {
+    await fetch('/api/account', { method: 'DELETE', credentials: 'include' });
+  } catch(e) {}
+  localStorage.clear();
+  D1Client.logout();
+}
+
 async function saveProfile() {
   var pseudo = (document.getElementById('pm-pseudo').value || '').trim();
   var displayName = (document.getElementById('pm-name').value || '').trim();
@@ -4038,9 +4048,10 @@ function toggleRndCard(ticker) {
 
 // ── Expose global functions for inline HTML event handlers ──
 Object.assign(window, {
+  renderSecteurs, renderDividendes,
   syncIBKR,
   authLogin, authLogout, authLoginEmail, loginTabSwitch, loginToggleMode,
-  openProfileModal, closeProfileModal, saveProfile,
+  openProfileModal, closeProfileModal, saveProfile, deleteAccount,
   openFABSheet, closeFABSheet, submitFABTx, fabTickerInput, fabSelectTicker,
   showDSESheet, closeDSESheet,
   toggleRndCard,
