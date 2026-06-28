@@ -401,7 +401,7 @@ async function priceProxy(req, env) {
   // /stable/profile batch : 1 seul appel FMP pour tous les tickers manquants
   if (missing.length > 0) {
     try {
-      const batchUrl = `https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(missing.join(','))}&apikey=${env.FMP_KEY}`;
+      const batchUrl = `https://financialmodelingprep.com/stable/profile?symbol=${missing.join(',')}&apikey=${env.FMP_KEY}`;
       const r = await fetch(batchUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
       if (r.ok) {
         const d = await r.json();
@@ -463,10 +463,15 @@ async function fmpProxy(req, env) {
       const text = await r.text();
       try { return JSON.parse(text); } catch(_) { throw new Error('FMP réponse non-JSON'); }
     };
-    const [profile, metrics] = await Promise.all([
+    // key-metrics-ttm peut être restreint sur le plan gratuit — on le rend optionnel
+    // pour ne pas bloquer le cache KV si l'endpoint retourne 402
+    const [profileRes, metricsRes] = await Promise.allSettled([
       fetch(`${base}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(safeJson),
-      fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(safeJson),
+      fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.ok ? r.json() : null),
     ]);
+    if (profileRes.status === 'rejected') throw new Error(profileRes.reason?.message || 'profile failed');
+    const profile = profileRes.value;
+    const metrics = metricsRes.status === 'fulfilled' ? metricsRes.value : null;
     const result = { profile, metrics };
     if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: ttlFunda() });
     return json(result);
@@ -565,7 +570,7 @@ async function handleScheduled(env) {
     // /stable/quote est payant (402) — on utilise profile directement
     let toStore = [];
     try {
-      const r = await fetch(`${FMP_BASE}/profile?symbol=${encodeURIComponent(tickers.join(','))}&apikey=${env.FMP_KEY}`, { headers: HEADERS });
+      const r = await fetch(`${FMP_BASE}/profile?symbol=${tickers.join(',')}&apikey=${env.FMP_KEY}`, { headers: HEADERS });
       if (r.ok) {
         const d = await r.json();
         const profiles = Array.isArray(d) ? d : (d && d.price ? [d] : []);
