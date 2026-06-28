@@ -16,8 +16,8 @@
  *   POST   /api/restore           → restaurer depuis backup
  *
  * Routes publiques:
- *   GET  /?symbols=JNJ,MMM        → prix FMP (KV cache 30min)
- *   GET  /?fmp=all&symbol=JNJ     → fondamentaux FMP
+ *   GET  /api/prices?symbols=JNJ,MMM   → prix FMP (KV cache 30min)
+ *   GET  /api/funda?symbol=JNJ         → fondamentaux FMP
  *
  * Cron (toutes les 30min):
  *   Pré-cache les tickers du portefeuille D1 dans KV
@@ -138,6 +138,8 @@ async function ensureMigrations(db) {
       ['user_settings',  "CREATE TABLE IF NOT EXISTS user_settings (user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (user_id, key))"],
       ['users_table',    "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, pw_hash TEXT NOT NULL, name TEXT, created_at INTEGER NOT NULL DEFAULT (unixepoch()))"],
       ['users_idx_email',"CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)"],
+      ['portfolio_nav',  "CREATE TABLE IF NOT EXISTS portfolio_nav (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, date TEXT NOT NULL, nav_usd REAL NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()), UNIQUE(user_id, date))"],
+      ['idx_nav_user',   "CREATE INDEX IF NOT EXISTS idx_nav_user ON portfolio_nav(user_id, date)"],
     ];
     for (const [id, sql] of migs) {
       if (done.has(id)) continue;
@@ -415,6 +417,30 @@ async function fmpProxy(req, env) {
   }
 }
 
+async function searchProxy(req) {
+  const q = new URL(req.url).searchParams.get('q') || '';
+  if (!q || q.length < 2) return json({ results: [] });
+  try {
+    // Yahoo Finance autocomplete — gratuit, sans clé API, pas de CORS depuis le worker
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=10&newsCount=0&listsCount=0`;
+    const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' } });
+    if (!res.ok) throw new Error(`YF HTTP ${res.status}`);
+    const data = await res.json();
+    const ALLOWED_EXCHANGES = new Set(['NYSE','NMS','NGM','NCM','ASE','TSX','LSE','PAR','AMS','XETRA','MCE']);
+    const results = (data.quotes || [])
+      .filter(r => r.quoteType === 'EQUITY' && ALLOWED_EXCHANGES.has(r.exchange))
+      .slice(0, 8)
+      .map(r => ({
+        symbol: r.symbol,
+        name: r.shortname || r.longname || r.symbol,
+        exchangeShortName: r.exchange,
+      }));
+    return json({ results });
+  } catch(e) {
+    return json({ error: e.message }, 502);
+  }
+}
+
 // ── Cron: prix + fondamentaux automatiques à la clôture marché ─
 const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
 
@@ -510,6 +536,37 @@ async function handleScheduled(env) {
     }
 
     console.log(`[Cron] ${toStore.length} prix · ${fundaInit} inits · ${divChanged} versements changés · ${declUpdated} déclarations anticipées`);
+
+    // ── Snapshot NAV par utilisateur (1 ligne/jour, 0 crédit FMP) ─
+    try {
+      const priceMap = {};
+      toStore.forEach(q => { if (q.regularMarketPrice) priceMap[q.symbol] = q.regularMarketPrice; });
+
+      const today_date = fmt(new Date());
+      const { results: positions } = await env.DB.prepare(
+        `SELECT user_id, ticker,
+           SUM(CASE WHEN type='buy' THEN shares ELSE -shares END) AS net_shares
+         FROM transactions WHERE type IN ('buy','sell')
+         GROUP BY user_id, ticker
+         HAVING net_shares > 0`
+      ).all();
+
+      const navByUser = {};
+      for (const { user_id, ticker, net_shares } of positions) {
+        const price = priceMap[ticker.toUpperCase()];
+        if (price && net_shares > 0) {
+          navByUser[user_id] = (navByUser[user_id] || 0) + net_shares * price;
+        }
+      }
+
+      await Promise.all(Object.entries(navByUser).map(([uid, nav_usd]) =>
+        env.DB.prepare(
+          'INSERT OR REPLACE INTO portfolio_nav (user_id, date, nav_usd) VALUES (?,?,?)'
+        ).bind(uid, today_date, Math.round(nav_usd * 100) / 100).run()
+      ));
+      console.log(`[Cron] NAV snapshot: ${Object.keys(navByUser).length} utilisateur(s) · ${today_date}`);
+    } catch(e) { console.warn('[Cron] NAV snapshot:', e.message); }
+
   } catch(e) { console.warn('[Cron]', e.message); }
 }
 
@@ -525,6 +582,14 @@ async function getSync(env, userId) {
     settings = Object.fromEntries(gs.results.map(r => [r.key, r.value]));
   }
   return json({ transactions: txRes.results, settings });
+}
+
+// ── D1: GET /api/nav ─────────────────────────────────────────
+async function getNav(env, userId) {
+  const { results } = await env.DB.prepare(
+    'SELECT date, nav_usd FROM portfolio_nav WHERE user_id = ? ORDER BY date ASC'
+  ).bind(userId).all();
+  return json({ nav: results });
 }
 
 // ── D1: POST /api/transaction ────────────────────────────────
@@ -601,6 +666,43 @@ async function postRestore(req, env, userId) {
   return json({ ok: true, restored: transactions.length });
 }
 
+// ── Debug prix (diagnostic mobile) ───────────────────────────
+async function debugPrice(req, env) {
+  const symbol = (new URL(req.url).searchParams.get('symbol') || 'JNJ').toUpperCase();
+  const out = { symbol, fmp_key_set: !!env.FMP_KEY, kv_bound: !!env.PRICES_KV };
+
+  if (env.PRICES_KV) {
+    try {
+      const kv = await env.PRICES_KV.get(`p:${symbol}`, { type: 'json' });
+      out.kv_cached = kv;
+    } catch(e) { out.kv_error = e.message; }
+  }
+
+  out.price_test_url = `https://${new URL(req.url).host}/?symbols=${symbol}`;
+
+  if (env.FMP_KEY) {
+    const fmpUrl = `https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${env.FMP_KEY}`;
+    out.fmp_url = fmpUrl.replace(env.FMP_KEY, '***');
+    try {
+      const res = await fetch(fmpUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_status = res.status;
+      const text = await res.text();
+      out.fmp_raw_first200 = text.slice(0, 200);
+      try {
+        const data = JSON.parse(text);
+        out.fmp_is_array = Array.isArray(data);
+        out.fmp_count = Array.isArray(data) ? data.length : null;
+        if (Array.isArray(data) && data.length > 0) {
+          out.fmp_first = data[0];
+          out.normalized = normalizeFmpQuote(data[0]);
+        }
+      } catch(e) { out.fmp_parse_error = e.message; }
+    } catch(e) { out.fmp_fetch_error = e.message; }
+  }
+
+  return json(out);
+}
+
 // ── Router ───────────────────────────────────────────────────
 export default {
   async fetch(req, env, ctx) {
@@ -611,8 +713,10 @@ export default {
     if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
     // Routes publiques (prix / fondamentaux)
-    if (url.searchParams.has('symbols')) return priceProxy(req, env);
-    if (url.searchParams.has('fmp'))     return fmpProxy(req, env);
+    if (path === '/api/prices')      return priceProxy(req, env);
+    if (path === '/api/funda')       return fmpProxy(req, env);
+    if (path === '/api/search')      return searchProxy(req, env);
+    if (path === '/api/debug/price') return debugPrice(req, env);
 
     // Routes auth
     if (path === '/auth/login')       return handleAuthLogin(req, env);
@@ -630,6 +734,7 @@ export default {
       const uid = user.sub;
 
       if (path === '/api/sync'        && method === 'GET')  return getSync(env, uid);
+      if (path === '/api/nav'         && method === 'GET')  return getNav(env, uid);
       if (path === '/api/transaction' && method === 'POST') return postTransaction(req, env, uid);
       if (path === '/api/settings'    && method === 'PUT')  return putSettings(req, env, uid);
       if (path === '/api/backup'      && method === 'GET')  return getBackup(env, uid);

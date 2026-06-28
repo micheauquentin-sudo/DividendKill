@@ -138,10 +138,67 @@ function buildSVG(pts, col, H) {
 /* -- ACCUEIL ---------------------------------------------- */
 var _mode = '1Y';
 var _hoverIdx = -1;
+var _navHistory = null; // { nav: [{date, nav_usd}] } chargé depuis /api/nav
+
+function _logo(ticker, size) {
+  size = size || 28;
+  return '<img src="https://financialmodelingprep.com/image-stock/' + ticker + '.png"'
+    + ' width="' + size + '" height="' + size + '" alt=""'
+    + ' style="border-radius:50%;object-fit:contain;background:var(--surface2);flex-shrink:0;display:inline-block"'
+    + ' onerror="this.style.display=\'none\'"'
+    + ' loading="lazy">';
+}
 
 function renderAccueil(el) {
   el._drawAcc = _drawAccueil;
   _drawAccueil(el);
+}
+
+function _buildNavPts(mv, dpnl, pnl, cost) {
+  var hist = _navHistory && _navHistory.length >= 2 ? _navHistory : null;
+  if (hist) {
+    var now = new Date();
+    var isoToday = now.toISOString().slice(0, 10);
+    // S'assure que le dernier point reflète la valeur live actuelle
+    var pts_hist = hist.map(function(d) { return d.nav_usd; });
+    pts_hist[pts_hist.length - 1] = mv; // remplace par valeur live
+    if (_mode === '1D') {
+      // Hier vs aujourd'hui
+      var prev = pts_hist.length >= 2 ? pts_hist[pts_hist.length - 2] : Math.max(mv - dpnl, 0.01);
+      return [prev, mv];
+    }
+    if (_mode === '7D') {
+      var slice7 = pts_hist.slice(-7);
+      if (slice7.length < 2) slice7 = [Math.max(mv - dpnl * 5, 0.01), mv];
+      return slice7;
+    }
+    if (_mode === 'MTD') {
+      var y = now.getFullYear(), m = now.getMonth();
+      var firstOfMonth = new Date(y, m, 1).toISOString().slice(0, 10);
+      var mtdSlice = [];
+      for (var i = 0; i < hist.length; i++) { if (hist[i].date >= firstOfMonth) mtdSlice.push(hist[i].nav_usd); }
+      mtdSlice[mtdSlice.length > 0 ? mtdSlice.length - 1 : 0] = mv;
+      return mtdSlice.length >= 2 ? mtdSlice : [Math.max(mv - pnl * 0.1, 0.01), mv];
+    }
+    // 1Y — dernier 365 jours (max 260 points de trading)
+    var oneYearAgo = new Date(now.getTime() - 365 * 86400000).toISOString().slice(0, 10);
+    var y1Slice = [];
+    for (var j = 0; j < hist.length; j++) { if (hist[j].date >= oneYearAgo) y1Slice.push(hist[j].nav_usd); }
+    y1Slice[y1Slice.length > 0 ? y1Slice.length - 1 : 0] = mv;
+    return y1Slice.length >= 2 ? y1Slice : [Math.max(cost, 0.01), mv];
+  }
+  // Fallback synthétique (avant que le cron ait tourné)
+  if (_mode === '1D') return [Math.max(mv - dpnl, 0.01), mv];
+  if (_mode === '7D') {
+    var w0 = Math.max(mv - dpnl * 5, 0.01);
+    return [w0, w0+(mv-w0)/6, w0+(mv-w0)*2/6, w0+(mv-w0)*3/6, w0+(mv-w0)*4/6, w0+(mv-w0)*5/6, mv];
+  }
+  if (_mode === 'MTD') {
+    var m0 = Math.max(mv - pnl * 0.15, 0.01);
+    return Array.from({length:22}, function(_,i){ return m0 + (mv-m0)*i/21; }).map(function(v,i,a){ return i===a.length-1?mv:v; });
+  }
+  var y0 = Math.max(cost, 0.01);
+  return Array.from({length:12}, function(_,i){ return y0 + (mv-y0)*i/11; }).map(function(v,i,a){ return i===a.length-1?mv:v; });
 }
 
 function _drawAccueil(el) {
@@ -157,17 +214,16 @@ function _drawAccueil(el) {
     return;
   }
 
-  var pd  = PERF[_mode];
-  var col = pd.g >= 0 ? '#10b981' : '#f43f5e';
-  var pnl = getPNL(), cost = getCost();
+  var mv = getMV(), cost = getCost(), pnl = getPNL();
   var pp  = cost > 0 ? pnl/cost*100 : 0;
   var dpnl = 0;
   for (var k = 0; k < raw.length; k++) dpnl += raw[k].dpnl || 0;
   var dpnlEur = toE(dpnl);
-  var mv = getMV();
-  var dpnlPct = (mv - dpnlEur) > 0 ? dpnlEur / (mv - dpnlEur) * 100 : 0;
-  var dCol = dpnlEur >= 0 ? '#10b981' : '#f43f5e';
-  var pts = pd.nav;
+  var dpnlPct = (mv - dpnl) > 0 ? dpnl / (mv - dpnl) * 100 : 0;
+  var dCol = dpnl >= 0 ? '#10b981' : '#f43f5e';
+  // Build chart pts (USD) — vraies données si disponibles, sinon synthétique
+  var pts = _buildNavPts(mv, dpnl, pnl, cost);
+  var col = (_mode === '1D') ? (dpnl >= 0 ? '#10b981' : '#f43f5e') : (pnl >= 0 ? '#10b981' : '#f43f5e');
   var hIdx = (_hoverIdx >= 0 && _hoverIdx < pts.length) ? _hoverIdx : pts.length - 1;
   var hVal = pts[hIdx], hVal0 = pts[0];
   var hG = hVal - hVal0, hP = hVal0>0?hG/hVal0*100:0;
@@ -225,7 +281,7 @@ function _drawAccueil(el) {
       pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
       amtStr = (pnlEur >= 0 ? '+' : '') + pnlEur.toLocaleString('fr-FR') + '\u20ac · ' + weight.toFixed(1) + '% ptf';
     }
-    return '<div class="mrow"><span class="mrow-tk">' + d.ticker + '</span>'
+    return '<div class="mrow"><div style="display:flex;align-items:center;gap:5px">' + _logo(d.ticker, 18) + '<span class="mrow-tk">' + d.ticker + '</span></div>'
       + '<div style="text-align:right">'
       + '<span class="mrow-v ' + cls + '">' + pctStr + '</span>'
       + (amtStr ? '<div style="font-size:9.5px;color:var(--muted);font-family:DM Mono,monospace">' + amtStr + '</div>' : '')
@@ -405,7 +461,8 @@ function renderRendement(el) {
     var dpnlDay = d.dpnl ? ((d.dpnl>=0?'+':'')+Math.round(toE(d.dpnl))+'\u20ac auj.') : '';
     /* \u2500\u2500 Collapsed head \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
     rows += '<div class="rnd-card" style="border-left:3px solid '+(d.pnl>=0?'#22d47a':'#f43f5e')+'">'
-      +'<div class="rnd-head" onclick="toggleRndCard(\''+d.ticker+'\')">'
+      +'<div class="rnd-head" onclick="toggleRndCard(\''+d.ticker+'\')" style="gap:10px">'
+      + _logo(d.ticker, 32)
       +'<div style="flex:1;min-width:0;margin-right:10px">'
       +'<div style="display:flex;align-items:baseline;gap:7px;margin-bottom:5px">'
       +'<span style="font-size:16px;font-weight:700;letter-spacing:-.3px">'+d.ticker+getDivBadge(d.ticker)+'</span>'
@@ -581,8 +638,8 @@ function renderSecteurs(el) {
       var pplC = ppl>=0?'#22d47a':'#f43f5e';
       var divAnn = (meta[dd.ticker]&&meta[dd.ticker].d||0)*dd.qty;
       h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid rgba(255,255,255,.04)">'
-        +'<div><span style="font-size:12.5px;font-weight:700">'+dd.ticker+getDivBadge(dd.ticker)+'</span>'
-        +'<span style="font-size:10px;color:var(--muted);margin-left:6px">\u00d7'+dd.qty+'</span></div>'
+        +'<div style="display:flex;align-items:center;gap:6px">' + _logo(dd.ticker, 22) + '<div><span style="font-size:12.5px;font-weight:700">'+dd.ticker+getDivBadge(dd.ticker)+'</span>'
+        +'<span style="font-size:10px;color:var(--muted);margin-left:6px">\u00d7'+dd.qty+'</span></div></div>'
         +'<div style="text-align:right">'
         +'<span style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+Math.round(toE(dd.mv)).toLocaleString('fr-FR')+'\u20ac</span>'
         +'<span style="font-size:10px;color:'+pplC+';margin-left:7px;font-family:DM Mono,monospace;font-weight:600">'+(ppl>=0?'+':'')+ppl.toFixed(1)+'%</span>'
@@ -1272,6 +1329,16 @@ const TICKER_DB = {
   UNM:  {pe_cur:7.8, pe_5y:9.4, fair:115,streak:15,safe:78,sector:'Finance',  beta:0.90,d:1.56,moat:'#1 assurance invalidit\u00e9 USA/UK. Pricing power.',risk:'Long\u00e9vit\u00e9. R\u00e9gulation assurance.',why:'UNM +122% vs PRU. P/E 7.8x. Rerating significatif.'}
 };
 
+const _TICKER_NAMES = {
+  ACN:'Accenture', ADP:'Automatic Data Processing', APD:'Air Products',
+  BMY:'Bristol-Myers Squibb', CMCSA:'Comcast', CTBI:'Community Bankshares',
+  HRL:'Hormel Foods', HTO:'H&T Group', JNJ:'Johnson & Johnson',
+  MDT:'Medtronic', MMM:'3M Company', NEE:'NextEra Energy',
+  NFG:'National Fuel Gas', NNN:'NNN REIT', NWN:'Northwest Natural',
+  O:'Realty Income', PPG:'PPG Industries', SON:'Sonoco Products',
+  TGT:'Target', TSN:'Tyson Foods', UGI:'UGI Corporation', UNM:'Unum Group'
+};
+
 function seedAssetsFromDB() {
   for (const [ticker, info] of Object.entries(TICKER_DB)) {
     if (!Data.assets[ticker]) Data.assets[ticker] = {};
@@ -1411,8 +1478,11 @@ function renderDeal(el) {
       html += '<div style="background:var(--surface);border-radius:12px;border:1px solid var(--border);margin-bottom:8px;overflow:hidden">'
         + '<div data-tk="' + r.ticker + '" style="padding:14px;cursor:pointer">'
         + '<div style="display:flex;align-items:center;gap:12px">'
-        // Rang
-        + '<div style="min-width:28px;height:28px;border-radius:8px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--muted);flex-shrink:0">' + rank + '</div>'
+        // Rang + logo
+        + '<div style="position:relative;width:36px;height:36px;flex-shrink:0">'
+        + _logo(r.ticker, 36)
+        + '<div style="position:absolute;bottom:-3px;right:-3px;min-width:16px;height:16px;border-radius:5px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--muted);padding:0 2px">' + rank + '</div>'
+        + '</div>'
         // Info
         + '<div style="flex:1;min-width:0">'
         + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">'
@@ -1911,10 +1981,12 @@ function renderValorisation(el) {
 
         /* ── Ligne 1 : ticker + signal + P&L ── */
         + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">'
+        + '<div style="display:flex;align-items:center;gap:9px">'
+        + _logo(d.ticker, 34)
         + '<div>'
         + '<div style="font-size:17px;font-weight:700;letter-spacing:-.4px">'+d.ticker+getDivBadge(d.ticker)+'</div>'
         + '<div style="font-size:10px;color:var(--muted);margin-top:1px">'+d.name+'</div>'
-        + '</div>'
+        + '</div></div>'
         + '<div style="text-align:right">'
         + '<span style="display:inline-block;padding:4px 10px;border-radius:7px;font-size:10.5px;font-weight:700;background:'+lc.bg+';color:'+lc.col+'">'+lc.txt+'</span>'
         + '<div style="font-size:10px;color:'+pC+';margin-top:4px;font-weight:600">'+(d.pnl>=0?'+':'')+Math.round(toE(d.pnl))+'\u20ac ('+(pp>=0?'+':'')+pp.toFixed(1)+'%)</div>'
@@ -3124,9 +3196,14 @@ async function clearAll() {
 const App = (() => {
 
   const initSwipe = () => {
-    let sx = 0, sy = 0;
-    document.addEventListener('touchstart', e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, {passive:true});
+    let sx = 0, sy = 0, startTarget = null;
+    document.addEventListener('touchstart', e => {
+      sx = e.touches[0].clientX;
+      sy = e.touches[0].clientY;
+      startTarget = e.target;
+    }, {passive:true});
     document.addEventListener('touchend', e => {
+      if (startTarget && startTarget.closest('.tabs')) return;
       const dx = e.changedTouches[0].clientX - sx;
       const dy = e.changedTouches[0].clientY - sy;
       const tabs = document.querySelectorAll('.tab');
@@ -3202,6 +3279,15 @@ const App = (() => {
     /* Restaure l'onglet actif depuis la dernière session */
     const _savedTab = parseInt(localStorage.getItem('dk_active_tab') || '0', 10);
     goTo(Number.isFinite(_savedTab) && _savedTab >= 0 && _savedTab < allTabs.length ? _savedTab : 0);
+
+    /* Charge l'historique NAV (non bloquant) */
+    fetch('/api/nav').then(r => r.json()).then(data => {
+      if (data && Array.isArray(data.nav) && data.nav.length >= 2) {
+        _navHistory = data.nav;
+        const accEl = document.getElementById('panel-accueil');
+        if (accEl && accEl.classList.contains('on')) renderPanel('accueil', accEl);
+      }
+    }).catch(() => {});
 
     /* Lance refresh marché + fondamentaux en arrière-plan (non bloquant) */
     const tickers = Calc.getPositions().map(p => p.ticker).filter((t,i,a) => a.indexOf(t) === i);
@@ -3326,8 +3412,13 @@ function syncIBKR() {
         setTimeout(() => { btn.textContent = '⟳ Sync'; }, 3000);
       }
       Storage.saveFundamentals(Data.assets);
+      Calc.recompute();
       _rendered = {};
       buildKPI();
+      const _panels = ['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation','news','impots','import'];
+      const _curP = _panels[window._curTab || 0];
+      const _curEl = document.getElementById('panel-' + _curP);
+      if (_curEl) { try { renderPanel(_curP, _curEl); } catch(_) {} }
       console.log('[syncIBKR] prix OK:', success + '/' + tickers.length, '— FMP fondamentaux chargés');
     })
     .catch(e => {
@@ -3390,51 +3481,61 @@ function fabTickerInput(val) {
 async function _fabDoSearch(q) {
   var el = document.getElementById('fab-suggestions');
   if (!el) return;
-  el.innerHTML = '<div class="fab-sug-loading">🔍 Recherche…</div>';
+  el.innerHTML = '<div class="fab-sug-loading">\u{1F50D} Recherche…</div>';
   try {
-    /* Yahoo Finance search — fonctionne sans clé API */
-    var url = 'https://query1.finance.yahoo.com/v1/finance/search?q='
-      + encodeURIComponent(q) + '&quotesCount=8&newsCount=0&listsCount=0&lang=fr-FR';
-    var res = await fetch(url, {mode:'cors'});
+    var res = await fetch('/api/search?q=' + encodeURIComponent(q));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     var data = await res.json();
-    var quotes = (data.quotes || []).filter(function(r){ return r.quoteType === 'EQUITY'; }).slice(0,7);
-    if (!quotes.length) {
-      el.innerHTML = '<div class="fab-sug-loading">Aucun résultat pour « ' + q + ' »</div>';
-      return;
-    }
-    el.innerHTML = quotes.map(function(r) {
-      var flag = _EXCH_FLAG[r.exchange] || '🏳️';
-      var nameSafe = (r.shortname || r.longname || r.symbol).replace(/'/g, '&#39;');
-      var exchSafe = (r.exchange || '').replace(/'/g, '');
+    if (data.error) throw new Error(data.error);
+    var results = data.results || [];
+    if (!results.length) { _fabOfflineSearch(q, el); return; }
+    var _EXCH_TO_FLAG = {NASDAQ:'\U0001F1FA\U0001F1F8',NYSE:'\U0001F1FA\U0001F1F8',AMEX:'\U0001F1FA\U0001F1F8',TSX:'\U0001F1E8\U0001F1E6',LSE:'\U0001F1EC\U0001F1E7',EURONEXT:'\U0001F1EA\U0001F1FA',XETRA:'\U0001F1E9\U0001F1EA'};
+    el.innerHTML = results.map(function(r) {
+      var flag = _EXCH_TO_FLAG[r.exchangeShortName] || '\U0001F3F3️';
+      var nameSafe = (r.name || r.symbol).replace(/'/g, '&#39;');
+      var exchSafe = (r.exchangeShortName || '').replace(/'/g, '');
       return '<div class="fab-sug-item" onclick="fabSelectTicker(\''
         + r.symbol + '\',\'' + nameSafe + '\',\'' + exchSafe + '\')">'
+        + _logo(r.symbol, 24)
+        + '<div style="flex:1;min-width:0;margin-left:8px">'
         + '<span class="fab-sug-tk">' + r.symbol + '</span>'
-        + '<span class="fab-sug-name">' + (r.shortname || r.longname || '') + '</span>'
-        + '<div class="fab-sug-right"><span class="fab-sug-flag">' + flag + '</span>'
-        + '<span class="fab-sug-isin" id="isin-' + r.symbol + '">ISIN…</span></div>'
+        + '<span class="fab-sug-name">' + (r.name || '') + '</span>'
+        + '</div>'
+        + '<div class="fab-sug-right"><span class="fab-sug-flag">' + flag + '</span></div>'
         + '</div>';
     }).join('');
-    /* Enrichissement ISIN en parallèle via OpenFIGI */
-    _fabEnrichISINs(quotes);
   } catch(e) {
-    /* Si CORS bloqué : afficher les tickers statiques du portefeuille */
-    var matches = Object.keys(TICKER_DB).filter(function(t){
-      return t.toLowerCase().startsWith(q.toLowerCase());
-    }).slice(0,6);
-    if (!matches.length) {
-      el.innerHTML = '<div class="fab-sug-loading" style="color:#f5a623">Recherche hors ligne · Saisis le ticker manuellement</div>';
-      return;
-    }
-    el.innerHTML = matches.map(function(t) {
-      var info = TICKER_DB[t];
-      return '<div class="fab-sug-item" onclick="fabSelectTicker(\'' + t + '\',\'' + t + '\',\'NMS\')">'
-        + '<span class="fab-sug-tk">' + t + '</span>'
-        + '<span class="fab-sug-name">' + (info.why || info.sector || '') + '</span>'
-        + '<div class="fab-sug-right"><span class="fab-sug-flag">🇺🇸</span></div>'
-        + '</div>';
-    }).join('');
+    _fabOfflineSearch(q, el);
   }
+}
+
+function _fabOfflineSearch(q, el) {
+  var ql = q.toLowerCase();
+  var dbMatches = Object.keys(TICKER_DB).filter(function(t) {
+    var name = (_TICKER_NAMES[t] || '').toLowerCase();
+    return t.toLowerCase().includes(ql) || name.includes(ql);
+  });
+  var portMatches = raw.map(function(r){ return r.ticker; }).filter(function(t) {
+    var name = (Data.assets[t] && Data.assets[t].name || '').toLowerCase();
+    return !TICKER_DB[t] && (t.toLowerCase().includes(ql) || name.includes(ql));
+  });
+  var matches = dbMatches.concat(portMatches).slice(0, 7);
+  if (!matches.length) {
+    el.innerHTML = '<div class="fab-sug-loading" style="color:#f5a623">Hors ligne · Saisis le ticker (ex : TSLA)</div>';
+    return;
+  }
+  el.innerHTML = matches.map(function(t) {
+    var name = _TICKER_NAMES[t] || (Data.assets[t] && Data.assets[t].name) || '';
+    var nameSafe = name.replace(/'/g, '&#39;');
+    return '<div class="fab-sug-item" onclick="fabSelectTicker(\'' + t + '\',\'' + nameSafe + '\',\'NMS\')">'
+      + _logo(t, 24)
+      + '<div style="flex:1;min-width:0;margin-left:8px">'
+      + '<span class="fab-sug-tk">' + t + '</span>'
+      + '<span class="fab-sug-name">' + name + '</span>'
+      + '</div>'
+      + '<div class="fab-sug-right"><span class="fab-sug-flag">\U0001F1FA\U0001F1F8</span></div>'
+      + '</div>';
+  }).join('');
 }
 
 async function _fabEnrichISINs(quotes) {
