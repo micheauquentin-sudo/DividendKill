@@ -43,6 +43,12 @@ export const MarketData = (() => {
     if (json.error) throw new Error(`Worker: ${json.error}`);
     const results = json?.quoteResponse?.result;
     if (!results || results.length === 0) throw new Error('Worker: aucun résultat');
+    // Erreur partielle FMP (quota ou tickers sans prix) — on la mémorise pour l'affichage
+    if (json.fmp_error) {
+      try { localStorage.setItem('dk_price_last_err', json.fmp_error); } catch(_) {}
+    } else {
+      try { localStorage.removeItem('dk_price_last_err'); } catch(_) {}
+    }
     const valid = results.filter(Boolean);
     const nullPrices = valid.filter(q => !q.regularMarketPrice).map(q => q.symbol);
     if (nullPrices.length) console.warn('[MarketData] prix null reçus du worker:', nullPrices);
@@ -144,9 +150,11 @@ export const MarketData = (() => {
       }
     }
 
-    _status = tickers.length > 0 && errors === tickers.length ? 'error' : 'ok';
-    const lastErr = _status === 'error' ? (localStorage.getItem('dk_price_last_err') || '') : '';
-    _setNavStatus(_status === 'error' ? 'err' : 'ok', lastErr);
+    _status = errors > 0 ? (errors === tickers.length ? 'error' : 'partial') : 'ok';
+    const lastErr = localStorage.getItem('dk_price_last_err') || '';
+    if (_status === 'ok')      _setNavStatus('ok', '');
+    else if (_status === 'partial') _setNavStatus('partial', `${success}/${tickers.length}${lastErr === 'QUOTA' ? ' (quota)' : ''}`);
+    else                       _setNavStatus('err', lastErr);
     _scheduleRefresh(tickers, onUpdate);
     return { success, errors };
   }
@@ -169,11 +177,16 @@ export const MarketData = (() => {
   function _setNavStatus(type, msg) {
     const dot = document.getElementById('statusDot');
     const txt = document.getElementById('statusTxt');
-    if (dot) dot.className = 'status-dot' + (type === 'loading' ? ' load' : (type === 'err' || type === 'quota') ? ' err' : '');
+    if (dot) dot.className = 'status-dot'
+      + (type === 'loading' ? ' load'
+       : (type === 'err' || type === 'quota') ? ' err'
+       : type === 'partial' ? ' warn'
+       : '');
     if (txt) {
       if (type === 'loading') txt.textContent = 'Prix...';
-      else if (type === 'quota') txt.textContent = 'Quota FMP';
-      else if (type === 'err')   txt.textContent = msg ? 'ERR: ' + msg.slice(0, 30) : 'Prix ERR';
+      else if (type === 'quota')   txt.textContent = 'Quota FMP';
+      else if (type === 'err')     txt.textContent = msg ? 'ERR: ' + msg.slice(0, 30) : 'Prix ERR';
+      else if (type === 'partial') txt.textContent = msg ? `Prix ${msg}` : 'Prix partiels';
       else txt.textContent = 'Prix OK';
     }
   }

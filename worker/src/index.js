@@ -356,6 +356,8 @@ async function priceProxy(req, env) {
     missing.push(...tickers);
   }
 
+  let fmpError = null;
+
   if (missing.length > 0) {
     try {
       const fmpUrl = `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(missing.join(','))}&apikey=${env.FMP_KEY}`;
@@ -364,12 +366,14 @@ async function priceProxy(req, env) {
         let e = `FMP HTTP ${res.status}`;
         try { const b = await res.json(); e = b?.['Error Message'] || b?.message || e; } catch(_) {}
         console.error('[price] FMP error:', e);
+        fmpError = e;
         if (!Object.keys(cached).length) return err(e, 502);
       } else {
         const data = await res.json();
         if (!Array.isArray(data)) {
           const msg = data?.['Error Message'] || data?.message || 'FMP: réponse inattendue';
           const isQ = msg.toLowerCase().includes('limit') || msg.toLowerCase().includes('upgrade');
+          fmpError = isQ ? 'QUOTA' : msg;
           if (!Object.keys(cached).length) return err(isQ ? 'FMP_QUOTA' : msg, isQ ? 429 : 502);
         } else {
           await Promise.all(data.map(async q => {
@@ -377,16 +381,20 @@ async function priceProxy(req, env) {
             cached[q.symbol] = n;
             if (env.PRICES_KV) await env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(n), { expirationTtl: 86400 });
           }));
+          // Tickers retournés par FMP mais sans prix valide
+          const noPriceTickers = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null);
+          if (noPriceTickers.length) fmpError = `no price: ${noPriceTickers.join(',')}`;
         }
       }
     } catch(e) {
+      fmpError = e.message;
       if (!Object.keys(cached).length) return err(`FMP: ${e.message}`, 502);
     }
   }
 
   const results = tickers.map(t => cached[t]).filter(Boolean);
   if (!results.length) return err('FMP: aucun résultat', 502);
-  return json({ quoteResponse: { result: results, error: null } });
+  return json({ quoteResponse: { result: results, error: null }, fmp_error: fmpError });
 }
 
 // ── Fondamentaux FMP avec cache KV 24h ───────────────────────
