@@ -3154,9 +3154,14 @@ async function clearAll() {
 const App = (() => {
 
   const initSwipe = () => {
-    let sx = 0, sy = 0;
-    document.addEventListener('touchstart', e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, {passive:true});
+    let sx = 0, sy = 0, startTarget = null;
+    document.addEventListener('touchstart', e => {
+      sx = e.touches[0].clientX;
+      sy = e.touches[0].clientY;
+      startTarget = e.target;
+    }, {passive:true});
     document.addEventListener('touchend', e => {
+      if (startTarget && startTarget.closest('.tabs')) return;
       const dx = e.changedTouches[0].clientX - sx;
       const dy = e.changedTouches[0].clientY - sy;
       const tabs = document.querySelectorAll('.tab');
