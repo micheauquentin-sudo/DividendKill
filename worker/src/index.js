@@ -342,12 +342,15 @@ function normalizeFmpQuote(q) {
 
 
 function normalizeProfile(t, p) {
-  const prevClose = +(p.price - (p.changes || 0)).toFixed(4);
-  const chgPct    = p.changesPercentage ?? (prevClose > 0 ? +(((p.changes || 0) / prevClose) * 100).toFixed(4) : 0);
+  // FMP /stable/profile uses 'change'/'changePercentage' (singular)
+  const chg       = p.change ?? p.changes ?? 0;
+  const prevClose = +(p.price - chg).toFixed(4);
+  const chgPct    = p.changePercentage ?? p.changesPercentage
+    ?? (prevClose > 0 ? +(chg / prevClose * 100).toFixed(4) : 0);
   return {
     symbol:                     t.toUpperCase(),
     regularMarketPrice:         p.price,
-    regularMarketChange:        p.changes        || 0,
+    regularMarketChange:        chg,
     regularMarketChangePercent: chgPct,
     regularMarketPreviousClose: prevClose > 0 ? prevClose : null,
     regularMarketVolume:        p.volAvg         || null,
@@ -439,33 +442,13 @@ async function priceProxy(req, env) {
             const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
             if (!r.ok) return;
             const d = await r.json();
-            // Profile format: [{ symbol, price, changes, changesPercentage, companyName, mktCap, lastDiv, ... }]
             const p = Array.isArray(d) ? d[0] : d;
             if (!p || !p.price) return;
-            const prevClose = +(p.price - (p.changes || 0)).toFixed(4);
-            const chgPct    = p.changesPercentage ?? (prevClose > 0 ? +(((p.changes || 0) / prevClose) * 100).toFixed(4) : 0);
-            const n = {
-              symbol:                     t,
-              regularMarketPrice:         p.price,
-              regularMarketChange:        p.changes        || 0,
-              regularMarketChangePercent: chgPct,
-              regularMarketPreviousClose: prevClose > 0 ? prevClose : null,
-              regularMarketVolume:        p.volAvg         || null,
-              longName:                   p.companyName    || null,
-              shortName:                  p.companyName    || null,
-              currency:                   p.currency       || 'USD',
-              trailingPE:                 null,
-              marketCap:                  p.mktCap         || null,
-              fiftyTwoWeekHigh:           null,
-              fiftyTwoWeekLow:            null,
-              marketState:                'REGULAR',
-              lastDiv:                    p.lastDiv        || null,
-              dividendYield:              (p.lastDiv && p.price > 0) ? +(p.lastDiv / p.price).toFixed(6) : null,
-            };
+            const n = normalizeProfile(t, p);
             cached[t] = n;
             if (env.PRICES_KV && n.regularMarketPrice != null)
               await env.PRICES_KV.put(`p:${t}`, JSON.stringify(n), { expirationTtl: 86400 });
-            console.log(`[price] Profile fallback ${t}: ${p.price} (${(p.changes||0) >= 0 ? '+' : ''}${p.changes||0})`);
+            console.log(`[price] Profile fallback ${t}: ${p.price} (${n.regularMarketChange >= 0 ? '+' : ''}${n.regularMarketChange})`);
           } catch(e2) { console.warn(`[price] Profile fallback ${t}:`, e2.message); }
         }));
       }
