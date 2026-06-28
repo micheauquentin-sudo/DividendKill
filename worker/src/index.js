@@ -312,9 +312,11 @@ async function handleAuthMe(req, env) {
 
 // ── Normalise quote FMP ──────────────────────────────────────
 function normalizeFmpQuote(q) {
+  // Quand le marché est fermé FMP peut renvoyer price=0 ; on utilise previousClose comme fallback
+  const price = q.price || q.previousClose || q.open || null;
   return {
     symbol:                     q.symbol,
-    regularMarketPrice:         q.price                                  || null,
+    regularMarketPrice:         price,
     regularMarketChange:        q.change                                 || 0,
     regularMarketChangePercent: q.changePercentage ?? q.changesPercentage ?? 0,
     regularMarketPreviousClose: q.previousClose                          || null,
@@ -332,28 +334,6 @@ function normalizeFmpQuote(q) {
   };
 }
 
-// ── Normalise quote Yahoo Finance v7 ────────────────────────
-function normalizeYfQuote(q) {
-  return {
-    symbol:                     q.symbol,
-    regularMarketPrice:         q.regularMarketPrice         || null,
-    regularMarketChange:        q.regularMarketChange        || 0,
-    regularMarketChangePercent: q.regularMarketChangePercent || 0,
-    regularMarketPreviousClose: q.regularMarketPreviousClose || null,
-    regularMarketVolume:        q.regularMarketVolume        || null,
-    longName:                   q.longName                   || null,
-    shortName:                  q.shortName                  || null,
-    currency:                   q.currency                   || 'USD',
-    trailingPE:                 q.trailingPE                 || null,
-    marketCap:                  q.marketCap                  || null,
-    fiftyTwoWeekHigh:           q.fiftyTwoWeekHigh           || null,
-    fiftyTwoWeekLow:            q.fiftyTwoWeekLow            || null,
-    marketState:                q.marketState                || 'REGULAR',
-    lastDiv:                    null,
-    dividendYield:              q.dividendYield              || null,
-    trailingAnnualDividendRate: q.trailingAnnualDividendRate || null,
-  };
-}
 
 // ── Prix FMP avec cache KV ───────────────────────────────────
 async function priceProxy(req, env) {
@@ -401,29 +381,6 @@ async function priceProxy(req, env) {
       }
     } catch(e) {
       if (!Object.keys(cached).length) return err(`FMP: ${e.message}`, 502);
-    }
-  }
-
-  // Yahoo Finance fallback pour les tickers absents de FMP
-  const stillMissing = tickers.filter(t => !cached[t]);
-  if (stillMissing.length > 0) {
-    try {
-      const yfUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(stillMissing.join(','))}&fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketPreviousClose,regularMarketVolume,longName,shortName,currency,trailingPE,marketCap,fiftyTwoWeekHigh,fiftyTwoWeekLow,marketState,dividendYield,trailingAnnualDividendRate`;
-      const yfRes = await fetch(yfUrl, { headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' } });
-      if (yfRes.ok) {
-        const yfData = await yfRes.json();
-        const quotes = yfData?.quoteResponse?.result || [];
-        await Promise.all(quotes.map(async q => {
-          if (!q.symbol || q.regularMarketPrice == null) return;
-          const n = normalizeYfQuote(q);
-          cached[q.symbol] = n;
-          if (env.PRICES_KV) await env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(n), { expirationTtl: 86400 });
-        }));
-        const yfFound = quotes.filter(q => q.regularMarketPrice != null).map(q => q.symbol);
-        if (yfFound.length) console.log('[price] YF fallback:', yfFound.join(','));
-      }
-    } catch(e) {
-      console.warn('[price] YF fallback error:', e.message);
     }
   }
 

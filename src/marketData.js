@@ -109,11 +109,12 @@ export const MarketData = (() => {
     _onUpdateCb = onUpdate || null;
     _setNavStatus('loading', 'Actualisation prix...');
 
-    // Callbacks immédiats pour les tickers en cache frais
-    tickers.filter(t => _isFresh(t) && _cache[t]?.quote)
+    // Callbacks immédiats pour les tickers en cache frais avec prix valide
+    tickers.filter(t => _isFresh(t) && _cache[t]?.quote?.price != null)
            .forEach(t => { if (_onUpdateCb) _onUpdateCb(t, _cache[t].quote); });
 
-    const toFetch = tickers.filter(t => !_isFresh(t));
+    // Refetch si pas frais OU si frais mais prix null (FMP avait retourné 0)
+    const toFetch = tickers.filter(t => !_isFresh(t) || _cache[t]?.quote?.price == null);
     let success = tickers.length - toFetch.length;
     let errors  = 0;
 
@@ -123,12 +124,14 @@ export const MarketData = (() => {
         const now = Date.now();
         results.forEach(q => {
           const quote = _normalize(q);
+          if (quote.price == null) return; // prix null = inutile de cacher, on retentera
           _cache[q.symbol] = { ..._cache[q.symbol], quote, ts: now };
           if (_onUpdateCb) _onUpdateCb(q.symbol, quote);
           success++;
         });
         _saveCache();
-        errors = toFetch.filter(t => !results.find(r => r.symbol === t)).length;
+        // Comptabilise comme erreurs les tickers sans prix valide
+        errors = toFetch.filter(t => !results.find(r => r.symbol === t && r.regularMarketPrice != null)).length;
       } catch(e) {
         if (e.message === 'QUOTA') {
           _setNavStatus('quota', '');
