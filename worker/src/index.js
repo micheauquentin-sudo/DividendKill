@@ -441,6 +441,36 @@ async function searchProxy(req) {
   }
 }
 
+async function benchmarkProxy(req, env) {
+  const CACHE_KEY = 'benchmark:SPY';
+  const TTL = 82800; // 23h
+  if (env.PRICES_KV) {
+    const cached = await env.PRICES_KV.get(CACHE_KEY);
+    if (cached) return new Response(cached, { headers: { ...CORS, 'Content-Type': 'application/json' } });
+  }
+  try {
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=2y';
+    const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' } });
+    if (!res.ok) throw new Error(`YF HTTP ${res.status}`);
+    const data = await res.json();
+    const result = data.chart && data.chart.result && data.chart.result[0];
+    if (!result) throw new Error('No chart result');
+    const timestamps = result.timestamp || [];
+    const closes = (result.indicators.quote[0] || {}).close || [];
+    const entries = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      if (closes[i] == null) continue;
+      const date = new Date(timestamps[i] * 1000).toISOString().slice(0, 10);
+      entries.push({ date, close: closes[i] });
+    }
+    const body = JSON.stringify({ entries });
+    if (env.PRICES_KV && entries.length > 10) await env.PRICES_KV.put(CACHE_KEY, body, { expirationTtl: TTL });
+    return new Response(body, { headers: { ...CORS, 'Content-Type': 'application/json' } });
+  } catch(e) {
+    return json({ error: e.message, entries: [] }, 502);
+  }
+}
+
 // ── Cron: prix + fondamentaux automatiques à la clôture marché ─
 const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
 
@@ -716,6 +746,7 @@ export default {
     if (path === '/api/prices')      return priceProxy(req, env);
     if (path === '/api/funda')       return fmpProxy(req, env);
     if (path === '/api/search')      return searchProxy(req, env);
+    if (path === '/api/benchmark')   return benchmarkProxy(req, env);
     if (path === '/api/debug/price') return debugPrice(req, env);
 
     // Routes auth
