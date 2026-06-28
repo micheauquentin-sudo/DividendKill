@@ -139,6 +139,15 @@ function buildSVG(pts, col, H) {
 var _mode = '1Y';
 var _hoverIdx = -1;
 
+function _logo(ticker, size) {
+  size = size || 28;
+  return '<img src="https://financialmodelingprep.com/image-stock/' + ticker + '.png"'
+    + ' width="' + size + '" height="' + size + '" alt=""'
+    + ' style="border-radius:50%;object-fit:contain;background:var(--surface2);flex-shrink:0;display:inline-block"'
+    + ' onerror="this.style.display=\'none\'"'
+    + ' loading="lazy">';
+}
+
 function renderAccueil(el) {
   el._drawAcc = _drawAccueil;
   _drawAccueil(el);
@@ -240,7 +249,7 @@ function _drawAccueil(el) {
       pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
       amtStr = (pnlEur >= 0 ? '+' : '') + pnlEur.toLocaleString('fr-FR') + '\u20ac · ' + weight.toFixed(1) + '% ptf';
     }
-    return '<div class="mrow"><span class="mrow-tk">' + d.ticker + '</span>'
+    return '<div class="mrow"><div style="display:flex;align-items:center;gap:5px">' + _logo(d.ticker, 18) + '<span class="mrow-tk">' + d.ticker + '</span></div>'
       + '<div style="text-align:right">'
       + '<span class="mrow-v ' + cls + '">' + pctStr + '</span>'
       + (amtStr ? '<div style="font-size:9.5px;color:var(--muted);font-family:DM Mono,monospace">' + amtStr + '</div>' : '')
@@ -420,7 +429,8 @@ function renderRendement(el) {
     var dpnlDay = d.dpnl ? ((d.dpnl>=0?'+':'')+Math.round(toE(d.dpnl))+'\u20ac auj.') : '';
     /* \u2500\u2500 Collapsed head \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
     rows += '<div class="rnd-card" style="border-left:3px solid '+(d.pnl>=0?'#22d47a':'#f43f5e')+'">'
-      +'<div class="rnd-head" onclick="toggleRndCard(\''+d.ticker+'\')">'
+      +'<div class="rnd-head" onclick="toggleRndCard(\''+d.ticker+'\')" style="gap:10px">'
+      + _logo(d.ticker, 32)
       +'<div style="flex:1;min-width:0;margin-right:10px">'
       +'<div style="display:flex;align-items:baseline;gap:7px;margin-bottom:5px">'
       +'<span style="font-size:16px;font-weight:700;letter-spacing:-.3px">'+d.ticker+getDivBadge(d.ticker)+'</span>'
@@ -596,8 +606,8 @@ function renderSecteurs(el) {
       var pplC = ppl>=0?'#22d47a':'#f43f5e';
       var divAnn = (meta[dd.ticker]&&meta[dd.ticker].d||0)*dd.qty;
       h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid rgba(255,255,255,.04)">'
-        +'<div><span style="font-size:12.5px;font-weight:700">'+dd.ticker+getDivBadge(dd.ticker)+'</span>'
-        +'<span style="font-size:10px;color:var(--muted);margin-left:6px">\u00d7'+dd.qty+'</span></div>'
+        +'<div style="display:flex;align-items:center;gap:6px">' + _logo(dd.ticker, 22) + '<div><span style="font-size:12.5px;font-weight:700">'+dd.ticker+getDivBadge(dd.ticker)+'</span>'
+        +'<span style="font-size:10px;color:var(--muted);margin-left:6px">\u00d7'+dd.qty+'</span></div></div>'
         +'<div style="text-align:right">'
         +'<span style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+Math.round(toE(dd.mv)).toLocaleString('fr-FR')+'\u20ac</span>'
         +'<span style="font-size:10px;color:'+pplC+';margin-left:7px;font-family:DM Mono,monospace;font-weight:600">'+(ppl>=0?'+':'')+ppl.toFixed(1)+'%</span>'
@@ -1426,8 +1436,11 @@ function renderDeal(el) {
       html += '<div style="background:var(--surface);border-radius:12px;border:1px solid var(--border);margin-bottom:8px;overflow:hidden">'
         + '<div data-tk="' + r.ticker + '" style="padding:14px;cursor:pointer">'
         + '<div style="display:flex;align-items:center;gap:12px">'
-        // Rang
-        + '<div style="min-width:28px;height:28px;border-radius:8px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--muted);flex-shrink:0">' + rank + '</div>'
+        // Rang + logo
+        + '<div style="position:relative;width:36px;height:36px;flex-shrink:0">'
+        + _logo(r.ticker, 36)
+        + '<div style="position:absolute;bottom:-3px;right:-3px;min-width:16px;height:16px;border-radius:5px;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:var(--muted);padding:0 2px">' + rank + '</div>'
+        + '</div>'
         // Info
         + '<div style="flex:1;min-width:0">'
         + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">'
@@ -1926,10 +1939,12 @@ function renderValorisation(el) {
 
         /* ── Ligne 1 : ticker + signal + P&L ── */
         + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">'
+        + '<div style="display:flex;align-items:center;gap:9px">'
+        + _logo(d.ticker, 34)
         + '<div>'
         + '<div style="font-size:17px;font-weight:700;letter-spacing:-.4px">'+d.ticker+getDivBadge(d.ticker)+'</div>'
         + '<div style="font-size:10px;color:var(--muted);margin-top:1px">'+d.name+'</div>'
-        + '</div>'
+        + '</div></div>'
         + '<div style="text-align:right">'
         + '<span style="display:inline-block;padding:4px 10px;border-radius:7px;font-size:10.5px;font-weight:700;background:'+lc.bg+';color:'+lc.col+'">'+lc.txt+'</span>'
         + '<div style="font-size:10px;color:'+pC+';margin-top:4px;font-weight:600">'+(d.pnl>=0?'+':'')+Math.round(toE(d.pnl))+'\u20ac ('+(pp>=0?'+':'')+pp.toFixed(1)+'%)</div>'
