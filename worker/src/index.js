@@ -782,9 +782,22 @@ export default {
     // Frontend statique (Vite build)
     if (env.ASSETS) {
       const asset = await env.ASSETS.fetch(req);
-      if (asset.status !== 404) return asset;
+      if (asset.status !== 404) {
+        // index.html ne doit jamais être mis en cache → le navigateur charge toujours le dernier bundle
+        if (path === '/' || path === '/index.html') {
+          const h = new Headers(asset.headers);
+          h.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+          h.set('Pragma', 'no-cache');
+          return new Response(asset.body, { status: asset.status, headers: h });
+        }
+        return asset;
+      }
       // SPA fallback: sert index.html pour toutes les routes frontend
-      return env.ASSETS.fetch(new Request(`${url.origin}/index.html`, { headers: req.headers }));
+      const fb = await env.ASSETS.fetch(new Request(`${url.origin}/index.html`, { headers: req.headers }));
+      const h = new Headers(fb.headers);
+      h.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+      h.set('Pragma', 'no-cache');
+      return new Response(fb.body, { status: fb.status, headers: h });
     }
 
     return new Response('DividendKill API', { status: 200, headers: CORS });
