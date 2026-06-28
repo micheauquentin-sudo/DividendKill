@@ -57,7 +57,8 @@ function buildKPI() {
   document.getElementById('ks2').textContent = Math.round(diva / Calc.eu()) + ' €/an';
   _animKpiVal('kv3', fire + '%', fireC);
   document.getElementById('ks3').textContent = Math.round(monthly) + ' / ' + Config.TARGET_MONTHLY + ' €';
-  bar.classList.add('on');
+  const _curPid = document.querySelector('.tab.on')?.dataset?.p || '';
+  bar.classList.toggle('on', !_noKPI[_curPid]);
 }
 
 function goTo(idx) {
@@ -355,6 +356,9 @@ function _drawAccueil(el) {
   var yoc = cost > 0 ? getDivA()/cost*100 : 0;
   var sc  = DividendSafety.getPortfolioDSE();
   var scCol = sc >= 80 ? '#10b981' : sc >= 65 ? '#86efad' : sc >= 50 ? '#f5a623' : '#f43f5e';
+  var monthly = getDivA() / 12 / eu();
+  var fire = Config.TARGET_MONTHLY > 0 ? Math.min(100, Math.round(monthly / Config.TARGET_MONTHLY * 100)) : 0;
+  var fireC = fire >= 100 ? '#22d47a' : fire >= 70 ? '#86efad' : fire >= 40 ? '#f5a623' : '#f43f5e';
   var hLabel = hIdx === pts.length-1 ? 'Actuel' : 'J-' + (pts.length-1-hIdx);
   el.innerHTML = '<div class="home-wrap">'
     + '<div class="home-label">Portefeuille \u00b7 IBKR \u00b7 ' + new Date().toLocaleDateString('fr-FR',{day:'numeric',month:'long',year:'numeric'}) + '</div>'
@@ -372,11 +376,7 @@ function _drawAccueil(el) {
     + '<div class="home-chart" id="accChart"></div>'
     + '<div class="chart-toggle">' + ctbtn('1Y','1 an') + ctbtn('MTD','Mois') + ctbtn('7D','7 j') + ctbtn('1D','Auj.') + '</div>'
     + (spyPts ? '<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 2px 2px;margin-top:2px"><span id="accSpyPct" style="font-size:11px;color:#6b7280;font-family:DM Mono,monospace">S&amp;P 500 '+(spyInitPct!==null?(spyInitPct>=0?'+':'')+spyInitPct.toFixed(2)+'%':'--')+'</span><span id="accAlpha" class="'+(spyInitAlpha!==null&&spyInitAlpha>=0?'badge-up':'badge-dn')+'" style="font-size:10px">\u03b1 '+(spyInitAlpha!==null?(spyInitAlpha>=0?'+':'')+spyInitAlpha.toFixed(2)+'%':'--')+'</span></div>' : '')
-    + '<div class="row3">'
-    +   '<div class="mini-k"><div class="mini-k-l">Yield</div><div class="mini-k-v up">' + yld.toFixed(2) + '%</div><div class="mini-k-s">' + Math.round(getDivA()/eu()) + '\u20ac/an</div></div>'
-    +   '<div class="mini-k"><div class="mini-k-l">YoC</div><div class="mini-k-v" style="color:#86efad">' + yoc.toFixed(2) + '%</div><div class="mini-k-s">Sur co\u00fbt</div></div>'
-    +   '<div class="mini-k"><div class="mini-k-l">Score</div><div class="mini-k-v" style="color:' + scCol + '">' + sc + '</div><div class="mini-k-s">/100</div></div>'
-    + '</div>'
+    + '<div class="row3">'    +   '<div class="mini-k"><div class="mini-k-l">Yield</div><div class="mini-k-v up">' + yld.toFixed(2) + '%</div><div class="mini-k-s">' + Math.round(getDivA()/eu()) + '€/an</div></div>'    +   '<div class="mini-k"><div class="mini-k-l">Rev.mois</div><div class="mini-k-v" style="color:#86efad">' + Math.round(monthly) + '€</div><div class="mini-k-s">Revenu passif</div></div>'    +   '<div class="mini-k"><div class="mini-k-l">FIRE</div><div class="mini-k-v" style="color:' + fireC + '">' + fire + '%</div><div class="mini-k-s">Progression</div></div>'    + '</div>'
     + '<div class="movers">'
     +   '<div><div class="mover-t">\u25b2 Top ' + (_mode==='1D'?'Auj.':_mode) + '</div>' + gH + '</div>'
     +   '<div><div class="mover-t">\u25bc Flop ' + (_mode==='1D'?'Auj.':_mode) + '</div>' + lH + '</div>'
