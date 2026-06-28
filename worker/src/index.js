@@ -791,38 +791,39 @@ async function postRestore(req, env, userId) {
 }
 
 // ── Debug prix (diagnostic mobile) ───────────────────────────
+// Par défaut: vérifie KV uniquement (pas d'appel FMP — économise les crédits)
+// Avec ?live=1 : teste aussi les endpoints FMP en direct
 async function debugPrice(req, env) {
-  const symbol = (new URL(req.url).searchParams.get('symbol') || 'JNJ').toUpperCase();
-  const out = { symbol, fmp_key_set: !!env.FMP_KEY, kv_bound: !!env.PRICES_KV };
+  const url    = new URL(req.url);
+  const symbol = (url.searchParams.get('symbol') || 'JNJ').toUpperCase();
+  const live   = url.searchParams.get('live') === '1';
+  const out = { symbol, fmp_key_set: !!env.FMP_KEY, kv_bound: !!env.PRICES_KV, live_test: live };
 
   if (env.PRICES_KV) {
     try {
       const kv = await env.PRICES_KV.get(`p:${symbol}`, { type: 'json' });
-      out.kv_cached = kv;
+      out.kv_cached      = kv ? { price: kv.regularMarketPrice, change: kv.regularMarketChange, name: kv.longName } : null;
+      out.kv_has_price   = kv?.regularMarketPrice != null;
     } catch(e) { out.kv_error = e.message; }
   }
 
-  out.price_test_url = `https://${new URL(req.url).host}/?symbols=${symbol}`;
+  out.prices_url = `https://${url.host}/api/prices?symbols=${symbol}`;
+  out.hint = live ? 'Tests FMP en direct (consomme des crédits)' : 'Ajoutez &live=1 pour tester FMP en direct';
 
-  if (env.FMP_KEY) {
-    // Test 1: /stable/quote (endpoint principal)
-    const fmpUrl = `https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${env.FMP_KEY}`;
-    out.fmp_url = fmpUrl.replace(env.FMP_KEY, '***');
+  if (live && env.FMP_KEY) {
+    // Test 1: /stable/quote (endpoint principal, plan payant)
     try {
+      const fmpUrl = `https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${env.FMP_KEY}`;
+      out.fmp_quote_url = fmpUrl.replace(env.FMP_KEY, '***');
       const res = await fetch(fmpUrl, { headers: { Accept: 'application/json' } });
-      out.fmp_status = res.status;
+      out.fmp_quote_status = res.status;
       const text = await res.text();
-      out.fmp_raw_first200 = text.slice(0, 300);
-      try {
+      out.fmp_quote_raw = text.slice(0, 200);
+      if (res.ok) {
         const data = JSON.parse(text);
-        out.fmp_is_array = Array.isArray(data);
-        out.fmp_count = Array.isArray(data) ? data.length : null;
-        if (Array.isArray(data) && data.length > 0) {
-          out.fmp_first = data[0];
-          out.normalized = normalizeFmpQuote(data[0]);
-        }
-      } catch(e) { out.fmp_parse_error = e.message; }
-    } catch(e) { out.fmp_fetch_error = e.message; }
+        if (Array.isArray(data) && data[0]) out.fmp_quote_price = data[0].price;
+      }
+    } catch(e) { out.fmp_quote_error = e.message; }
 
     // Test 2: /stable/profile (fallback gratuit FMP)
     try {
@@ -831,16 +832,15 @@ async function debugPrice(req, env) {
       const pr = await fetch(profUrl, { headers: { Accept: 'application/json' } });
       out.fmp_profile_status = pr.status;
       const pt = await pr.text();
-      out.fmp_profile_raw = pt.slice(0, 400);
-      try {
+      out.fmp_profile_raw = pt.slice(0, 300);
+      if (pr.ok) {
         const pd = JSON.parse(pt);
         const p0 = Array.isArray(pd) ? pd[0] : pd;
-        out.fmp_profile_price    = p0?.price    ?? null;
-        out.fmp_profile_changes  = p0?.changes  ?? null;
-        out.fmp_profile_company  = p0?.companyName ?? null;
-        out.fmp_profile_lastDiv  = p0?.lastDiv  ?? null;
-      } catch(e) { out.fmp_profile_parse_error = e.message; }
-    } catch(e) { out.fmp_profile_fetch_error = e.message; }
+        out.fmp_profile_price   = p0?.price       ?? null;
+        out.fmp_profile_changes = p0?.changes      ?? null;
+        out.fmp_profile_company = p0?.companyName  ?? null;
+      }
+    } catch(e) { out.fmp_profile_error = e.message; }
   }
 
   return json(out);
