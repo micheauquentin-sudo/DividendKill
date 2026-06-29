@@ -609,7 +609,8 @@ function renderRendement(el) {
           +'</div>'
           +'</div>'
         : (dpnlDay?'<div style="padding-top:6px;border-top:1px solid rgba(255,255,255,.05);font-size:10px;color:var(--muted)">Auj. <span style="font-weight:700;color:'+(d.dpnl>=0?'#22d47a':'#f43f5e')+'">'+dpnlDay+'</span></div>':''))
-      +'<div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.05)">'
+      +'<div id="rnd-chart-'+d.ticker+'" style="margin-top:10px;height:110px;border-radius:9px;overflow:hidden;background:rgba(0,0,0,.2);border:1px solid var(--border)"></div>'
+      +'<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.05)">'
       +'<button onclick="event.stopPropagation();deleteByTicker(\''+d.ticker+'\')" style="width:100%;padding:8px;border-radius:9px;background:rgba(244,63,94,.08);border:1px solid rgba(244,63,94,.2);color:#f43f5e;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">\ud83d\uddd1 Retirer '+d.ticker+' du portefeuille</button>'
       +'</div>'
       +'</div>'  /* end rnd-body-inner */
@@ -4091,6 +4092,8 @@ async function authLoginEmail() {
 }
 
 /* ── Expandable portfolio cards ─────────────────────────────── */
+var _rndChartCache = {};
+
 function toggleRndCard(ticker) {
   if (navigator.vibrate) navigator.vibrate(6);
   var body  = document.getElementById('rb-'+ticker);
@@ -4099,6 +4102,80 @@ function toggleRndCard(ticker) {
   var isOpen = body.classList.contains('open');
   body.classList.toggle('open', !isOpen);
   if (arrow) arrow.style.transform = !isOpen ? 'rotate(180deg)' : '';
+  if (!isOpen) _loadRndChart(ticker);
+}
+
+async function _loadRndChart(ticker) {
+  var el = document.getElementById('rnd-chart-' + ticker);
+  if (!el) return;
+  if (_rndChartCache[ticker]) { _buildRndChart(el, ticker, _rndChartCache[ticker]); return; }
+  el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:11px">Chargement...</div>';
+  try {
+    var res = await fetch('/api/prices/history?tickers=' + encodeURIComponent(ticker) + '&days=365');
+    var data = await res.json();
+    var pts = (data.prices && data.prices[ticker]) || [];
+    if (pts.length < 2) {
+      el.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:4px">'
+        + '<span style="font-size:18px">📊</span>'
+        + '<span style="font-size:11px;color:var(--muted)">Historique disponible demain</span>'
+        + '<span style="font-size:9px;color:var(--muted);opacity:.6">Le cron enregistre les prix chaque soir</span>'
+        + '</div>';
+      return;
+    }
+    _rndChartCache[ticker] = pts;
+    _buildRndChart(el, ticker, pts);
+  } catch(e) {
+    el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:11px">Erreur chargement</div>';
+  }
+}
+
+function _buildRndChart(container, ticker, pts) {
+  var buys = (Data.transactions || [])
+    .filter(function(t) { return t.ticker === ticker && t.type === 'buy'; });
+  var W = 340, H = 90;
+  var prices = pts.map(function(p) { return p.price; });
+  var dates  = pts.map(function(p) { return p.date; });
+  var n = prices.length;
+  var mn = prices[0], mx = prices[0];
+  for (var i=1;i<n;i++){if(prices[i]<mn)mn=prices[i];if(prices[i]>mx)mx=prices[i];}
+  var rng = mx - mn || 1;
+  function px(i){ return ((i/(n-1))*W).toFixed(1); }
+  function py(v){ return (H - ((v-mn)/rng*(H*0.82)+H*0.09)).toFixed(1); }
+  var path='M'+px(0)+' '+py(prices[0]);
+  for(var j=1;j<n;j++) path+=' L'+px(j)+' '+py(prices[j]);
+  var fill = path+' L'+W+' '+H+' L0 '+H+' Z';
+  var gid  = 'rndg'+ticker;
+  var col  = prices[n-1] >= prices[0] ? '#22d47a' : '#f43f5e';
+  var perf = prices[0]>0 ? ((prices[n-1]-prices[0])/prices[0]*100).toFixed(1) : '0.0';
+  var perfStr = (parseFloat(perf)>=0?'+':'')+perf+'%';
+  var buyMarkers = '';
+  buys.forEach(function(b) {
+    var idx = -1;
+    for(var k=0;k<dates.length;k++){ if(dates[k]>=b.date){idx=k;break;} }
+    if(idx<0) idx = n-1;
+    if(idx>=n) return;
+    var cx=parseFloat(px(idx)), cy=parseFloat(py(prices[idx]));
+    buyMarkers += '<line x1="'+cx+'" y1="0" x2="'+cx+'" y2="'+H+'" stroke="rgba(245,166,35,.35)" stroke-width="1" stroke-dasharray="3,2"/>';
+    buyMarkers += '<circle cx="'+cx+'" cy="'+cy+'" r="4.5" fill="#f5a623" stroke="#08080f" stroke-width="1.5"/>';
+  });
+  var d0 = dates[0] ? dates[0].slice(0,10) : '';
+  var d1 = dates[n-1] ? dates[n-1].slice(0,10) : '';
+  container.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px 3px">'
+    + '<span style="font-size:9px;color:var(--muted)">'+d0+'</span>'
+    + '<span style="font-size:10px;font-weight:700;color:'+col+'">'+perfStr+' 1 an</span>'
+    + '<span style="font-size:9px;color:var(--muted)">'+d1+'</span>'
+    + '</div>'
+    + '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;display:block;height:'+H+'px" preserveAspectRatio="none">'
+    + '<defs><linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1">'
+    + '<stop offset="0%" stop-color="'+col+'" stop-opacity="0.28"/>'
+    + '<stop offset="100%" stop-color="'+col+'" stop-opacity="0.02"/>'
+    + '</linearGradient></defs>'
+    + '<path d="'+fill+'" fill="url(#'+gid+')"/>'
+    + buyMarkers
+    + '<path d="'+path+'" fill="none" stroke="'+col+'" stroke-width="1.8" stroke-linejoin="round"/>'
+    + (buys.length ? '<text x="'+(W-4)+'" y="10" text-anchor="end" font-size="8" fill="#f5a623" opacity=".8">● achats</text>' : '')
+    + '</svg>';
 }
 
 
