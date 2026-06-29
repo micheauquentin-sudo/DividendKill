@@ -2401,6 +2401,75 @@ function generateAlerts(portfolio) {
   return alerts;
 }
 
+// ── News dynamiques FMP ─────────────────────────────────────────
+var _newsArticles  = null;  // null=chargement, []=vide, [...]= articles
+var _newsFetchedAt = 0;
+var _newsTickersKey = '';
+var _NEWS_TTL = 2 * 3600 * 1000;
+
+function _fmtNewsDate(dt) {
+  if (!dt) return '';
+  var d = new Date(dt.replace(' ', 'T'));
+  if (isNaN(d)) return dt.slice(0, 10);
+  var diff = Math.floor((Date.now() - d.getTime()) / 60000);
+  if (diff < 60)   return 'il y a ' + diff + ' min';
+  if (diff < 1440) return 'il y a ' + Math.floor(diff / 60) + 'h';
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+}
+
+function _renderNewsArticles(portSet) {
+  if (_newsArticles === null) {
+    var sk = '<div class="section-title">Actualit\u00e9s march\u00e9</div>';
+    for (var i = 0; i < 3; i++) {
+      sk += '<div class="news-card" style="opacity:.4">'
+        + '<div class="news-top"><div class="news-tk" style="width:48px;height:14px;background:var(--surface2);border-radius:4px"></div>'
+        + '<div style="width:60px;height:10px;background:var(--surface2);border-radius:4px"></div></div>'
+        + '<div class="news-title" style="width:80%;height:14px;background:var(--surface2);border-radius:4px;margin:6px 0"></div>'
+        + '<div class="news-body" style="width:100%;height:36px;background:var(--surface2);border-radius:4px"></div>'
+        + '</div>';
+    }
+    return sk;
+  }
+  var h = '<div class="section-title">Actualit\u00e9s march\u00e9</div>';
+  var shown = (portSet && portSet.length)
+    ? _newsArticles.filter(function(a){ return !a.symbol || portSet.indexOf(a.symbol) !== -1; })
+    : _newsArticles;
+  if (!shown.length) {
+    h += '<div style="text-align:center;padding:24px 0;color:var(--muted);font-size:13px">Aucune actualit\u00e9 disponible pour votre portefeuille</div>';
+    return h;
+  }
+  for (var i = 0; i < shown.length; i++) {
+    var a = shown[i];
+    h += '<div class="news-card">'
+      + '<div class="news-top"><div style="display:flex;align-items:center;gap:8px">'
+      + (a.symbol ? '<span class="news-tk">' + _esc(a.symbol) + '</span>' : '')
+      + (a.site   ? '<span class="news-tag" style="background:rgba(107,114,128,.15);color:#9ca3af">' + _esc(a.site) + '</span>' : '')
+      + '</div><span style="font-size:10px;color:var(--muted)">' + _fmtNewsDate(a.publishedDate) + '</span></div>'
+      + '<div class="news-title">' + _esc(a.title) + '</div>'
+      + (a.text ? '<div class="news-body">' + _esc(a.text) + '</div>' : '')
+      + '</div>';
+  }
+  return h;
+}
+
+function _loadNewsIfNeeded(portSet, el) {
+  if (!portSet || !portSet.length) return;
+  var key = portSet.slice().sort().join(',');
+  var now = Date.now();
+  if (_newsArticles !== null && _newsTickersKey === key && (now - _newsFetchedAt) < _NEWS_TTL) return;
+  _newsTickersKey = key;
+  _newsArticles = null;
+  fetch('/api/news?tickers=' + encodeURIComponent(key))
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      _newsArticles  = data.articles || [];
+      _newsFetchedAt = Date.now();
+      var newsEl = document.getElementById('panel-news');
+      if (newsEl) renderNews(newsEl);
+    })
+    .catch(function() { _newsArticles = []; _newsFetchedAt = Date.now(); });
+}
+
 function renderNews(el) {
   /* ── État vide ── */
   if (raw.length === 0) {
@@ -2431,26 +2500,6 @@ function renderNews(el) {
     totalGainAn += (divRaises[di].newD - divRaises[di].oldD) * divRaises[di].qty;
   }
 
-  /* Actualit\u00e9s \u2014 filtr\u00e9es sur les positions ouvertes uniquement */
-  var itemsAll = [
-    {t:'JNJ',  tag:'Dividende',     tc:'#22d47a', date:'18 juin 2026', title:'62e ann\u00e9e cons\u00e9cutive de hausse du dividende',
-     body:'JNJ confirme 1.31$/action trimestriel (+5.6% vs N-1). Payout ratio 42%. Dividend King incontestable. Yield 3.37% au cours actuel.'},
-    {t:'ACN',  tag:'IA',            tc:'#6c63ff', date:'16 juin 2026', title:'Accenture: 3.2 Mds$ de contrats IA au T3 FY2026',
-     body:'35% des nouvelles signatures en IA g\u00e9n\u00e9rative. Accenture s\u2019impose comme int\u00e9grateur syst\u00e8me n\u00b01 des grands groupes. Marge op\u00e9rationnelle en hausse.'},
-    {t:'TGT',  tag:'R\u00e9sultats', tc:'#f59e0b', date:'4 juin 2026', title:'Target Q1 FY2027 sous les attentes \u2014 BPA 1.45$ vs 1.65$ consensus',
-     body:'Pression macro et concurrence Amazon/Walmart. D\u00e9cote -24% vs PRU. Dividende maintenu \u00e0 4.44$/an (+1.2%). \u00c0 surveiller.'},
-    {t:'HRL',  tag:'Attention',     tc:'#f43f5e', date:'10 juin 2026', title:'Hormel: restructuration et marges sous pression persistante',
-     body:'D\u00e9cote -22% vs PRU. Hausse des co\u00fbts mati\u00e8res premi\u00e8res. Dividende maintenu mais croissance quasi nulle. Safety score 55/100.'},
-    {t:'NEE',  tag:'Utilities',     tc:'#38bdf8', date:'12 juin 2026', title:'NextEra: pipeline renouvelable 15 GW confirm\u00e9 pour 2026',
-     body:'PPA long terme s\u00e9curis\u00e9s avec 3 grandes utilities am\u00e9ricaines. Objectif de croissance dividende +10%/an maintenu jusqu\u2019en 2028.'},
-    {t:'MMM',  tag:'Restructuration',tc:'#a78bfa', date:'20 juin 2026', title:'3M: s\u00e9paration Solventum finalis\u00e9e, dividende confirm\u00e9',
-     body:'3M recentr\u00e9 sur 3 divisions (Industrial, Safety, Consumer). Dividende 5.16$/an maintenu. +58% vs PRU apr\u00e8s recapitalisation post-Solventum.'},
-    {t:'O',    tag:'Dividende',     tc:'#22d47a', date:'15 juin 2026', title:'Realty Income: 30 ans cons\u00e9cutifs de hausse, mensualit\u00e9s stables',
-     body:'O confirme 0.264$/action mensuel. REIT triple-net, 15\u00a0000 propri\u00e9t\u00e9s. Yield >5%. Flux de tr\u00e9sorerie r\u00e9silients.'},
-    {t:'ADP',  tag:'R\u00e9sultats', tc:'#f59e0b', date:'2 mai 2026', title:'ADP FY2026: b\u00e9n\u00e9fices records, 50 ans de hausse du dividende',
-     body:'Chiffre d\u2019affaires +7%. Marges SaaS en expansion. 50e ann\u00e9e de hausse cons\u00e9cutive du dividende. Yield 2.4%, P/E 25x vs 30x historique.'},
-  ];
-  var items = itemsAll.filter(function(n){ return portMap[n.t]; });
   /* ── Smart Alerts ── */
   var portfolio = {};
   for (var ri=0; ri<raw.length; ri++) {
@@ -2542,20 +2591,11 @@ function renderNews(el) {
       +'</div></div>';
   }
   h += '</div></div></div>';
-  for (var i = 0; i < items.length; i++) {
-    var n = items[i];
-    h += '<div class="news-card">'
-      +'<div class="news-top"><div style="display:flex;align-items:center;gap:8px">'
-      +'<span class="news-tk">'+_esc(n.t)+'</span>'
-      +'<span class="news-tag" style="background:'+n.tc+'22;color:'+n.tc+'">'+n.tag+'</span>'
-      +'</div>'
-      +'<span style="font-size:10px;color:var(--muted)">'+n.date+'</span>'
-      +'</div>'
-      +'<div class="news-title">'+_esc(n.title)+'</div>'
-      +'<div class="news-body">'+_esc(n.body)+'</div>'
-      +'</div>';
-  }
+  // Articles FMP (chargés de manière asynchrone via /api/news)
+  h += _renderNewsArticles(portSet);
   el.innerHTML = h;
+  // Déclenche le fetch si pas encore chargé ou expiré
+  _loadNewsIfNeeded(portSet, el);
 }
 
 

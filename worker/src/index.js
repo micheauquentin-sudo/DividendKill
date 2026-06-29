@@ -140,6 +140,8 @@ async function ensureMigrations(db) {
       ['users_idx_email',"CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)"],
       ['portfolio_nav',  "CREATE TABLE IF NOT EXISTS portfolio_nav (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, date TEXT NOT NULL, nav_usd REAL NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()), UNIQUE(user_id, date))"],
       ['idx_nav_user',   "CREATE INDEX IF NOT EXISTS idx_nav_user ON portfolio_nav(user_id, date)"],
+      ['ticker_prices',  "CREATE TABLE IF NOT EXISTS ticker_prices (date TEXT NOT NULL, ticker TEXT NOT NULL, price REAL NOT NULL, PRIMARY KEY (date, ticker))"],
+      ['idx_tkprice',    "CREATE INDEX IF NOT EXISTS idx_tkprice ON ticker_prices(ticker, date)"],
     ];
     for (const [id, sql] of migs) {
       if (done.has(id)) continue;
@@ -680,6 +682,20 @@ async function handleScheduled(env) {
       console.log(`[Cron] NAV snapshot: ${Object.keys(navByUser).length} utilisateur(s) · ${today_date}`);
     } catch(e) { console.warn('[Cron] NAV snapshot:', e.message); }
 
+    // ── Snapshot prix par ticker (historique de performance par position) ──
+    try {
+      const today_date2 = fmt(new Date());
+      const priceStmts = toStore
+        .filter(q => q.regularMarketPrice != null && q.regularMarketPrice > 0)
+        .map(q => env.DB.prepare(
+          'INSERT OR REPLACE INTO ticker_prices (date, ticker, price) VALUES (?,?,?)'
+        ).bind(today_date2, q.symbol, q.regularMarketPrice));
+      if (priceStmts.length) {
+        await env.DB.batch(priceStmts);
+        console.log(`[Cron] ticker_prices: ${priceStmts.length} snapshots (${today_date2})`);
+      }
+    } catch(e) { console.warn('[Cron] ticker_prices:', e.message); }
+
   } catch(e) { console.warn('[Cron]', e.message); }
 }
 
@@ -860,6 +876,66 @@ async function debugPrice(req, env) {
   return json(out);
 }
 
+// ── Actualités FMP par ticker, cache KV 2h ───────────────────
+async function newsProxy(req, env) {
+  const url = new URL(req.url);
+  const tickers = (url.searchParams.get('tickers') || '')
+    .split(',').map(t => t.trim().toUpperCase()).filter(Boolean).slice(0, 15);
+  if (!tickers.length) return json({ articles: [] });
+  if (!env.FMP_KEY)   return json({ articles: [] });
+
+  const cacheKey = `news:${[...tickers].sort().join(',')}`;
+  if (env.PRICES_KV) {
+    const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+    if (cached) return json(cached);
+  }
+  try {
+    const fmpUrl = `https://financialmodelingprep.com/stable/stock-news?tickers=${tickers.join(',')}&limit=20&apikey=${env.FMP_KEY}`;
+    const res = await fetch(fmpUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!res.ok) throw new Error(`FMP HTTP ${res.status}`);
+    const data = await res.json();
+    const articles = (Array.isArray(data) ? data : []).slice(0, 20).map(a => ({
+      symbol:        (a.symbol        || '').toUpperCase(),
+      title:          a.title         || '',
+      text:          (a.text || a.content || '').slice(0, 400),
+      publishedDate:  a.publishedDate || '',
+      site:           a.site          || '',
+      url:            a.url           || '',
+    }));
+    const result = { articles, cachedAt: Date.now() };
+    if (env.PRICES_KV && articles.length > 0)
+      await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 7200 });
+    return json(result);
+  } catch(e) {
+    console.warn('[newsProxy]', e.message);
+    return json({ articles: [], error: e.message });
+  }
+}
+
+// ── Historique prix par ticker depuis D1 ─────────────────────
+async function priceHistoryProxy(req, env) {
+  const url = new URL(req.url);
+  const tickers = (url.searchParams.get('tickers') || '')
+    .split(',').map(t => t.trim().toUpperCase()).filter(Boolean).slice(0, 30);
+  const days = Math.min(parseInt(url.searchParams.get('days') || '365', 10), 730);
+  if (!tickers.length || !env.DB) return json({ prices: {} });
+
+  const placeholders = tickers.map(() => '?').join(',');
+  const { results } = await env.DB.prepare(
+    `SELECT date, ticker, price FROM ticker_prices
+     WHERE ticker IN (${placeholders})
+     AND date >= date('now', '-${days} days')
+     ORDER BY date ASC`
+  ).bind(...tickers).all();
+
+  const prices = {};
+  for (const row of results) {
+    if (!prices[row.ticker]) prices[row.ticker] = [];
+    prices[row.ticker].push({ date: row.date, price: row.price });
+  }
+  return json({ prices });
+}
+
 // ── Router ───────────────────────────────────────────────────
 export default {
   async fetch(req, env, ctx) {
@@ -869,12 +945,14 @@ export default {
 
     if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
-    // Routes publiques (prix / fondamentaux)
-    if (path === '/api/prices')      return priceProxy(req, env);
-    if (path === '/api/funda')       return fmpProxy(req, env);
-    if (path === '/api/search')      return searchProxy(req, env);
-    if (path === '/api/benchmark')   return benchmarkProxy(req, env);
-    if (path === '/api/debug/price') return debugPrice(req, env);
+    // Routes publiques (prix / fondamentaux / news)
+    if (path === '/api/prices')          return priceProxy(req, env);
+    if (path === '/api/funda')           return fmpProxy(req, env);
+    if (path === '/api/search')          return searchProxy(req, env);
+    if (path === '/api/benchmark')       return benchmarkProxy(req, env);
+    if (path === '/api/news')            return newsProxy(req, env);
+    if (path === '/api/prices/history')  return priceHistoryProxy(req, env);
+    if (path === '/api/debug/price')     return debugPrice(req, env);
 
     // Routes auth
     if (path === '/auth/login')       return handleAuthLogin(req, env);
