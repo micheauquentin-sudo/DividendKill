@@ -13,4 +13,10 @@ export default defineConfig({
       '/auth': { target: 'http://localhost:8787', changeOrigin: true },
     },
   },
+  test: {
+    // Tests hors du root Vite (src/), donc on les localise ici
+    root: '.',
+    include: ['tests/**/*.test.js'],
+    environment: 'node',
+  },
 });

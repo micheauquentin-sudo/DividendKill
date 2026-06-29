@@ -8,6 +8,26 @@ export const D1Client = (() => {
     el.className = 'kpi-sync-dot' + (state ? ' ' + state : '');
   }
 
+  // Tente un refresh silencieux quand le serveur répond 401
+  let _refreshing = null;
+  async function _tryRefresh() {
+    if (_refreshing) return _refreshing;
+    _refreshing = fetch('/auth/refresh', { ...(_opts), method: 'POST' })
+      .then(r => r.ok)
+      .catch(() => false)
+      .finally(() => { _refreshing = null; });
+    return _refreshing;
+  }
+
+  async function _apiFetch(url, opts) {
+    let res = await fetch(url, { ...(_opts), ...opts });
+    if (res.status === 401) {
+      const ok = await _tryRefresh();
+      if (ok) res = await fetch(url, { ...(_opts), ...opts });
+    }
+    return res;
+  }
+
   async function me() {
     try {
       const res = await fetch('/auth/me', _opts);
@@ -22,7 +42,7 @@ export const D1Client = (() => {
   async function sync() {
     _setSyncDot('syncing');
     try {
-      const res = await fetch('/api/sync', { ..._opts, headers: _h() });
+      const res = await _apiFetch('/api/sync', { headers: _h() });
       if (res.status === 401) { _setSyncDot(''); return null; }
       if (!res.ok) { _setSyncDot('error'); return null; }
       _setSyncDot('synced');
@@ -36,21 +56,21 @@ export const D1Client = (() => {
 
   async function addTx(tx) {
     try {
-      const res = await fetch('/api/transaction', {
-        ..._opts, method: 'POST', headers: _h(), body: JSON.stringify(tx),
+      const res = await _apiFetch('/api/transaction', {
+        method: 'POST', headers: _h(), body: JSON.stringify(tx),
       });
       return res.ok ? res.json() : null;
     } catch(_) { return null; }
   }
 
   async function deleteTx(id) {
-    try { await fetch(`/api/transaction/${id}`, { ..._opts, method: 'DELETE', headers: _h() }); } catch(_) {}
+    try { await _apiFetch(`/api/transaction/${id}`, { method: 'DELETE', headers: _h() }); } catch(_) {}
   }
 
   async function putSettings(obj) {
     try {
-      await fetch('/api/settings', {
-        ..._opts, method: 'PUT', headers: _h(), body: JSON.stringify(obj),
+      await _apiFetch('/api/settings', {
+        method: 'PUT', headers: _h(), body: JSON.stringify(obj),
       });
     } catch(_) {}
   }

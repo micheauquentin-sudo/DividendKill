@@ -41,6 +41,24 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type,Authorization',
 };
 
+// Injecté uniquement sur les réponses HTML (pas les API JSON)
+function _addSecurityHeaders(h) {
+  h.set('Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data: https:; " +
+    "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com; " +
+    "frame-ancestors 'none'; " +
+    "form-action 'self'; " +
+    "base-uri 'self'"
+  );
+  h.set('X-Frame-Options', 'DENY');
+  h.set('X-Content-Type-Options', 'nosniff');
+  h.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  h.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+}
+
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
@@ -125,6 +143,43 @@ async function verifyPassword(password, stored) {
   return diff === 0;
 }
 
+// ── Token pair (access 1h + refresh 30j rotatif) ───────────
+async function issueTokenPair(userId, email, name, env) {
+  const access = await signJWT(
+    { sub: userId, email, name, exp: Math.floor(Date.now() / 1000) + 3600 },
+    env.SESSION_SECRET
+  );
+  const rtId  = crypto.randomUUID();
+  const rtExp = Math.floor(Date.now() / 1000) + 30 * 24 * 3600;
+  await env.DB.prepare(
+    'INSERT INTO refresh_tokens (id, user_id, email, name, expires_at) VALUES (?,?,?,?,?)'
+  ).bind(rtId, userId, email, name || '', rtExp).run();
+  return {
+    accessCookie:  mkCookie('dk_session', access, 3600),
+    refreshCookie: mkCookie('dk_refresh', rtId, 30 * 24 * 3600),
+  };
+}
+
+async function handleAuthRefresh(req, env) {
+  if (!env.SESSION_SECRET || !env.DB) return err('Auth non configurée', 500);
+  await ensureMigrations(env.DB);
+  const rtId = getCookie(req, 'dk_refresh');
+  if (!rtId) return err('Pas de refresh token', 401);
+  const rt = await env.DB.prepare(
+    'SELECT user_id, email, name, expires_at FROM refresh_tokens WHERE id = ?'
+  ).bind(rtId).first();
+  if (!rt || rt.expires_at < Math.floor(Date.now() / 1000)) {
+    if (rt) await env.DB.prepare('DELETE FROM refresh_tokens WHERE id = ?').bind(rtId).run();
+    return err('Session expirée, reconnecte-toi', 401);
+  }
+  await env.DB.prepare('DELETE FROM refresh_tokens WHERE id = ?').bind(rtId).run();
+  const pair = await issueTokenPair(rt.user_id, rt.email, rt.name || '', env);
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  headers.append('Set-Cookie', pair.accessCookie);
+  headers.append('Set-Cookie', pair.refreshCookie);
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+}
+
 // ── Migrations D1 ────────────────────────────────────────────
 let _migDone = false;
 async function ensureMigrations(db) {
@@ -142,6 +197,8 @@ async function ensureMigrations(db) {
       ['idx_nav_user',   "CREATE INDEX IF NOT EXISTS idx_nav_user ON portfolio_nav(user_id, date)"],
       ['ticker_prices',  "CREATE TABLE IF NOT EXISTS ticker_prices (date TEXT NOT NULL, ticker TEXT NOT NULL, price REAL NOT NULL, PRIMARY KEY (date, ticker))"],
       ['idx_tkprice',    "CREATE INDEX IF NOT EXISTS idx_tkprice ON ticker_prices(ticker, date)"],
+      ['refresh_tokens', "CREATE TABLE IF NOT EXISTS refresh_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()))"],
+      ['idx_rt_user',    "CREATE INDEX IF NOT EXISTS idx_rt_user ON refresh_tokens(user_id, expires_at)"],
     ];
     for (const [id, sql] of migs) {
       if (done.has(id)) continue;
@@ -176,11 +233,11 @@ async function handleAuthRegister(req, env) {
   const displayName = (name || '').trim() || email.split('@')[0];
   await env.DB.prepare('INSERT INTO users (id,email,pw_hash,name) VALUES (?,?,?,?)').bind(userId, email.toLowerCase(), pwHash, displayName).run();
 
-  const session = await signJWT({ sub: userId, email: email.toLowerCase(), name: displayName, exp: Math.floor(Date.now() / 1000) + 30 * 24 * 3600 }, env.SESSION_SECRET);
-  return new Response(JSON.stringify({ ok: true }), {
-    status: 201,
-    headers: { 'Content-Type': 'application/json', 'Set-Cookie': mkCookie('dk_session', session, 30 * 24 * 3600) },
-  });
+  const pair = await issueTokenPair(userId, email.toLowerCase(), displayName, env);
+  const regHeaders = new Headers({ 'Content-Type': 'application/json' });
+  regHeaders.append('Set-Cookie', pair.accessCookie);
+  regHeaders.append('Set-Cookie', pair.refreshCookie);
+  return new Response(JSON.stringify({ ok: true }), { status: 201, headers: regHeaders });
 }
 
 // ── Auth: connexion email/mot de passe ───────────────────────
@@ -199,11 +256,11 @@ async function handleAuthLoginEmail(req, env) {
     return err('Email ou mot de passe incorrect', 401);
   }
 
-  const session = await signJWT({ sub: user.id, email: email.toLowerCase(), name: user.name || email.split('@')[0], exp: Math.floor(Date.now() / 1000) + 30 * 24 * 3600 }, env.SESSION_SECRET);
-  return new Response(JSON.stringify({ ok: true }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json', 'Set-Cookie': mkCookie('dk_session', session, 30 * 24 * 3600) },
-  });
+  const pair = await issueTokenPair(user.id, email.toLowerCase(), user.name || email.split('@')[0], env);
+  const loginHeaders = new Headers({ 'Content-Type': 'application/json' });
+  loginHeaders.append('Set-Cookie', pair.accessCookie);
+  loginHeaders.append('Set-Cookie', pair.refreshCookie);
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers: loginHeaders });
 }
 
 // ── Google OAuth ─────────────────────────────────────────────
@@ -291,16 +348,20 @@ async function handleAuthCallback(req, env) {
     } catch(e) { console.warn('[Auth] auto-claim:', e.message); }
   }
 
-  // Crée le cookie de session (30 jours)
-  const session = await signJWT({
-    sub:   userId,
-    email,
-    name,
-    exp:   Math.floor(Date.now() / 1000) + 30 * 24 * 3600,
-  }, env.SESSION_SECRET);
+  // Upsert Google user dans users (pour révocation de session)
+  if (env.DB) {
+    try {
+      await env.DB.prepare('INSERT OR IGNORE INTO users (id, email, pw_hash, name) VALUES (?,?,?,?)')
+        .bind(userId, email, 'oauth:google', name).run();
+    } catch(_) {}
+  }
 
+  // Émet access token 1h + refresh token rotatif 30j
+  await ensureMigrations(env.DB);
+  const pair = await issueTokenPair(userId, email, name, env);
   const headers = new Headers({ 'Location': `${origin}/` });
-  headers.append('Set-Cookie', mkCookie('dk_session', session, 30 * 24 * 3600));
+  headers.append('Set-Cookie', pair.accessCookie);
+  headers.append('Set-Cookie', pair.refreshCookie);
   headers.append('Set-Cookie', mkCookie('dk_oauth_state', '', 0));
   return new Response(null, { status: 302, headers });
 }
@@ -967,6 +1028,7 @@ export default {
     if (path === '/auth/me')          return handleAuthMe(req, env);
     if (path === '/auth/register'  && method === 'POST') return handleAuthRegister(req, env);
     if (path === '/auth/login/email' && method === 'POST') return handleAuthLoginEmail(req, env);
+    if (path === '/auth/refresh'   && method === 'POST') return handleAuthRefresh(req, env);
 
     // Routes protégées
     if (path.startsWith('/api/')) {
@@ -998,6 +1060,7 @@ export default {
           const h = new Headers(asset.headers);
           h.set('Cache-Control', 'no-store, no-cache, must-revalidate');
           h.set('Pragma', 'no-cache');
+          _addSecurityHeaders(h);
           return new Response(asset.body, { status: asset.status, headers: h });
         }
         return asset;
@@ -1007,6 +1070,7 @@ export default {
       const h = new Headers(fb.headers);
       h.set('Cache-Control', 'no-store, no-cache, must-revalidate');
       h.set('Pragma', 'no-cache');
+      _addSecurityHeaders(h);
       return new Response(fb.body, { status: fb.status, headers: h });
     }
 
