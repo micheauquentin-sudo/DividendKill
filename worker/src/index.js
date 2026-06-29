@@ -903,11 +903,16 @@ async function newsProxy(req, env) {
       url:            a.url           || '',
     }));
     const result = { articles, cachedAt: Date.now() };
-    if (env.PRICES_KV && articles.length > 0)
+    // Cache même si articles vides (endpoint existe mais rien pour ces tickers)
+    if (env.PRICES_KV)
       await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 7200 });
     return json(result);
   } catch(e) {
     console.warn('[newsProxy]', e.message);
+    // Cache l'échec 30 min pour éviter de consommer un crédit FMP à chaque ouverture
+    // si l'endpoint est payant (402) ou temporairement indisponible
+    if (env.PRICES_KV)
+      await env.PRICES_KV.put(cacheKey, JSON.stringify({ articles: [], cachedAt: Date.now() }), { expirationTtl: 1800 });
     return json({ articles: [], error: e.message });
   }
 }
