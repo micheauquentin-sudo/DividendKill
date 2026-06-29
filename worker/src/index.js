@@ -1063,6 +1063,12 @@ export default {
           _addSecurityHeaders(h);
           return new Response(asset.body, { status: asset.status, headers: h });
         }
+        // Assets Vite avec hash de contenu → cache immuable 1 an (Brotli géré par Cloudflare)
+        if (/\/assets\/[^/]+-[a-zA-Z0-9_-]{8,}\.(js|css|woff2?|ttf|svg|png|webp)$/.test(path)) {
+          const h = new Headers(asset.headers);
+          h.set('Cache-Control', 'public, max-age=31536000, immutable');
+          return new Response(asset.body, { status: asset.status, headers: h });
+        }
         return asset;
       }
       // SPA fallback: sert index.html pour toutes les routes frontend
