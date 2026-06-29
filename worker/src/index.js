@@ -1022,7 +1022,7 @@ async function newsProxy(req, env) {
   return json({ articles, cachedAt: pool.cachedAt });
 }
 
-// ── Historique prix par ticker depuis D1 ─────────────────────
+// ── Historique prix par ticker (D1 + fallback FMP) ───────────
 async function priceHistoryProxy(req, env) {
   const url = new URL(req.url);
   const tickers = (url.searchParams.get('tickers') || '')
@@ -1043,6 +1043,33 @@ async function priceHistoryProxy(req, env) {
     if (!prices[row.ticker]) prices[row.ticker] = [];
     prices[row.ticker].push({ date: row.date, price: row.price });
   }
+
+  // FMP fallback for tickers with < 30 D1 data points (new users / first day)
+  if (env.FMP_KEY && env.PRICES_KV) {
+    const fromDate = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+    await Promise.all(tickers.map(async ticker => {
+      if ((prices[ticker] || []).length >= 30) return;
+      const kvKey = `hist:${ticker}`;
+      const cached = await env.PRICES_KV.get(kvKey);
+      if (cached) {
+        try { prices[ticker] = JSON.parse(cached).filter(p => p.date >= fromDate); return; } catch (_) {}
+      }
+      try {
+        const fmpUrl = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${encodeURIComponent(ticker)}&from=${fromDate}&apikey=${env.FMP_KEY}`;
+        const r = await fetch(fmpUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+        if (!r.ok) return;
+        const data = await r.json();
+        const hist = Array.isArray(data.historical) ? data.historical : (Array.isArray(data) ? data : []);
+        // FMP returns newest-first; reverse to chronological
+        const pts = hist.map(h => ({ date: h.date, price: h.close })).reverse();
+        if (pts.length > 0) {
+          await env.PRICES_KV.put(kvKey, JSON.stringify(pts), { expirationTtl: 86400 });
+          prices[ticker] = pts.filter(p => p.date >= fromDate);
+        }
+      } catch (_) {}
+    }));
+  }
+
   return json({ prices });
 }
 

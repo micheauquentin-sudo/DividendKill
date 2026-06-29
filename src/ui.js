@@ -88,10 +88,28 @@ async function renderPanel(pid, el) {
   try {
     switch (pid) {
       case 'accueil':      renderAccueil(el);      return;
-      case 'rendement':    renderRendement(el);    return;
       case 'deal':         renderDeal(el);         return;
-      case 'impots':       renderImpots(el);       return;
-      case 'import':       renderImport(el);       return;
+      case 'rendement':
+        if (!_panelMods.rendement) _panelMods.rendement = await import('./panels/rendement.js');
+        _panelMods.rendement.renderRendement(el); return;
+      case 'impots':
+        if (!_panelMods.impots) {
+          _panelMods.impots = await import('./panels/impots.js');
+          Object.assign(window, {
+            _renderImpotUpload: _panelMods.impots._renderImpotUpload,
+            _renderImpotManual: _panelMods.impots._renderImpotManual,
+            _handleImpotFile:   _panelMods.impots._handleImpotFile,
+            _impotManualSave:   _panelMods.impots._impotManualSave,
+          });
+        }
+        _panelMods.impots.renderImpots(el); return;
+      case 'import':
+        if (!_panelMods.importPanel) {
+          _panelMods.importPanel = await import('./panels/import.js');
+          window.renderImportStatus  = _panelMods.importPanel.renderImportStatus;
+          window.renderImportPreview = _panelMods.importPanel.renderImportPreview;
+        }
+        _panelMods.importPanel.renderImport(el); return;
       case 'secteurs':
         if (!_panelMods.secteurs) _panelMods.secteurs = await import('./panels/secteurs.js');
         _panelMods.secteurs.renderSecteurs(el); return;
@@ -447,158 +465,6 @@ function _buildInteractiveChart(container, pts, col, activeIdx, spyPts) {
 }
 
 
-function renderRendement(el) {
-  if (raw.length === 0) { el.innerHTML = _emptyState('📈', 'Aucune position', 'Importe tes transactions pour voir ton portefeuille détaillé.'); return; }
-  if (!el._sk) { el._sk = 'pp'; el._sd = 'desc'; }
-  var sk = el._sk, sd = el._sd;
-  var tot = getMV();
-  var data = raw.map(function(d) {
-    var div = meta[d.ticker] && meta[d.ticker].d || 0;
-    var yd  = d.price > 0 ? div/d.price*100 : 0;
-    var yoc = d.avg   > 0 ? div/d.avg*100   : 0;
-    var pp  = d.avg > 0 ? (d.price - d.avg)/d.avg*100 : 0;
-    var cost = d.avg * d.qty;
-    return {ticker:d.ticker,name:d.name,qty:d.qty,price:d.price,avg:d.avg,
-            mv:d.mv,pnl:d.pnl,dpnl:d.dpnl,sec:d.sec,yd:yd,yoc:yoc,pp:pp,cost:cost};
-  }).sort(function(a, b) {
-    var va = a[sk] !== undefined ? a[sk] : 0;
-    var vb = b[sk] !== undefined ? b[sk] : 0;
-    return sd === 'asc' ? va - vb : vb - va;
-  });
-  var sortOpts = [
-    {k:'pp',    lbl:'P&L %'},
-    {k:'pnl',   lbl:'P&L \u20ac'},
-    {k:'mv',    lbl:'Valeur'},
-    {k:'cost',  lbl:'Investi'},
-    {k:'yd',    lbl:'Yield'},
-    {k:'yoc',   lbl:'YoC'},
-    {k:'ticker',lbl:'A\u2192Z'},
-  ];
-  var toggleHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center">'
-    + '<span style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;flex-shrink:0">Trier par</span>';
-  for (var oi = 0; oi < sortOpts.length; oi++) {
-    var opt = sortOpts[oi];
-    var on = sk === opt.k;
-    var arrow = on ? (sd === 'asc' ? ' \u2191' : ' \u2193') : '';
-    toggleHtml += '<button data-sk="'+opt.k+'" style="padding:5px 11px;border-radius:16px;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;border:1px solid '+(on?'var(--violet)':'var(--border)')+';background:'+(on?'rgba(124,109,255,.15)':'transparent')+';color:'+(on?'var(--violet)':'var(--muted)')+'">'+opt.lbl+arrow+'</button>';
-  }
-  toggleHtml += '</div>';
-  var totalPnl = 0, totalCost = 0, totalMV2 = 0;
-  for (var ki=0;ki<data.length;ki++){totalPnl+=data[ki].pnl;totalCost+=data[ki].cost;totalMV2+=data[ki].mv;}
-  var totalPp = totalCost > 0 ? totalPnl/totalCost*100 : 0;
-  var summaryHtml = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">'
-    +'<div style="background:var(--surface);border-radius:10px;padding:10px 8px;text-align:center">'
-    +'<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Investi</div>'
-    +'<div style="font-size:14px;font-weight:700;font-family:DM Mono,monospace">'+Math.round(toE(totalCost)).toLocaleString('fr-FR')+'\u20ac</div>'
-    +'</div>'
-    +'<div style="background:var(--surface);border-radius:10px;padding:10px 8px;text-align:center">'
-    +'<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Valeur</div>'
-    +'<div style="font-size:14px;font-weight:700;font-family:DM Mono,monospace">'+Math.round(toE(totalMV2)).toLocaleString('fr-FR')+'\u20ac</div>'
-    +'</div>'
-    +'<div style="background:var(--surface);border-radius:10px;padding:10px 8px;text-align:center">'
-    +'<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">P&L total</div>'
-    +'<div style="font-size:14px;font-weight:700;font-family:DM Mono,monospace;color:'+(totalPnl>=0?'#22d47a':'#f43f5e')+'">'+(totalPnl>=0?'+':'')+Math.round(toE(totalPnl)).toLocaleString('fr-FR')+'\u20ac</div>'
-    +'<div style="font-size:9px;color:var(--muted)">'+(totalPp>=0?'+':'')+totalPp.toFixed(1)+'%</div>'
-    +'</div></div>';
-  var rows = '';
-  for (var i = 0; i < data.length; i++) {
-    var d = data[i];
-    var w = tot > 0 ? d.mv/tot*100 : 0;
-    var ppC = d.pp >= 0 ? '#22d47a' : '#f43f5e';
-    var pnlC = d.pnl >= 0 ? '#22d47a' : '#f43f5e';
-    var div2 = meta[d.ticker] && meta[d.ticker].d || 0;
-    var rndMeta = meta[d.ticker] || {};
-    var rndDSEResult = rndMeta.payout_ratio != null ? calculateDividendSafety(rndMeta) : null;
-    var rndDseScore = rndDSEResult ? rndDSEResult.safetyScore : (rndMeta.safe || calculateDividendSafety(rndMeta).safetyScore);
-    var rndDseCol = dseColor(rndDseScore);
-    var dpnlDay = d.dpnl ? ((d.dpnl>=0?'+':'')+Math.round(toE(d.dpnl))+'\u20ac auj.') : '';
-    /* \u2500\u2500 Collapsed head \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-    rows += '<div class="rnd-card" style="border-left:3px solid '+(d.pnl>=0?'#22d47a':'#f43f5e')+'">'
-      +'<div class="rnd-head" onclick="toggleRndCard(\''+d.ticker+'\')" style="gap:10px">'
-      + _logo(d.ticker, 32)
-      +'<div style="flex:1;min-width:0;margin-right:10px">'
-      +'<div style="display:flex;align-items:baseline;gap:7px;margin-bottom:5px">'
-      +'<span style="font-size:16px;font-weight:700;letter-spacing:-.3px">'+d.ticker+getDivBadge(d.ticker)+'</span>'
-      +'<span style="font-size:10px;color:var(--muted)">'+d.sec+'</span>'
-      +'</div>'
-      +(div2>0
-        ? '<div style="display:flex;align-items:center;gap:5px">'
-          +'<span style="font-size:12px;font-weight:700;font-family:DM Mono,monospace;color:#22d47a">'+d.yd.toFixed(2)+'%</span>'
-          +'<span style="font-size:9px;color:var(--border)">|</span>'
-          +'<span style="font-size:10px;color:var(--muted)">YoC</span>'
-          +'<span style="font-size:12px;font-weight:700;font-family:DM Mono,monospace;color:#86efad">'+d.yoc.toFixed(2)+'%</span>'
-          +'</div>'
-        : '<div style="font-size:10px;color:var(--muted)">Pas de dividende</div>')
-      +'</div>'
-      +'<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">'
-      +'<div style="text-align:right">'
-      +'<div style="font-size:15px;font-weight:700;font-family:DM Mono,monospace;color:'+ppC+'">'+(d.pp>=0?'+':'')+d.pp.toFixed(1)+'%</div>'
-      +'<div style="font-size:10px;color:'+pnlC+';font-family:DM Mono,monospace">'+(d.pnl>=0?'+':'')+Math.round(toE(d.pnl))+'\u20ac</div>'
-      +'</div>'
-      +'<span class="rnd-arrow" id="ra-'+d.ticker+'">\u25be</span>'
-      +'</div>'
-      +'</div>'  /* end rnd-head */
-      /* \u2500\u2500 Expandable body \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-      +'<div class="rnd-body" id="rb-'+d.ticker+'">'
-      +'<div class="rnd-body-inner">'
-      /* DSE + 4-col grid */
-      +'<div style="display:flex;gap:6px;align-items:stretch;margin-bottom:8px">'
-      +'<div style="cursor:pointer;background:rgba(0,0,0,.2);border:1px solid '+rndDseCol+';border-radius:8px;padding:5px 8px;text-align:center;min-width:44px;flex-shrink:0" onclick="event.stopPropagation();showDSESheet(\''+d.ticker+'\')">'
-      +'<div style="font-size:11px;font-weight:700;color:'+rndDseCol+'">'+rndDseScore+'</div>'
-      +'<div style="font-size:7.5px;color:'+rndDseCol+'">DSE</div>'
-      +'</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:5px;flex:1">'
-      +'<div><div style="font-size:8.5px;color:var(--muted)">PRU</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+d.avg.toFixed(2)+'$</div></div>'
-      +'<div><div style="font-size:8.5px;color:var(--muted)">Cours</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+d.price.toFixed(2)+'$</div></div>'
-      +'<div><div style="font-size:8.5px;color:var(--muted)">Investi</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600">'+Math.round(toE(d.cost))+'\u20ac</div></div>'
-      +'<div><div style="font-size:8.5px;color:var(--muted)">Poids</div><div style="font-size:12px;font-family:DM Mono,monospace;font-weight:600;color:'+(w>12?'#f43f5e':w>8?'#f5a623':'var(--text)')+'">'+w.toFixed(1)+'%</div></div>'
-      +'</div>'
-      +'</div>'
-      /* Yield dual cards */
-      +(div2>0
-        ? '<div style="padding-top:8px;border-top:1px solid rgba(255,255,255,.05)">'
-          +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">'
-          +'<div style="background:rgba(34,212,122,.07);border:1px solid rgba(34,212,122,.15);border-radius:9px;padding:7px 10px;text-align:center">'
-          +'<div style="font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Yield actuel</div>'
-          +'<div style="font-size:17px;font-weight:700;font-family:DM Mono,monospace;color:#22d47a">'+d.yd.toFixed(2)+'%</div>'
-          +'<div style="font-size:8px;color:var(--muted);margin-top:1px">sur '+d.price.toFixed(2)+'$</div>'
-          +'</div>'
-          +'<div style="background:rgba(134,239,172,.06);border:1px solid rgba(134,239,172,.15);border-radius:9px;padding:7px 10px;text-align:center">'
-          +'<div style="font-size:8.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Yield on Cost</div>'
-          +'<div style="font-size:17px;font-weight:700;font-family:DM Mono,monospace;color:#86efad">'+d.yoc.toFixed(2)+'%</div>'
-          +'<div style="font-size:8px;color:var(--muted);margin-top:1px">sur PRU '+d.avg.toFixed(2)+'$</div>'
-          +'</div>'
-          +'</div>'
-          +'<div style="display:flex;gap:16px">'
-          +'<div><span style="font-size:9px;color:var(--muted)">Div/an </span><span style="font-size:11px;font-weight:700;color:#22d47a">'+Math.round(div2*d.qty)+'$</span></div>'
-          +'<div><span style="font-size:9px;color:var(--muted)">Qt\u00e9 </span><span style="font-size:11px;font-weight:700">'+d.qty+'</span></div>'
-          +(dpnlDay?'<div style="margin-left:auto"><span style="font-size:9px;color:var(--muted)">Auj. </span><span style="font-size:11px;font-weight:700;color:'+(d.dpnl>=0?'#22d47a':'#f43f5e')+'">'+dpnlDay+'</span></div>':'')
-          +'</div>'
-          +'</div>'
-        : (dpnlDay?'<div style="padding-top:6px;border-top:1px solid rgba(255,255,255,.05);font-size:10px;color:var(--muted)">Auj. <span style="font-weight:700;color:'+(d.dpnl>=0?'#22d47a':'#f43f5e')+'">'+dpnlDay+'</span></div>':''))
-      +'<div id="rnd-chart-'+d.ticker+'" style="margin-top:10px;height:110px;border-radius:9px;overflow:hidden;background:rgba(0,0,0,.2);border:1px solid var(--border)"></div>'
-      +'<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.05)">'
-      +'<button onclick="event.stopPropagation();deleteByTicker(\''+d.ticker+'\')" style="width:100%;padding:8px;border-radius:9px;background:rgba(244,63,94,.08);border:1px solid rgba(244,63,94,.2);color:#f43f5e;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">\ud83d\uddd1 Retirer '+d.ticker+' du portefeuille</button>'
-      +'</div>'
-      +'</div>'  /* end rnd-body-inner */
-      +'</div>'  /* end rnd-body */
-      +'</div>'; /* end rnd-card */
-  }
-  el.innerHTML = summaryHtml + toggleHtml + rows;
-  el._sk = sk; el._sd = sd;
-  var btns = el.querySelectorAll('[data-sk]');
-  for (var j = 0; j < btns.length; j++) {
-    (function(b) {
-      b.addEventListener('click', function() {
-        var k = b.dataset.sk;
-        if (el._sk === k) { el._sd = el._sd === 'asc' ? 'desc' : 'asc'; }
-        else { el._sk = k; el._sd = 'asc'; }
-        _rendered['rendement'] = 0;
-        renderPanel('rendement', el);
-      });
-    })(btns[j]);
-  }
-}
 
 
 
@@ -1044,432 +910,12 @@ function renderDeal(el) {
   draw();
 }
 
-/* ── IMPÔTS : constante de stockage ──────────────────────────── */
-const IMPOT_STORE_KEY = 'astra_tax_data';
-
-function renderImpots(el) {
-  if (raw.length === 0) {
-    el.innerHTML = _emptyState('⚖️', 'Aucune donnée fiscale', 'Les données fiscales s\'affichent une fois des transactions importées.');
-    return;
-  }
-  let taxData = null;
-  try { const s = localStorage.getItem(IMPOT_STORE_KEY); if (s) taxData = JSON.parse(s); } catch(e) {}
-  if (!taxData) { _renderImpotUpload(el); } else { _renderImpotFilled(el, taxData); }
-}
-
-
-
-
-/* ── IMPÔTS : upload + parsing + affichage ───────────────────── */
-
-function _renderImpotUpload(el) {
-  el.innerHTML =
-    '<div class="section-title">Déclaration fiscale</div>'
-    + '<div id="imp-drop" onclick="document.getElementById(\'imp-file-input\').click()" '
-    + 'ondragover="event.preventDefault();this.style.borderColor=\'#7c6dff\'" '
-    + 'ondragleave="this.style.borderColor=\'\'" '
-    + 'ondrop="event.preventDefault();this.style.borderColor=\'\';_handleImpotFile(event.dataTransfer.files[0])" '
-    + 'style="border:2px dashed var(--border);border-radius:16px;padding:36px 20px;text-align:center;margin-bottom:16px;cursor:pointer;transition:border-color .2s">'
-    + '<div style="font-size:44px;margin-bottom:12px">📄</div>'
-    + '<div style="font-size:15px;font-weight:700;margin-bottom:6px">Déposez votre relevé ici</div>'
-    + '<div style="font-size:11px;color:var(--muted);line-height:1.7">Relevé annuel IBKR Ireland · IFU · Dividend Report Tax Year N‑1<br>Formats acceptés : CSV · PDF · TXT</div>'
-    + '<input type="file" id="imp-file-input" accept=".csv,.pdf,.txt" style="display:none" onchange="_handleImpotFile(this.files[0])">'
-    + '</div>'
-    + '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:14px">'
-    + '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Comment obtenir le document IBKR</div>'
-    + '<div style="display:flex;flex-direction:column;gap:10px">'
-    + _impotStep(1,'#7c6dff','ibkr.com → <strong style="color:var(--text)">Rapports → Relevés fiscaux → Relevé annuel des dividendes</strong>','Sélectionner l\'année N‑1 → Télécharger en CSV ou PDF')
-    + _impotStep(2,'#22d47a','Déposer le fichier dans la zone ci-dessus','Les cases 2DC · 2CG · 2TS · 8VL · 3916‑bis sont <strong style="color:var(--text)">remplies automatiquement</strong>')
-    + _impotStep(3,'#f5a623','Vérifier puis exporter / imprimer','Aucune donnée n\'est envoyée à l\'extérieur — tout reste dans ton appareil')
-    + '</div></div>'
-    + '<div style="text-align:center"><button onclick="_renderImpotManual(document.getElementById(\'panel-impots\'))" '
-    + 'style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px 22px;font-size:12px;cursor:pointer;font-family:inherit">'
-    + '✏️  Saisie manuelle des montants</button></div>';
-}
-
-function _impotStep(n, col, titre, desc) {
-  return '<div style="display:flex;gap:10px;align-items:flex-start">'
-    + '<div style="flex-shrink:0;width:24px;height:24px;border-radius:7px;background:'+col+';display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff">'+n+'</div>'
-    + '<div style="font-size:11px;color:var(--muted2);line-height:1.55"><strong style="color:var(--text)">'+titre+'</strong><br>'+desc+'</div>'
-    + '</div>';
-}
-
-function _handleImpotFile(file) {
-  if (!file) return;
-  var el = document.getElementById('panel-impots');
-  el.innerHTML = '<div style="text-align:center;padding:40px 20px"><div style="font-size:32px;margin-bottom:12px">⏳</div><div style="font-size:13px;color:var(--muted)">Analyse en cours…</div></div>';
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    var data = _parseImpotText(e.target.result, file.name);
-    if (data) {
-      try { localStorage.setItem(IMPOT_STORE_KEY, JSON.stringify(data)); } catch(ex) {}
-      _renderImpotFilled(el, data);
-    } else {
-      _renderImpotManual(el, 'Impossible d\'extraire automatiquement les données. Vérifiez le format ou utilisez la saisie manuelle.');
-    }
-  };
-  reader.onerror = function() { _renderImpotManual(el, 'Erreur de lecture du fichier.'); };
-  reader.readAsText(file, 'UTF-8');
-}
-
-function _parseImpotText(text, filename) {
-  var data = {annee:new Date().getFullYear()-1, compte:'', etablissement:'Interactive Brokers Ireland Ltd', pays_compte:'Irlande',
-               div_us_usd:0,div_us_eur:0,rts_us_usd:0,rts_us_eur:0,
-               div_ie_usd:0,div_ie_eur:0,rts_ie_usd:0,rts_ie_eur:0,
-               roc_usd:0,roc_eur:0,eurusd:1.08};
-
-  /* ── IBKR Activity Statement CSV ─── */
-  if (/\.csv$/i.test(filename) || text.indexOf(',Header,')!==-1 || text.indexOf('Statement,Data')!==-1) {
-    var lines = text.split(/\r?\n/);
-    var dUSD=0,dEUR=0,wUSD=0,wEUR=0,rocUSD=0,dIeUSD=0,dIeEUR=0,wIeUSD=0,wIeEUR=0;
-    var IE_SET = {ACN:1,MDT:1};
-    for (var i=0; i<lines.length; i++) {
-      var cols = lines[i].split(',');
-      var sec=(cols[0]||'').trim(), kind=(cols[1]||'').trim();
-      if (sec==='Account Information' && kind==='Data' && (cols[2]||'').trim()==='Account') data.compte=(cols[3]||'').replace(/"/g,'').trim();
-      if (sec==='Dividends' && kind==='Data') {
-        var cur=(cols[2]||'').trim(), desc=(cols[4]||'').replace(/"/g,'').trim();
-        var amt=parseFloat((cols[5]||'').replace(/[^0-9.\-]/g,''))||0;
-        if (amt<=0) continue;
-        if (/return of capital|roc/i.test(desc)) { if(cur==='USD') rocUSD+=amt; continue; }
-        var tk=((desc.match(/^([A-Z]{1,5})\(/)||[])[1])||'';
-        if (IE_SET[tk]) { if(cur==='USD') dIeUSD+=amt; if(cur==='EUR') dIeEUR+=amt; }
-        else { if(cur==='USD') dUSD+=amt; if(cur==='EUR') dEUR+=amt; }
-      }
-      if ((sec==='Withholding Tax'||sec==='Taxes Withheld') && kind==='Data') {
-        var cur2=(cols[2]||'').trim(), desc2=(cols[4]||'').replace(/"/g,'').trim();
-        var amt2=Math.abs(parseFloat((cols[5]||'').replace(/[^0-9.\-]/g,''))||0);
-        var tk2=((desc2.match(/^([A-Z]{1,5})\(/)||[])[1])||'';
-        if (IE_SET[tk2]) { if(cur2==='USD') wIeUSD+=amt2; if(cur2==='EUR') wIeEUR+=amt2; }
-        else { if(cur2==='USD') wUSD+=amt2; if(cur2==='EUR') wEUR+=amt2; }
-      }
-    }
-    if (dUSD>0||wUSD>0) {
-      data.div_us_usd=+dUSD.toFixed(2); data.div_us_eur=dEUR>0?+dEUR.toFixed(2):+(dUSD/data.eurusd).toFixed(2);
-      data.rts_us_usd=+wUSD.toFixed(2); data.rts_us_eur=wEUR>0?+wEUR.toFixed(2):+(wUSD/data.eurusd).toFixed(2);
-      data.div_ie_usd=+dIeUSD.toFixed(2); data.div_ie_eur=dIeEUR>0?+dIeEUR.toFixed(2):+(dIeUSD/data.eurusd).toFixed(2);
-      data.rts_ie_usd=+wIeUSD.toFixed(2); data.rts_ie_eur=wIeEUR>0?+wIeEUR.toFixed(2):+(wIeUSD/data.eurusd).toFixed(2);
-      data.roc_usd=+rocUSD.toFixed(2); data.roc_eur=+(rocUSD/data.eurusd).toFixed(2);
-      return data;
-    }
-  }
-
-  /* ── Texte brut / PDF extracté : regex ─── */
-  function grab(pattern) { var m=text.match(pattern); return m?parseFloat(m[1].replace(/,/g,'.')):null; }
-  var accM=text.match(/U\d{7,9}/); if(accM) data.compte=accM[0];
-  var yrM=text.match(/Tax Year[\s:]+(\d{4})|Ann.e fiscale[\s:]+(\d{4})/i); if(yrM) data.annee=parseInt(yrM[1]||yrM[2]);
-  var dUsUsd=grab(/Total Ordinary Dividends[^\d]+([\d,\.]+)/i)||grab(/Dividends?.*US[^\d]+([\d,\.]+)/i);
-  var dUsEur=grab(/Total Ordinary Dividends.*?([\d,\.]+)\s*€/i);
-  var wUsUsd=grab(/Total Withholding Tax[^\d]+([\d,\.]+)/i)||grab(/Withholding Tax[^\d]+([\d,\.]+)/i);
-  var wUsEur=grab(/Total Withholding Tax.*?([\d,\.]+)\s*€/i);
-  var dIeUsd=grab(/Total non-US Ordinary Dividends[^\d]+([\d,\.]+)/i)||grab(/Irish Dividend[^\d]+([\d,\.]+)/i);
-  var dIeEur=grab(/Total non-US Ordinary Dividends.*?([\d,\.]+)\s*€/i);
-  var wIeUsd=grab(/DWT[^\d]+([\d,\.]+)/i)||grab(/Irish.*Withholding[^\d]+([\d,\.]+)/i);
-  var wIeEur=grab(/DWT.*?([\d,\.]+)\s*€/i);
-  var rocUsd2=grab(/Return of Capital[^\d]+([\d,\.]+)/i);
-  if (!dUsUsd&&!wUsUsd&&!dIeUsd) return null;
-  if(dUsUsd) data.div_us_usd=dUsUsd;
-  data.div_us_eur=dUsEur||(dUsUsd?+(dUsUsd/data.eurusd).toFixed(2):0);
-  if(wUsUsd) data.rts_us_usd=wUsUsd;
-  data.rts_us_eur=wUsEur||(wUsUsd?+(wUsUsd/data.eurusd).toFixed(2):0);
-  if(dIeUsd) data.div_ie_usd=dIeUsd;
-  data.div_ie_eur=dIeEur||(dIeUsd?+(dIeUsd/data.eurusd).toFixed(2):0);
-  if(wIeUsd) data.rts_ie_usd=wIeUsd;
-  data.rts_ie_eur=wIeEur||(wIeUsd?+(wIeUsd/data.eurusd).toFixed(2):0);
-  if(rocUsd2){data.roc_usd=rocUsd2;data.roc_eur=+(rocUsd2/data.eurusd).toFixed(2);}
-  return data;
-}
-
-function _renderImpotManual(el, errorMsg) {
-  var prev={}; try{var s=localStorage.getItem(IMPOT_STORE_KEY);if(s)prev=JSON.parse(s)||{};}catch(e){}
-  var yr=prev.annee||(new Date().getFullYear()-1);
-  function fi(id,lbl,val){ return '<div><div style="font-size:10px;color:var(--muted);margin-bottom:3px">'+lbl+'</div>'
-    +'<input id="impf-'+id+'" type="number" step="0.01" min="0" value="'+(val||'')+'" placeholder="0.00" '
-    +'style="width:100%;padding:8px 10px;border-radius:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-size:13px;font-family:DM Mono,monospace;box-sizing:border-box"></div>'; }
-  function ft(id,lbl,val,ph){ return '<div><div style="font-size:10px;color:var(--muted);margin-bottom:3px">'+lbl+'</div>'
-    +'<input id="impf-'+id+'" type="text" value="'+(val||'')+'" placeholder="'+(ph||'')+'" '
-    +'style="width:100%;padding:8px 10px;border-radius:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-size:13px;font-family:DM Mono,monospace;box-sizing:border-box"></div>'; }
-  el.innerHTML = '<div class="section-title">Saisie manuelle — données fiscales</div>'
-    +(errorMsg?'<div style="background:rgba(244,63,94,.08);border:1px solid rgba(244,63,94,.2);border-radius:10px;padding:10px 12px;font-size:11px;color:#f43f5e;margin-bottom:14px">⚠ '+errorMsg+'</div>':'')
-    +'<div style="background:var(--surface);border-radius:14px;padding:14px;margin-bottom:12px">'
-    +'<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Compte & Année</div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
-    +fi('annee','Année fiscale',yr)+ft('compte','N° compte IBKR',prev.compte||'','U11033379')
-    +'</div></div>'
-    +'<div style="background:var(--surface);border-radius:14px;padding:14px;margin-bottom:12px">'
-    +'<div style="font-size:11px;font-weight:700;color:#22d47a;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">🇺🇸 Dividendes US (retenue 15%)</div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
-    +fi('div_us_usd','Total div. US ($)',prev.div_us_usd||'')+fi('div_us_eur','Total div. US (€)',prev.div_us_eur||'')
-    +fi('rts_us_usd','Retenue source US ($)',prev.rts_us_usd||'')+fi('rts_us_eur','Retenue source US (€)',prev.rts_us_eur||'')
-    +'</div></div>'
-    +'<div style="background:var(--surface);border-radius:14px;padding:14px;margin-bottom:12px">'
-    +'<div style="font-size:11px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">🇮🇪 Dividendes Irlande (DWT 25%)</div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
-    +fi('div_ie_usd','Total div. IE ($)',prev.div_ie_usd||'')+fi('div_ie_eur','Total div. IE (€)',prev.div_ie_eur||'')
-    +fi('rts_ie_usd','DWT prélevée ($)',prev.rts_ie_usd||'')+fi('rts_ie_eur','DWT prélevée (€)',prev.rts_ie_eur||'')
-    +'</div></div>'
-    +'<div style="background:var(--surface);border-radius:14px;padding:14px;margin-bottom:16px">'
-    +'<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Return of Capital (REITs — non imposable)</div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
-    +fi('roc_usd','RoC ($)',prev.roc_usd||'')+fi('roc_eur','RoC (€)',prev.roc_eur||'')
-    +'</div></div>'
-    +'<button onclick="_impotManualSave()" style="width:100%;padding:14px;border-radius:12px;background:var(--violet);color:#fff;border:none;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">Calculer ma déclaration →</button>'
-    +'<div style="text-align:center;margin-top:10px"><button onclick="_renderImpotUpload(document.getElementById(\'panel-impots\'))" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;font-family:inherit">← Retour upload</button></div>';
-}
-
-function _impotManualSave() {
-  function v(id){var e=document.getElementById('impf-'+id);return e?parseFloat(e.value)||0:0;}
-  function t(id){var e=document.getElementById('impf-'+id);return e?e.value.trim():'';}
-  var d={annee:parseInt(t('annee'))||new Date().getFullYear()-1,compte:t('compte'),
-          etablissement:'Interactive Brokers Ireland Ltd',pays_compte:'Irlande',eurusd:1.08,
-          div_us_usd:v('div_us_usd'),div_us_eur:v('div_us_eur'),rts_us_usd:v('rts_us_usd'),rts_us_eur:v('rts_us_eur'),
-          div_ie_usd:v('div_ie_usd'),div_ie_eur:v('div_ie_eur'),rts_ie_usd:v('rts_ie_usd'),rts_ie_eur:v('rts_ie_eur'),
-          roc_usd:v('roc_usd'),roc_eur:v('roc_eur')};
-  if(!d.div_us_eur&&d.div_us_usd) d.div_us_eur=+(d.div_us_usd/d.eurusd).toFixed(2);
-  if(!d.rts_us_eur&&d.rts_us_usd) d.rts_us_eur=+(d.rts_us_usd/d.eurusd).toFixed(2);
-  if(!d.div_ie_eur&&d.div_ie_usd) d.div_ie_eur=+(d.div_ie_usd/d.eurusd).toFixed(2);
-  if(!d.rts_ie_eur&&d.rts_ie_usd) d.rts_ie_eur=+(d.rts_ie_usd/d.eurusd).toFixed(2);
-  try{localStorage.setItem(IMPOT_STORE_KEY,JSON.stringify(d));}catch(e){}
-  _renderImpotFilled(document.getElementById('panel-impots'),d);
-}
-
-function _renderImpotFilled(el,TAX) {
-  var IE_TICKERS=['ACN','MDT'];
-  var usTickers=raw.filter(function(r){return r.qty>0&&IE_TICKERS.indexOf(r.ticker)===-1;}).map(function(r){return r.ticker;}).filter(function(t,i,a){return a.indexOf(t)===i;}).sort().join(', ');
-  var ieTickers=raw.filter(function(r){return r.qty>0&&IE_TICKERS.indexOf(r.ticker)!==-1;}).map(function(r){return r.ticker;}).filter(function(t,i,a){return a.indexOf(t)===i;}).sort().join(' + ')||'ACN + MDT';
-  var div_us_eur=TAX.div_us_eur,rts_us_eur=TAX.rts_us_eur,div_ie_eur=TAX.div_ie_eur,rts_ie_eur=TAX.rts_ie_eur,roc_eur=TAX.roc_eur;
-  var credit_ie=Math.min(rts_ie_eur,div_ie_eur*0.15);
-  var perte_ie=rts_ie_eur-credit_ie;
-  var total_brut=div_us_eur+div_ie_eur;
-  var credit_8vl=rts_us_eur+credit_ie;
-  var net_france=Math.max(0,total_brut*0.30-credit_8vl);
-  function eur(v,dec){dec=dec==null?2:dec;return v.toLocaleString('fr-FR',{minimumFractionDigits:dec,maximumFractionDigits:dec})+' €';}
-  function row(cas,titre,valeur,col,desc){
-    return '<div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:var(--surface2);border-radius:10px;margin-bottom:6px">'
-      +'<div style="min-width:44px;text-align:center;flex-shrink:0"><div style="font-family:DM Mono,monospace;font-size:15px;font-weight:700;color:var(--violet)">'+cas+'</div></div>'
-      +'<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:700;margin-bottom:2px">'+titre+'</div>'+(desc?'<div style="font-size:10px;color:var(--muted);line-height:1.5">'+desc+'</div>':'')+'</div>'
-      +'<div style="flex-shrink:0;font-family:DM Mono,monospace;font-size:14px;font-weight:700;color:'+(col||'var(--text)')+';text-align:right;min-width:80px">'+valeur+'</div></div>';
-  }
-  var html='';
-  /* En-tête + bouton effacer */
-  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
-    +'<div style="display:flex;align-items:center;gap:8px">'
-    +'<div style="background:rgba(34,212,122,.15);border:1px solid rgba(34,212,122,.3);border-radius:8px;padding:5px 12px;font-size:11px;font-weight:700;color:#22d47a">✓ Tax Year '+TAX.annee+'</div>'
-    +(TAX.compte?'<div style="font-size:10px;color:var(--muted)">IBKR Ireland · '+TAX.compte+'</div>':'')
-    +'</div>'
-    +'<button onclick="localStorage.removeItem(\''+IMPOT_STORE_KEY+'\');_renderImpotUpload(document.getElementById(\'panel-impots\'))" '
-    +'style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;font-family:inherit">✕ Effacer</button></div>';
-  /* Synthèse */
-  html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px">'
-    +'<div style="background:var(--surface);border-radius:12px;padding:12px 10px"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total div. bruts</div><div style="font-size:18px;font-weight:700;font-family:DM Mono,monospace">'+eur(total_brut,0)+'</div><div style="font-size:9px;color:var(--muted);margin-top:2px">US + Irlande</div></div>'
-    +'<div style="background:var(--surface);border-radius:12px;padding:12px 10px;border:1px solid rgba(34,212,122,.2)"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Crédit impôt (8VL)</div><div style="font-size:18px;font-weight:700;font-family:DM Mono,monospace;color:#22d47a">-'+eur(credit_8vl,0)+'</div><div style="font-size:9px;color:var(--muted);margin-top:2px">US '+eur(rts_us_eur,0)+' + IE '+eur(credit_ie,0)+'</div></div>'
-    +'<div style="background:var(--surface);border-radius:12px;padding:12px 10px"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Net à payer France</div><div style="font-size:18px;font-weight:700;font-family:DM Mono,monospace;color:#f5a623">'+eur(net_france,0)+'</div><div style="font-size:9px;color:var(--muted);margin-top:2px">PFU 30% après crédit</div></div>'
-    +'</div>';
-  /* Alertes */
-  html+='<div style="display:flex;flex-direction:column;gap:7px;margin-bottom:20px">';
-  if(roc_eur>0) html+='<div style="background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:11px 13px"><div style="font-size:11.5px;line-height:1.55">⚠ <strong style="color:#f59e0b">Return of Capital '+eur(roc_eur,0)+'</strong> (REITs) — non imposable, réduit ton PRU.</div></div>';
-  if(perte_ie>0.01) html+='<div style="background:rgba(244,63,94,.07);border:1px solid rgba(244,63,94,.18);border-radius:10px;padding:11px 13px"><div style="font-size:11.5px;line-height:1.55">⚠ <strong style="color:#f43f5e">'+eur(perte_ie)+' perdus</strong> (DWT irlandaise 25% sur '+ieTickers+' — crédit plafonné 15%). Dépose le formulaire <strong>2VA</strong> auprès d\'IBKR Ireland.</div></div>';
-  html+='</div>';
-  /* 3916-bis */
-  html+='<div style="background:var(--surface);border-radius:14px;border-left:4px solid #f43f5e;padding:14px;margin-bottom:12px">'
-    +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">'
-    +'<div style="display:flex;gap:8px;align-items:center"><span style="background:#f43f5e;color:#fff;font-size:9px;font-weight:700;padding:3px 8px;border-radius:5px;letter-spacing:.5px">OBLIGATOIRE</span>'
-    +'<div style="font-size:15px;font-weight:700">Formulaire 3916-bis</div></div>'
-    +'<div style="text-align:right;font-size:10px;color:#f59e0b;font-weight:600;line-height:1.4">À faire 1×/an<br>Amende 1 500 €</div></div>'
-    +'<div style="font-size:12px;line-height:1.7;color:var(--muted2)">Sur <strong style="color:var(--text)">impots.gouv.fr</strong> → Ma déclaration → Comptes à l\'étranger'
-    +'<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px">'
-    +'<span>• Établissement : <strong style="color:var(--text)">'+TAX.etablissement+'</strong></span>'
-    +'<span>• Pays : <strong style="color:var(--text)">'+TAX.pays_compte+'</strong></span>'
-    +(TAX.compte?'<span>• N° compte : <strong style="color:var(--text);font-family:DM Mono,monospace">'+TAX.compte+'</strong></span>':'')
-    +'</div></div></div>';
-  /* 2047 */
-  html+='<div style="background:var(--surface);border-radius:14px;border-left:4px solid #f59e0b;padding:14px;margin-bottom:12px">'
-    +'<div style="font-size:15px;font-weight:700;margin-bottom:12px">Formulaire 2047 — À remplir AVANT la 2042</div>'
-    +'<div style="background:rgba(34,197,94,.05);border:1px solid rgba(34,197,94,.15);border-radius:10px;padding:11px;margin-bottom:8px">'
-    +'<div style="font-size:11px;font-weight:700;color:#22c55e;margin-bottom:8px">🇺🇸 Ligne 1 — Pays : États-Unis</div>'
-    +row('201','Pays','États-Unis','#22c55e',null)
-    +row('203','Montant net encaissé',(TAX.div_us_usd-TAX.rts_us_usd).toFixed(2)+' $ → € au taux BCE','#22c55e','Convertir au taux du jour de chaque versement')
-    +row('204','Taux crédit d\'impôt','17,7 %','#22c55e','Convention France-USA art. 10')
-    +row('206','Impôt payé aux USA',eur(rts_us_eur),'#22c55e',null)
-    +row('207','Crédit d\'impôt retenu',eur(rts_us_eur),'#22c55e',null)
-    +row('208','Revenu crédit inclus',eur(div_us_eur),'#22c55e',null)
-    +'</div>'
-    +(div_ie_eur>0?'<div style="background:rgba(245,158,11,.05);border:1px solid rgba(245,158,11,.15);border-radius:10px;padding:11px">'
-    +'<div style="font-size:11px;font-weight:700;color:#f59e0b;margin-bottom:8px">🇮🇪 Ligne 2 — Pays : Irlande ('+ieTickers+')</div>'
-    +row('201','Pays','Irlande','#f59e0b',null)
-    +row('203','Montant net encaissé',(TAX.div_ie_usd-TAX.rts_ie_usd).toFixed(2)+' $ → € au taux BCE','#f59e0b','Convertir au taux du jour de chaque versement')
-    +row('204','Taux','15 %','#f59e0b','Convention France-Irlande (≠ USA)')
-    +row('206','DWT prélevée par IBKR',eur(rts_ie_eur),'#f59e0b',null)
-    +row('207','Crédit récupérable',eur(credit_ie),'#f59e0b','Plafonné à 15%')
-    +'</div>':'')
-    +'</div>';
-  /* 2042 */
-  var cases2042=[
-    {cas:'2DC',titre:'Dividendes bruts actions US',val:eur(div_us_eur),col:'#22d47a',desc:(usTickers||'actions US du portefeuille')+' — Source : «Total Ordinary Dividends»'},
-    {cas:'2CG',titre:'Revenus soumis aux prélèvements sociaux (PFU)',val:eur(div_us_eur),col:'#22d47a',desc:'Identique à 2DC. Option barème progressif → 2BH à la place'},
-    ...(div_ie_eur>0?[{cas:'2TS',titre:'Dividendes source irlandaise ('+ieTickers+')',val:eur(div_ie_eur),col:'#f59e0b',desc:'Pas d\'abattement 40 %. Source : «Total non-US Ordinary Dividends»'}]:[]),
-    {cas:'3VG',titre:'Plus-values de cession',val:'À vérifier',col:'#6b7280',desc:'Vérifier «Realized Gains & Losses» IBKR → reporter si gain. Perte → case 3VH'},
-    {cas:'8VL',titre:'Crédit d\'impôt étranger (report depuis 2047)',val:eur(credit_8vl),col:'#22d47a',desc:'= '+eur(rts_us_eur)+' US'+(credit_ie>0?' + '+eur(credit_ie)+' IE':'')+'. ⚠ Case 8VL uniquement — 2AB réservée aux courtiers français'},
-  ];
-  html+='<div style="background:var(--surface);border-radius:14px;border-left:4px solid var(--violet);padding:14px;margin-bottom:12px">'
-    +'<div style="font-size:15px;font-weight:700;margin-bottom:12px">Formulaire 2042 — Déclaration principale</div>'
-    +'<div style="display:flex;flex-direction:column;gap:6px">';
-  for(var i=0;i<cases2042.length;i++){var c=cases2042[i];html+=row(c.cas,c.titre,c.val,c.col,c.desc);}
-  html+='</div></div>';
-  /* Procédure annuelle */
-  var steps=[
-    {n:1,col:'#ef4444',titre:'Déclarer le compte IBKR (3916-bis)',desc:'Sur impots.gouv.fr dès l\'ouverture de la campagne. Obligatoire même sans gain. Amende 1 500 € si oubli.'},
-    {n:2,col:'#f59e0b',titre:'Déposer le Dividend Report IBKR dans cet onglet',desc:'Relevé annuel Tax Year N-1 → ibkr.com → Rapports → Relevés fiscaux. Cases calculées automatiquement.'},
-    {n:3,col:'#7c6dff',titre:'Remplir le formulaire 2047 en premier',desc:'Ligne USA (taux 17,7 %) + Ligne Irlande (taux 15 %). Copier les valeurs affichées ci-dessus.'},
-    {n:4,col:'#22d47a',titre:'Remplir la 2042',desc:'Copier : 2DC · 2CG · 2TS · 8VL (PAS 2AB) · 3VG si ventes. Vérifier que Return of Capital REITs n\'est PAS inclus.'},
-  ];
-  html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span style="font-size:18px">🔄</span><div style="font-size:14px;font-weight:700">Procédure chaque année</div></div>'
-    +'<div style="background:var(--surface);border-radius:14px;overflow:hidden;margin-bottom:14px">';
-  for(var j=0;j<steps.length;j++){var s=steps[j];html+='<div style="display:flex;gap:12px;padding:13px 14px;border-bottom:1px solid var(--border)"><div style="flex-shrink:0;width:26px;height:26px;border-radius:50%;background:'+s.col+';display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff">'+s.n+'</div><div><div style="font-size:12.5px;font-weight:700;margin-bottom:3px">'+s.titre+'</div><div style="font-size:10.5px;color:var(--muted);line-height:1.6">'+s.desc+'</div></div></div>';}
-  html+='</div>';
-  /* Note source */
-  html+='<div style="background:rgba(124,109,255,.05);border:1px solid rgba(124,109,255,.12);border-radius:10px;padding:11px 13px;font-size:10px;color:var(--muted);line-height:1.7">'
-    +'<strong style="color:var(--violet)">Source</strong> : Tax Year '+TAX.annee+' · IBKR Ireland'+(TAX.compte?' · '+TAX.compte:'')
-    +' · Convention France-USA art. 10 · Convention France-Irlande (BOFiP) · Notice 2047-NOT.'
-    +'</div>';
-  el.innerHTML=html;
-}
 
 /* ════════════════════════════════════════════════════════════════
    MODULE: UI.Import — Import CSV interface
    ════════════════════════════════════════════════════════════════ */
 let _importResult = null;
 
-function renderImport(el) {
-  const imported = Storage.load();
-  const manual   = Storage.loadManual();
-  const totalTx  = imported.length + manual.length;
-
-  let html = '<div style="margin-bottom:18px"><div class="section-title">&#128229; Import &amp; Saisie</div><div style="font-size:11px;color:var(--muted)">IBKR &bull; Trade Republic &bull; Degiro &bull; Saisie manuelle</div></div>';
-
-  /* ── Résumé transactions actives ── */
-  if (totalTx > 0) {
-    html += `<div style="background:rgba(34,212,122,.08);border:1px solid rgba(34,212,122,.2);border-radius:10px;padding:11px 14px;margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <div><div style="font-size:12px;font-weight:700;color:#22d47a">${totalTx} transaction(s) active(s)</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Intégrées dans le portfolio</div></div>
-        <button onclick="clearAll()" style="font-size:10px;color:#f43f5e;font-weight:700;padding:5px 10px;border:1px solid rgba(244,63,94,.3);border-radius:7px;background:rgba(244,63,94,.07);cursor:pointer">Effacer tout</button>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        ${imported.length ? `<span style="font-size:10px;background:rgba(124,109,255,.1);color:#7c6dff;padding:3px 8px;border-radius:6px;font-weight:600">CSV: ${imported.length}</span>` : ''}
-        ${manual.length   ? `<span style="font-size:10px;background:rgba(0,200,160,.1);color:#00c8a0;padding:3px 8px;border-radius:6px;font-weight:600">Manuel: ${manual.length}</span>` : ''}
-      </div>
-    </div>`;
-  }
-
-  /* ── Tabs Import / Manuel / Fondamentaux ── */
-  html += `<div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:16px">
-    <button id="imp-tab-csv"    onclick="switchImportTab('csv')"    style="flex:1;padding:10px 0;font-size:11px;font-weight:700;border:none;background:none;color:var(--violet);border-bottom:2px solid var(--violet);cursor:pointer">CSV Import</button>
-    <button id="imp-tab-manual" onclick="switchImportTab('manual')" style="flex:1;padding:10px 0;font-size:11px;font-weight:700;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer">✏️ Manuel</button>
-    <button id="imp-tab-funds"  onclick="switchImportTab('funds')"  style="flex:1;padding:10px 0;font-size:11px;font-weight:700;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer">📊 Fondamentaux</button>
-  </div>`;
-
-  /* ── Zone CSV ── */
-  html += `<div id="imp-zone-csv">
-    <div id="imp-drop" onclick="document.getElementById('imp-file').click()" style="border:2px dashed rgba(124,109,255,.35);border-radius:14px;padding:32px 16px;text-align:center;cursor:pointer;background:rgba(124,109,255,.04);margin-bottom:16px;transition:border-color .2s" ondragover="event.preventDefault();this.style.borderColor='var(--violet)'" ondragleave="this.style.borderColor='rgba(124,109,255,.35)'" ondrop="handleDrop(event)">
-      <div style="font-size:28px;margin-bottom:8px">&#128229;</div>
-      <div style="font-weight:700;font-size:14px;margin-bottom:4px">Glisser un fichier CSV ici</div>
-      <div style="font-size:11px;color:var(--muted)">ou cliquer pour sélectionner</div>
-      <div style="font-size:10px;color:var(--muted);margin-top:8px">IBKR &bull; Trade Republic &bull; Degiro</div>
-    </div>
-    <input type="file" id="imp-file" accept=".csv,.txt" style="display:none" onchange="handleFile(this.files[0])">
-    <div id="imp-status"></div><div id="imp-preview"></div>
-  </div>`;
-
-  /* ── Zone Saisie manuelle ── */
-  const today = new Date().toISOString().split('T')[0];
-  html += `<div id="imp-zone-manual" style="display:none">
-    <div style="background:var(--surface);border-radius:14px;padding:16px;margin-bottom:16px">
-      <div style="font-size:13px;font-weight:700;margin-bottom:14px;color:var(--teal)">✏️ Nouvelle transaction</div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-        <div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">Type *</div>
-          <select id="mt-type" style="width:100%;padding:9px 10px;border-radius:9px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-family:inherit;font-size:13px">
-            <option value="buy">▲ Achat</option>
-            <option value="sell">▼ Vente</option>
-            <option value="dividend">$ Dividende</option>
-            <option value="withholding_tax">% Retenue fiscale</option>
-          </select>
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">Ticker *</div>
-          <input id="mt-ticker" type="text" placeholder="ex: JNJ" maxlength="10" style="width:100%;padding:9px 10px;border-radius:9px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-family:DM Mono,monospace;font-size:13px;text-transform:uppercase">
-        </div>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">
-        <div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">Quantité *</div>
-          <input id="mt-qty" type="number" placeholder="0" min="0" step="any" style="width:100%;padding:9px 10px;border-radius:9px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-family:DM Mono,monospace;font-size:13px">
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">Prix *</div>
-          <input id="mt-price" type="number" placeholder="0.00" min="0" step="any" style="width:100%;padding:9px 10px;border-radius:9px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-family:DM Mono,monospace;font-size:13px">
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">Frais</div>
-          <input id="mt-fees" type="number" placeholder="0.00" min="0" step="any" style="width:100%;padding:9px 10px;border-radius:9px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-family:DM Mono,monospace;font-size:13px">
-        </div>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
-        <div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">Retenue tax</div>
-          <input id="mt-tax" type="number" placeholder="0.00" min="0" step="any" style="width:100%;padding:9px 10px;border-radius:9px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-family:DM Mono,monospace;font-size:13px">
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">Devise</div>
-          <select id="mt-currency" style="width:100%;padding:9px 10px;border-radius:9px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-family:inherit;font-size:13px">
-            <option value="USD">USD</option>
-            <option value="EUR">EUR</option>
-            <option value="GBP">GBP</option>
-            <option value="JPY">JPY</option>
-          </select>
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px">Date *</div>
-          <input id="mt-date" type="date" value="${today}" style="width:100%;padding:9px 10px;border-radius:9px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-family:inherit;font-size:13px">
-        </div>
-      </div>
-
-      <div id="mt-error" style="display:none;color:#f43f5e;font-size:11px;margin-bottom:10px;padding:8px 12px;background:rgba(244,63,94,.08);border-radius:8px"></div>
-      <div id="mt-success" style="display:none;color:#22d47a;font-size:11px;margin-bottom:10px;padding:8px 12px;background:rgba(34,212,122,.08);border-radius:8px;text-align:center"></div>
-
-      <button onclick="addManualTransaction()" style="width:100%;padding:13px;border-radius:12px;background:var(--teal);color:#08080f;font-weight:700;font-size:14px;cursor:pointer;border:none">
-        &#10003; Ajouter la transaction
-      </button>
-    </div>
-
-    <!-- Liste des transactions manuelles -->
-    <div id="manual-list"></div>
-  </div>`;
-
-  /* ── Zone Fondamentaux ── */
-  html += `<div id="imp-zone-funds" style="display:none">
-    <div style="background:var(--surface);border-radius:14px;padding:16px;margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-        <div>
-          <div style="font-size:13px;font-weight:700;color:#f59e0b">📊 Fondamentaux par ticker</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px">Édition manuelle · Les valeurs API sont conservées entre rechargements</div>
-        </div>
-        <button onclick="saveFundamentalsForm()" style="font-size:11px;font-weight:700;padding:7px 14px;border-radius:9px;background:rgba(245,158,11,.12);color:#f59e0b;border:1px solid rgba(245,158,11,.3);cursor:pointer">💾 Sauvegarder</button>
-      </div>
-      <div id="funds-table"></div>
-    </div>
-  </div>`;
-
-  el.innerHTML = html;
-
-  /* Render liste manuelle si on est sur cet onglet */
-  renderManualList();
-  renderFundamentalsTable();
-}
 
 function switchImportTab(tab) {
   const zones = { csv: 'imp-zone-csv', manual: 'imp-zone-manual', funds: 'imp-zone-funds' };
@@ -1719,7 +1165,7 @@ function deleteByTicker(ticker) {
   _rendered = {};
   buildKPI();
   const rEl = document.getElementById('panel-rendement');
-  if (rEl) renderRendement(rEl);
+  if (rEl) renderPanel('rendement', rEl);
 }
 
 function clearManualTransactions() {
@@ -1739,37 +1185,12 @@ function handleFile(file) {
   st.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:8px 0">↻ Lecture de ${_esc(file.name)}…</div>`;
   document.getElementById('imp-preview').innerHTML = '';
   const reader = new FileReader();
-  reader.onload = e => { _importResult = BrokerImport.process(e.target.result); renderImportStatus(_importResult); renderImportPreview(_importResult); };
+  reader.onload = e => { _importResult = BrokerImport.process(e.target.result); window.renderImportStatus?.(_importResult); window.renderImportPreview?.(_importResult); };
   reader.onerror = () => { st.innerHTML = '<div style="color:#f43f5e;font-size:12px;padding:8px 0">Erreur de lecture fichier.</div>'; };
   reader.readAsText(file, 'UTF-8');
 }
 
-function renderImportStatus(res) {
-  const el = document.getElementById('imp-status');
-  if (!el) return;
-  if (res.error) { el.innerHTML = `<div style="background:rgba(244,63,94,.08);border:1px solid rgba(244,63,94,.2);border-radius:10px;padding:12px;margin-bottom:12px;color:#f43f5e;font-size:12px">&#10060; ${res.error}</div>`; return; }
-  const bColor = {IBKR:'#7c6dff', TradeRepublic:'#00c8a0', Degiro:'#38bdf8', Unknown:'#f5a623'};
-  const col = bColor[res.broker] || '#f5a623';
-  el.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><span style="background:rgba(124,109,255,.1);color:${col};border:1px solid ${col}33;padding:4px 10px;border-radius:7px;font-size:11px;font-weight:700">${res.broker}</span><span style="background:rgba(34,212,122,.08);color:#22d47a;border:1px solid rgba(34,212,122,.2);padding:4px 10px;border-radius:7px;font-size:11px;font-weight:700">${res.ok.length} valides</span>${res.dupes?`<span style="background:rgba(245,166,35,.08);color:#f5a623;border:1px solid rgba(245,166,35,.2);padding:4px 10px;border-radius:7px;font-size:11px;font-weight:700">${res.dupes} doublons ignorés</span>`:''}${res.skipped.length?`<span style="background:rgba(244,63,94,.08);color:#f43f5e;border:1px solid rgba(244,63,94,.2);padding:4px 10px;border-radius:7px;font-size:11px;font-weight:700">${res.skipped.length} ignorées</span>`:''}</div>`;
-}
 
-function renderImportPreview(res) {
-  const el = document.getElementById('imp-preview');
-  if (!el || !res?.ok) return;
-  if (!res.ok.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px 0;text-align:center">Aucune transaction valide détectée.</div>'; return; }
-  const typeColor = {buy:'#22d47a',sell:'#f43f5e',dividend:'#7c6dff',withholding_tax:'#f5a623',stock_split:'#38bdf8'};
-  const typeIcon  = {buy:'▲',sell:'▼',dividend:'$',withholding_tax:'%',stock_split:'⇌'};
-  let html = `<div style="font-size:13px;font-weight:700;margin-bottom:10px">Aperçu — ${res.ok.length} transaction(s)</div>`;
-  html += '<div class="twrap" style="margin-bottom:14px"><table><thead><tr><th>TYPE</th><th>TICKER</th><th>DATE</th><th>QTÉ</th><th>PRIX</th><th>FRAIS</th><th>TAX</th><th>DEVISE</th></tr></thead><tbody>';
-  for (const t of res.ok) {
-    const tc = typeColor[t.type]||'#8888aa', ti = typeIcon[t.type]||'?';
-    html += `<tr><td><span style="color:${tc};font-weight:700;font-size:11px">${ti} ${t.type}</span></td><td style="font-weight:700;font-size:12px">${t.ticker}</td><td style="font-family:DM Mono,monospace;font-size:11px;color:var(--muted)">${t.date}</td><td style="font-family:DM Mono,monospace;font-size:11px">${t.quantity}</td><td style="font-family:DM Mono,monospace;font-size:11px">${t.price.toFixed(3)}</td><td style="font-family:DM Mono,monospace;font-size:11px">${t.fees.toFixed(2)}</td><td style="font-family:DM Mono,monospace;font-size:11px">${t.tax_withheld.toFixed(2)}</td><td style="font-size:11px">${t.currency}</td></tr>`;
-  }
-  html += '</tbody></table></div>';
-  if (res.skipped.length) { html += `<details style="margin-bottom:14px"><summary style="font-size:11px;color:var(--muted);cursor:pointer">${res.skipped.length} ligne(s) ignorée(s)</summary><div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">${res.skipped.map(s=>`<div style="font-size:10px;color:var(--muted);padding:4px 8px;background:var(--surface2);border-radius:6px">Ligne ${s.row} — ${s.reason}</div>`).join('')}</div></details>`; }
-  html += `<div style="display:flex;gap:10px"><button onclick="validateImport()" style="flex:1;padding:13px;border-radius:12px;background:var(--violet);color:#fff;font-weight:700;font-size:14px;cursor:pointer;border:none">&#10003; Valider & Sauvegarder (${res.ok.length})</button><button onclick="cancelImport()" style="padding:13px 16px;border-radius:12px;background:var(--surface2);color:var(--muted);font-weight:700;font-size:13px;cursor:pointer;border:none">&#10005;</button></div>`;
-  el.innerHTML = html;
-}
 
 function validateImport() {
   if (!_importResult?.ok?.length) return;
@@ -1780,7 +1201,7 @@ function validateImport() {
   _rendered = {}; _importResult = null;
   const el = document.getElementById('panel-import');
   if (el) {
-    _rendered['import'] = 1; renderImport(el);
+    _rendered['import'] = 1; _panelMods.importPanel?.renderImport(el);
     const st = document.getElementById('imp-status');
     if (st) st.innerHTML = '<div style="background:rgba(34,212,122,.1);border:1px solid rgba(34,212,122,.3);border-radius:10px;padding:14px;margin-bottom:14px;text-align:center"><div style="font-size:18px;margin-bottom:4px">&#10003;</div><div style="font-weight:700;color:#22d47a;font-size:14px">Import réussi !</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Récupération fondamentaux en cours…</div></div>';
   }
@@ -1806,7 +1227,7 @@ function validateImport() {
 function cancelImport() {
   _importResult = null;
   const el = document.getElementById('panel-import');
-  if (el) { _rendered['import'] = 1; renderImport(el); }
+  if (el) { _rendered['import'] = 1; _panelMods.importPanel?.renderImport(el); }
 }
 
 async function clearAll() {
@@ -1820,7 +1241,7 @@ async function clearAll() {
   _rendered = {};
   buildKPI();
   const el = document.getElementById('panel-import');
-  if (el) { _rendered['import'] = 1; renderImport(el); }
+  if (el) { _rendered['import'] = 1; _panelMods.importPanel?.renderImport(el); }
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -1972,9 +1393,30 @@ const App = (() => {
     Calc.recompute();
     buildKPI();
 
+    /* Register service worker for offline caching */
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+
     /* Init tabs */
     const allTabs = document.querySelectorAll('.tab');
-    allTabs.forEach((tab, idx) => tab.addEventListener('click', () => goTo(idx)));
+    allTabs.forEach((tab, idx) => {
+      tab.addEventListener('click', () => goTo(idx));
+      const pid = tab.dataset?.p;
+      if (pid) {
+        tab.addEventListener('mouseenter', () => {
+          switch (pid) {
+            case 'rendement':    if (!_panelMods.rendement)    import('./panels/rendement.js').then(m    => { _panelMods.rendement    = m; }); break;
+            case 'impots':       if (!_panelMods.impots)       import('./panels/impots.js').then(m       => { _panelMods.impots       = m; }); break;
+            case 'import':       if (!_panelMods.importPanel)  import('./panels/import.js').then(m       => { _panelMods.importPanel  = m; }); break;
+            case 'secteurs':     if (!_panelMods.secteurs)     import('./panels/secteurs.js').then(m     => { _panelMods.secteurs     = m; }); break;
+            case 'dividendes':   if (!_panelMods.dividendes)   import('./panels/dividendes.js').then(m   => { _panelMods.dividendes   = m; }); break;
+            case 'calendar':     if (!_panelMods.calendar)     import('./panels/calendar.js').then(m     => { _panelMods.calendar     = m; }); break;
+            case 'valorisation': case 'news': if (!_panelMods.val) import('./panels/valorisation.js').then(m => { _panelMods.val = m; }); break;
+          }
+        }, { passive: true });
+      }
+    });
 
     /* Wrap panels in slide container */
     const _allPanelEls = [...document.querySelectorAll('.panel')];
@@ -2635,5 +2077,4 @@ Object.assign(window, {
   handleFile, handleDrop, cancelImport, validateImport, switchImportTab,
   addManualTransaction, deleteManualTx, deleteByTicker, clearManualTransactions, clearAll,
   saveFundamentalsForm,
-  _renderImpotUpload, _renderImpotManual, _handleImpotFile, _impotManualSave,
 });
