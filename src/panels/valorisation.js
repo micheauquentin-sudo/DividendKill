@@ -1,6 +1,6 @@
 import { _emptyState, _logo, _esc } from '../ui-shared.js';
 import { getMV, toE, eu } from '../calc.js';
-import { assets } from '../data.js';
+import { assets, meta } from '../data.js';
 import { calculateDividendSafety, dseColor } from '../dividendSafety.js';
 
 export function renderValorisation(el) {
