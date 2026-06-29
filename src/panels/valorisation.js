@@ -1,7 +1,8 @@
 import { _emptyState, _logo, _esc } from '../ui-shared.js';
 import { getMV, toE, eu } from '../calc.js';
 import { assets, meta } from '../data.js';
-import { calculateDividendSafety, dseColor } from '../dividendSafety.js';
+import { calculateDividendSafety, dseColor, dseLabel } from '../dividendSafety.js';
+import { getDivBadge } from '../dividendTiers.js';
 
 export function renderValorisation(el) {
   if (raw.length === 0) { el.innerHTML = _emptyState('📊', 'Aucune valorisation', 'Les scores de valorisation s\'affichent une fois des positions ajoutées.'); return; }
