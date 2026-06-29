@@ -531,7 +531,7 @@ function _fmtNewsDate(dt) {
 
 function _renderNewsArticles(portSet) {
   if (_newsArticles === null) {
-    var sk = '<div class="section-title">Actualit\u00e9s march\u00e9</div>';
+    var sk = '';
     for (var i = 0; i < 3; i++) {
       sk += '<div class="news-card" style="opacity:.4">'
         + '<div class="news-top"><div class="news-tk" style="width:48px;height:14px;background:var(--surface2);border-radius:4px"></div>'
@@ -542,7 +542,7 @@ function _renderNewsArticles(portSet) {
     }
     return sk;
   }
-  var h = '<div class="section-title">Actualit\u00e9s march\u00e9</div>';
+  var h = '';
   var shown = (portSet && portSet.length)
     ? _newsArticles.filter(function(a){ return !a.symbol || portSet.indexOf(a.symbol) !== -1; })
     : _newsArticles;

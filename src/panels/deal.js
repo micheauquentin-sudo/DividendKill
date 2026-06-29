@@ -123,7 +123,6 @@ export function renderDeal(el) {
 
     for (var i = 0; i < ranked.length; i++) {
       var r = ranked[i];
-      if (r._safe < 60) continue;
       var ex = DS.expanded[r.ticker];
       var rank = i + 1;
       var scoreColor = r.priorityScore >= 70 ? '#22d47a' : r.priorityScore >= 50 ? '#f5a623' : '#f43f5e';

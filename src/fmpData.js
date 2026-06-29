@@ -83,7 +83,13 @@ export const FmpData = (() => {
 
     const set = (field, val) => { if (val != null) a[field] = val; };
 
-    set('sector',       f.sector);
+    const SECTOR_FR = {
+      'Technology':'Tech','Healthcare':'Santé','Consumer Cyclical':'Conso.',
+      'Consumer Defensive':'Conso.','Financial Services':'Finance',
+      'Real Estate':'Immo.','Industrials':'Industrie','Basic Materials':'Mat.',
+      'Communication Services':'Médias','Energy':'Énergie','Utilities':'Utilities',
+    };
+    set('sector', f.sector != null ? (SECTOR_FR[f.sector] || f.sector) : null);
     set('beta',         f.beta);
     set('market_cap',   f.market_cap);
     set('pe_cur',       f.pe_cur);
