@@ -55,16 +55,32 @@ export const FmpData = (() => {
     return _cache[ticker]?.data || null;
   }
 
-  /* Applique les données FMP dans Data.assets[ticker] (ne pas écraser les valeurs manuelles
-     définies par l'utilisateur, sauf si la valeur FMP est plus précise) */
+  /* Extrait les champs normalisés depuis l'ancien format brut { profile, metrics }
+     (entrées KV créées avant la normalisation côté worker). */
+  function _extractFromRaw(raw) {
+    if (!raw.profile) return raw; // déjà normalisé
+    const p = (Array.isArray(raw.profile) ? raw.profile[0] : raw.profile) || {};
+    const m = (Array.isArray(raw.metrics) ? raw.metrics[0] : raw.metrics) || {};
+    return {
+      name:         p.companyName    || null,
+      sector:       p.sector         || null,
+      beta:         p.beta           || null,
+      market_cap:   p.mktCap         || null,
+      annual_div:   p.lastDiv        || null,
+      pe_cur:       m.peRatioTTM     || null,
+      payout_ratio: m.payoutRatioTTM || null,
+      pay_months:   null,
+    };
+  }
+
+  /* Applique les données FMP dans Data.assets[ticker]. */
   function mergeIntoAssets(ticker, assets) {
-    const f = get(ticker);
-    if (!f) return;
+    const raw = get(ticker);
+    if (!raw) return;
     if (!assets[ticker]) assets[ticker] = {};
     const a = assets[ticker];
+    const f = _extractFromRaw(raw);
 
-    // N'écrase que si la valeur API est non-null et que la valeur actuelle vient d'une ancienne
-    // API (null ou absente), pour ne pas écraser les saisies manuelles de l'utilisateur.
     const set = (field, val) => { if (val != null) a[field] = val; };
 
     set('sector',       f.sector);
@@ -72,15 +88,9 @@ export const FmpData = (() => {
     set('market_cap',   f.market_cap);
     set('pe_cur',       f.pe_cur);
     set('payout_ratio', f.payout_ratio);
-    set('fcf_payout',   f.fcf_payout);
-    set('debt_ebitda',  f.debt_ebitda);
-    set('interest_cov', f.interest_cov);
-    set('div_cagr_5y',  f.div_cagr_5y);
-    // streak : préfère la valeur FMP sauf si le FUNDAMENTALS statique est plus conservateur
+    set('pay_months',   f.pay_months);
     if (f.streak != null && f.streak > 0) set('streak', f.streak);
-    // dividende annuel : FMP si absent ou zéro
     if (f.annual_div != null && (!a.d || a.d === 0)) set('d', f.annual_div);
-    // nom si manquant
     if (f.name && !a.name) set('name', f.name);
 
     a._fmp_api = true;

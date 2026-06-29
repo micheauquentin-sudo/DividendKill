@@ -20,7 +20,7 @@ export function analyzeDividendCalendar() {
     var p=raw[ri]; if(p.qty<=0) continue;
     var tk=p.ticker, a=assets[tk]; if(!a) continue;
     var divAnn=a.d*p.qty/eu();
-    var months=PAY_MONTHS[tk]||[];
+    var months=a.pay_months||PAY_MONTHS[tk]||[];
     var perPay=months.length>0?divAnn/months.length:0;
     for(var mi=0;mi<months.length;mi++){
       monthly[months[mi]]+=perPay;

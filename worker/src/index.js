@@ -249,6 +249,7 @@ async function handleAuthLoginEmail(req, env) {
   try { body = await req.json(); } catch { return err('invalid JSON'); }
   const { email, password } = body;
   if (!email || !password) return err('Email et mot de passe requis');
+  if (await isEmailRateLimited(env, email.toLowerCase(), 5)) return err('Trop de tentatives, réessaie dans 15 min', 429);
 
   if (env.DB) await ensureMigrations(env.DB);
   const user = await env.DB.prepare('SELECT id,pw_hash,name FROM users WHERE email = ?').bind(email.toLowerCase()).first();
@@ -440,6 +441,46 @@ async function isRateLimited(env, key, limit) {
   return false;
 }
 
+// Rate limit par email sur fenêtre 15 min — protection brute force ciblée
+async function isEmailRateLimited(env, email, limit) {
+  if (!env.PRICES_KV) return false;
+  const win = Math.floor(Date.now() / 900000); // 15-minute window
+  const key = `rl:email:${email}:${win}`;
+  const cur = parseInt(await env.PRICES_KV.get(key) || '0', 10);
+  if (cur >= limit) return true;
+  await env.PRICES_KV.put(key, String(cur + 1), { expirationTtl: 1800 });
+  return false;
+}
+
+// ── Helpers fondamentaux FMP ─────────────────────────────────
+function extractPayMonths(divs) {
+  if (!Array.isArray(divs) || divs.length === 0) return null;
+  const cutoff = Date.now() - 2 * 365 * 86400000; // 2 ans
+  const months = new Set();
+  for (const d of divs) {
+    if (!d.paymentDate) continue;
+    const t = new Date(d.paymentDate).getTime();
+    if (t < cutoff) break; // FMP renvoie du plus récent au plus ancien
+    months.add(new Date(d.paymentDate).getMonth()); // 0-indexed
+  }
+  return months.size > 0 ? [...months].sort((a, b) => a - b) : null;
+}
+
+function normalizeFunda(rawProfile, rawMetrics, rawDivs) {
+  const p = (Array.isArray(rawProfile) ? rawProfile[0] : rawProfile) || {};
+  const m = (Array.isArray(rawMetrics) ? rawMetrics[0] : rawMetrics) || {};
+  return {
+    name:         p.companyName    || null,
+    sector:       p.sector         || null,
+    beta:         p.beta           || null,
+    market_cap:   p.mktCap         || null,
+    annual_div:   p.lastDiv        || null,
+    pe_cur:       m.peRatioTTM     || null,
+    payout_ratio: m.payoutRatioTTM || null,
+    pay_months:   extractPayMonths(rawDivs),
+  };
+}
+
 // ── Prix FMP avec cache KV ───────────────────────────────────
 // Utilise /stable/profile (plan free) — /stable/quote requiert plan payant (402)
 async function priceProxy(req, env) {
@@ -526,16 +567,16 @@ async function fmpProxy(req, env) {
       const text = await r.text();
       try { return JSON.parse(text); } catch(_) { throw new Error('FMP réponse non-JSON'); }
     };
-    // key-metrics-ttm peut être restreint sur le plan gratuit — on le rend optionnel
-    // pour ne pas bloquer le cache KV si l'endpoint retourne 402
-    const [profileRes, metricsRes] = await Promise.allSettled([
+    const [profileRes, metricsRes, divsRes] = await Promise.allSettled([
       fetch(`${base}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(safeJson),
       fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.ok ? r.json() : null),
+      fetch(`${base}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.ok ? r.json() : null),
     ]);
     if (profileRes.status === 'rejected') throw new Error(profileRes.reason?.message || 'profile failed');
-    const profile = profileRes.value;
-    const metrics = metricsRes.status === 'fulfilled' ? metricsRes.value : null;
-    const result = { profile, metrics };
+    const rawProfile = profileRes.value;
+    const rawMetrics = metricsRes.status === 'fulfilled' ? metricsRes.value : null;
+    const rawDivs    = divsRes.status === 'fulfilled'   ? divsRes.value   : null;
+    const result = normalizeFunda(rawProfile, rawMetrics, rawDivs);
     if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: ttlFunda() });
     return json(result);
   } catch(e) {
@@ -611,11 +652,13 @@ async function handleScheduled(env) {
 
   async function refreshFunda(symbol, reason) {
     try {
-      const [profile, metrics] = await Promise.all([
+      const [profileData, metricsData, divsData] = await Promise.all([
         fetch(`${FMP_BASE}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
         fetch(`${FMP_BASE}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
+        fetch(`${FMP_BASE}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
-      await env.PRICES_KV.put(`funda:${symbol}`, JSON.stringify({ profile, metrics }), { expirationTtl: ttlFunda() });
+      const normalized = normalizeFunda(profileData, metricsData, divsData);
+      await env.PRICES_KV.put(`funda:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttlFunda() });
       console.log(`[Cron] funda:${symbol} mis à jour — ${reason}`);
       return true;
     } catch(e) { console.warn(`[Cron] funda ${symbol}:`, e.message); return false; }
