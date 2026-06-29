@@ -24,6 +24,7 @@ export const D1Client = (() => {
     if (res.status === 401) {
       const ok = await _tryRefresh();
       if (ok) res = await fetch(url, { ...(_opts), ...opts });
+      else { window.location.href = '/auth/login'; return res; }
     }
     return res;
   }

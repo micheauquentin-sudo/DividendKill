@@ -7,47 +7,35 @@ import { getDivBadge } from '../dividendTiers.js';
 export function renderValorisation(el) {
   if (raw.length === 0) { el.innerHTML = _emptyState('📊', 'Aucune valorisation', 'Les scores de valorisation s\'affichent une fois des positions ajoutées.'); return; }
 
-  /* ── Données fondamentales (source PDF Simply Safe Dividends) ── */
-  var vdata = {
-    ACN:  {label:'under', cur:165.36, exp:401,  yld_pts:[1.5,1.6,1.7,1.9,2.4,3.9], pe_pts:[30,29,27,24,19,11.6], growth:'10.1%', gSpeed:'Fast',     gDate:'Sep 25'},
-    ADP:  {label:'under', cur:223.22, exp:365,  yld_pts:[1.8,1.9,2.0,2.1,2.6,3.1], pe_pts:[34,32,30,28,24,25.4], growth:'10.4%', gSpeed:'Fast',     gDate:'Nov 25'},
-    APD:  {label:'fair',  cur:282.96, exp:343,  yld_pts:[2.0,2.1,2.2,2.3,2.4,2.6], pe_pts:[28,27,25,23,21,20.8], growth:'1.1%',  gSpeed:'Very Slow',gDate:'Jan 26'},
-    BMY:  {label:'fair',  cur:56.24,  exp:67,   yld_pts:[2.8,3.0,3.2,3.6,4.0,4.5], pe_pts:[14,12,11,10,9.5,7.2], growth:'1.6%',  gSpeed:'Very Slow',gDate:'Dec 25'},
-    CMCSA:{label:'under', cur:23.97,  exp:38,   yld_pts:[1.5,1.7,2.0,2.5,3.5,5.5], pe_pts:[12,11,10,9,7.5,6.8],  growth:'0%',    gSpeed:'Very Slow',gDate:'Jan 26'},
-    CTBI: {label:'over',  cur:68.82,  exp:60,   yld_pts:[3.5,3.4,3.2,3.1,3.0,3.1], pe_pts:[10,10,11,11,11,13.1], growth:'12.8%', gSpeed:'Very Fast',gDate:'Jul 25'},
-    HRL:  {label:'under', cur:24.58,  exp:36,   yld_pts:[2.2,2.3,2.5,2.9,3.8,4.8], pe_pts:[24,23,22,20,17,14.2], growth:'0.9%',  gSpeed:'Very Slow',gDate:'Nov 25'},
-    HTO:  {label:'under', cur:57.20,  exp:78,   yld_pts:[2.3,2.4,2.5,2.6,2.8,3.1], pe_pts:[28,27,25,24,22,10.2], growth:'4.8%',  gSpeed:'Slow',     gDate:'Jan 26'},
-    JNJ:  {label:'over',  cur:235.66, exp:209,  yld_pts:[2.5,2.6,2.7,2.7,2.5,2.3], pe_pts:[16,16,17,18,19,15.8], growth:'3.1%',  gSpeed:'Slow',     gDate:'Apr 26'},
-    MDT:  {label:'under', cur:80.38,  exp:105,  yld_pts:[2.5,2.6,2.8,3.0,3.3,3.6], pe_pts:[18,17,16,15,14,14.1], growth:'1.4%',  gSpeed:'Very Slow',gDate:'Jun 26'},
-    MMM:  {label:'over',  cur:158.23, exp:156,  yld_pts:[3.5,3.6,3.8,4.0,3.5,2.0], pe_pts:[15,16,17,18,18,14.5], growth:'6.8%',  gSpeed:'Average',  gDate:'Feb 26'},
-    NEE:  {label:'fair',  cur:86.12,  exp:104,  yld_pts:[2.2,2.3,2.4,2.5,2.7,2.9], pe_pts:[26,25,24,23,21,17.4], growth:'10.0%', gSpeed:'Fast',     gDate:'Feb 26'},
-    NFG:  {label:'fair',  cur:76.84,  exp:80,   yld_pts:[3.0,3.1,3.2,3.3,3.1,2.9], pe_pts:[17,16,15,14,12,13.8], growth:'3.7%',  gSpeed:'Slow',     gDate:'Jun 26'},
-    NNN:  {label:'fair',  cur:45.93,  exp:50,   yld_pts:[4.8,4.9,5.0,5.1,5.2,5.2], pe_pts:[15,14,13,13,13,15.2], growth:'3.4%',  gSpeed:'Slow',     gDate:'Jul 25'},
-    NWN:  {label:'fair',  cur:49.64,  exp:50,   yld_pts:[3.5,3.7,3.9,4.0,4.0,4.0], pe_pts:[21,20,19,18,17,18.2], growth:'0.5%',  gSpeed:'Very Slow',gDate:'Oct 25'},
-    O:    {label:'fair',  cur:62.14,  exp:69,   yld_pts:[4.8,5.0,5.1,5.2,5.2,5.2], pe_pts:[20,19,18,17,15,14.8], growth:'1.6%',  gSpeed:'Very Slow',gDate:'12 mo'},
-    PPG:  {label:'under', cur:121.53, exp:158,  yld_pts:[1.4,1.5,1.6,1.7,2.0,2.3], pe_pts:[19,18,17,16,15,12.4], growth:'4.4%',  gSpeed:'Slow',     gDate:'Jul 25'},
-    SON:  {label:'under', cur:50.35,  exp:66,   yld_pts:[3.0,3.1,3.2,3.4,3.7,4.3], pe_pts:[13,12,11,10,9,11.8],  growth:'1.9%',  gSpeed:'Very Slow',gDate:'Apr 26'},
-    TGT:  {label:'fair',  cur:133.17, exp:143,  yld_pts:[2.0,2.1,2.2,2.3,2.9,3.5], pe_pts:[18,17,16,16,15,11.2], growth:'1.8%',  gSpeed:'Very Slow',gDate:'Jun 26'},
-    TSN:  {label:'fair',  cur:57.30,  exp:69,   yld_pts:[2.8,2.9,3.0,3.1,3.3,3.6], pe_pts:[16,15,14,13,13,13.2], growth:'2.0%',  gSpeed:'Very Slow',gDate:'Nov 25'},
-    UGI:  {label:'under', cur:34.36,  exp:43,   yld_pts:[3.5,3.6,3.8,4.0,4.2,4.4], pe_pts:[14,13,12,11,10,10.8], growth:'0%',    gSpeed:'Very Slow',gDate:'2023'},
-    UNM:  {label:'over',  cur:91.82,  exp:65,   yld_pts:[3.5,3.4,3.2,2.8,2.5,2.2], pe_pts:[9,9,8.5,8,8,7.8],    growth:'9.8%',  gSpeed:'Fast',     gDate:'May 26'}
-  };
+  /* ── P/E de référence sectoriel ─────────────────────────── */
+  var SECTOR_FAIR_PE = {'Tech':28,'Santé':22,'Finance':14,'Utilities':18,'Conso.':20,'Industrie':18,'Mat.':16,'Immo.':18,'Énergie':12,'Médias':14};
 
-  /* ── Mini-courbe SVG ──────────────────────────────────────── */
-  function miniSVG(pts, dotCol) {
-    var W = 80, H = 30;
-    var mn = Math.min.apply(null, pts), mx = Math.max.apply(null, pts);
-    var rng = mx - mn || 1;
-    function px(i) { return ((i / (pts.length - 1)) * (W - 8) + 4).toFixed(1); }
-    function py(v)  { return (H - ((v - mn) / rng * (H * 0.72) + H * 0.14)).toFixed(1); }
-    var d = 'M' + px(0) + ' ' + py(pts[0]);
-    for (var i = 1; i < pts.length; i++) d += ' L' + px(i) + ' ' + py(pts[i]);
-    var lx = px(pts.length - 1), ly = py(pts[pts.length - 1]);
-    return '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" style="display:block;overflow:visible">'
-      + '<text x="4" y="' + H + '" fill="rgba(120,120,170,.6)" font-size="5.5" font-family="DM Sans,sans-serif">5-Year Avg</text>'
-      + '<path d="' + d + '" fill="none" stroke="rgba(150,150,200,.3)" stroke-width="1.3" stroke-linejoin="round"/>'
-      + '<circle cx="' + lx + '" cy="' + ly + '" r="3" fill="' + dotCol + '"/>'
-      + '</svg>';
+  /* ── Signal de valorisation depuis FMP live (pe_cur vs fair PE sectoriel) ── */
+  function _computeVal(d) {
+    var a = meta[d.ticker] || {};
+    var sec = d.sec || a.sector || '';
+    var fair_pe = SECTOR_FAIR_PE[sec] || 20;
+    var pe_cur = a.pe_cur || 0;
+    var label;
+    if (pe_cur > 0) {
+      var disc = (fair_pe - pe_cur) / fair_pe;
+      if (disc > 0.10) label = 'under';
+      else if (disc < -0.10) label = 'over';
+      else label = 'fair';
+    } else {
+      label = 'fair';
+    }
+    var exp = (pe_cur > 0 && d.price > 0) ? Math.round(d.price / pe_cur * fair_pe) : 0;
+    return {label: label, exp: exp, fair_pe: fair_pe, pe_cur: pe_cur};
+  }
+
+  /* ── Mini-jauge horizontale (remplace mini-courbe SVG) ──── */
+  function miniGauge(fillPct, col, lbl) {
+    var fp = Math.min(100, Math.max(0, fillPct));
+    return '<div style="width:100%;height:5px;background:rgba(255,255,255,.08);border-radius:3px;margin:6px 0 3px;overflow:hidden">'
+      + '<div style="width:' + fp.toFixed(0) + '%;height:100%;background:' + col + ';border-radius:3px"></div>'
+      + '</div>'
+      + '<div style="font-size:6.5px;color:rgba(120,120,170,.5);text-align:left">' + lbl + '</div>';
   }
 
   /* ── Helpers ─────────────────────────────────────────────── */
@@ -56,9 +44,6 @@ export function renderValorisation(el) {
     if (score >= 75) return {lbl:'Safe',       col:'#86efad'};
     if (score >= 60) return {lbl:'Borderline', col:'#f5a623'};
     return               {lbl:'Unsafe',     col:'#f43f5e'};
-  }
-  function gColor(sp) {
-    return (sp==='Very Fast'||sp==='Fast') ? '#22d47a' : sp==='Average' ? '#f5a623' : '#fb923c';
   }
   function labelCfg(l) {
     if (l==='under') return {txt:'May be undervalued',  col:'#10b981', bg:'rgba(16,185,129,.1)',  bdr:'rgba(16,185,129,.25)'};
@@ -69,7 +54,7 @@ export function renderValorisation(el) {
   /* ── Compteurs ───────────────────────────────────────────── */
   function count() {
     var c = {under:0, fair:0, over:0};
-    for (var i=0; i<raw.length; i++) { var v=vdata[raw[i].ticker]; if(v) c[v.label]++; }
+    for (var i=0; i<raw.length; i++) { c[_computeVal(raw[i]).label]++; }
     return c;
   }
 
@@ -83,17 +68,14 @@ export function renderValorisation(el) {
 
     /* Liste filtrée + triée */
     var list = raw.slice().filter(function(d) {
-      var v = vdata[d.ticker];
-      return v && (VS.filter==='all' || v.label===VS.filter);
+      return VS.filter==='all' || _computeVal(d).label===VS.filter;
     }).sort(function(a,b) {
       var order = {under:0, fair:1, over:2};
-      var va = vdata[a.ticker]; var vb = vdata[b.ticker];
-      var oa = va ? order[va.label] : 1;
-      var ob = vb ? order[vb.label] : 1;
+      var va = _computeVal(a); var vb = _computeVal(b);
+      var oa = order[va.label]; var ob = order[vb.label];
       if (oa !== ob) return oa - ob;
-      // Dans la même catégorie, trier par upside décroissant
-      var ua = va && va.exp > 0 ? (va.exp - a.price)/a.price*100 : -999;
-      var ub = vb && vb.exp > 0 ? (vb.exp - b.price)/b.price*100 : -999;
+      var ua = va.exp > 0 ? (va.exp - a.price)/a.price*100 : -999;
+      var ub = vb.exp > 0 ? (vb.exp - b.price)/b.price*100 : -999;
       return ub - ua;
     });
 
@@ -165,8 +147,8 @@ export function renderValorisation(el) {
         if (cap.roomEur <= 0 || priceEur > budget) continue;
         var m = meta[cd.ticker] || {};
         var yd = cd.price > 0 ? (m.d||0)/cd.price*100 : 0;
-        var vd2 = vdata[cd.ticker];
-        var upside = vd2 && vd2.exp > 0 ? (vd2.exp - cd.price)/cd.price*100 : 0;
+        var vd2 = _computeVal(cd);
+        var upside = vd2.exp > 0 ? (vd2.exp - cd.price)/cd.price*100 : 0;
         var maxAfford = Math.floor(Math.min(budget, cap.roomEur) / priceEur);
         if (maxAfford < 1) continue;
         candidates.push({d:cd, cap:cap, yd:yd, upside:upside, priceEur:priceEur, maxAfford:maxAfford});
@@ -215,7 +197,7 @@ export function renderValorisation(el) {
     /* ── Cards ──────────────────────────────────────────────── */
     for (var i=0; i<list.length; i++) {
       var d  = list[i];
-      var v  = vdata[d.ticker]; if(!v) continue;
+      var v  = _computeVal(d);
       var m  = meta[d.ticker]  || {};
       var lc = labelCfg(v.label);
       var sb = safeBadge(m.safe || 60);
@@ -229,14 +211,15 @@ export function renderValorisation(el) {
       var ann = Math.round(div * d.qty);
       var pe  = m.pe_cur || 0;
       var pp  = d.avg > 0 ? (d.price-d.avg)/d.avg*100 : 0;
-      var gc  = gColor(v.gSpeed);
       var upside = v.exp > 0 ? (v.exp - d.price)/d.price*100 : 0;
       var pC  = d.pnl >= 0 ? '#22d47a' : '#f43f5e';
       var cap = getBuyCapacity(d);
+      var pPct = Math.round((m.payout_ratio||0)*100);
+      var pCol = pPct < 60 ? '#22d47a' : pPct < 80 ? '#f5a623' : '#f43f5e';
 
-      /* mini-courbes : point vert si sous moyenne, orange/rouge si au-dessus */
-      var yldDot = yd >= v.yld_pts[0] ? '#22d47a' : '#f5a623';
-      var peDot  = pe <= v.pe_pts[0]  ? '#22d47a' : '#f5a623';
+      /* jauges : vert si sous-évalué / yield élevé, orange/rouge sinon */
+      var yldDot = yd >= 3 ? '#22d47a' : yd >= 1.5 ? '#f5a623' : '#f43f5e';
+      var peDot  = (v.fair_pe > 0 && pe > 0) ? (pe <= v.fair_pe ? '#22d47a' : '#f5a623') : '#9ca3af';
 
       html += '<div style="background:var(--surface);border-radius:14px;border-left:3px solid '+lc.col+';padding:14px;margin-bottom:10px">'
 
@@ -263,10 +246,10 @@ export function renderValorisation(el) {
         + '<div style="font-size:20px;color:var(--muted)">→</div>'
         + '<div style="flex:1;text-align:right">'
         + '<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Cible attendue</div>'
-        + '<div style="font-size:17px;font-weight:700;font-family:DM Mono,monospace;color:'+lc.col+'">'+v.exp+'$</div>'
+        + '<div style="font-size:17px;font-weight:700;font-family:DM Mono,monospace;color:'+lc.col+'">'+(v.exp > 0 ? v.exp+'$' : 'N/A')+'</div>'
         + '</div>'
         + '<div style="background:'+lc.bg+';border:1px solid '+lc.bdr+';border-radius:8px;padding:6px 10px;text-align:center;min-width:58px">'
-        + '<div style="font-size:14px;font-weight:700;color:'+lc.col+'">'+(upside>=0?'+':'')+upside.toFixed(0)+'%</div>'
+        + '<div style="font-size:14px;font-weight:700;color:'+lc.col+'">'+(v.exp>0?(upside>=0?'+':'')+upside.toFixed(0)+'%':'—')+'</div>'
         + '<div style="font-size:8.5px;color:'+lc.col+'">upside</div>'
         + '</div>'
         + '</div>'
@@ -286,14 +269,14 @@ export function renderValorisation(el) {
         /* Yield */
         + '<div style="background:var(--surface2);border-radius:9px;padding:8px;text-align:center">'
         + '<div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">Yield</div>'
-        + miniSVG(v.yld_pts, yldDot)
+        + miniGauge(Math.min(100, yd/6*100), yldDot, '0% – 6%')
         + '<div style="font-size:12px;font-weight:700;font-family:DM Mono,monospace;color:#22d47a;margin-top:3px">'+yd.toFixed(2)+'%</div>'
         + '</div>'
 
         /* P/E */
         + '<div style="background:var(--surface2);border-radius:9px;padding:8px;text-align:center">'
         + '<div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">P/E</div>'
-        + miniSVG(v.pe_pts, peDot)
+        + miniGauge(v.fair_pe > 0 && pe > 0 ? Math.min(100, pe/v.fair_pe*100) : 0, peDot, 'vs fair PE '+v.fair_pe+'x')
         + '<div style="font-size:12px;font-weight:700;font-family:DM Mono,monospace;color:var(--text);margin-top:3px">'+pe.toFixed(1)+'x</div>'
         + '</div>'
 
@@ -311,8 +294,7 @@ export function renderValorisation(el) {
         + '<div style="background:var(--surface2);border-radius:9px;padding:8px;text-align:center">'
         + '<div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Div. / an</div>'
         + '<div style="font-size:13px;font-weight:700;font-family:DM Mono,monospace;color:#22d47a">$'+ann+'</div>'
-        + '<div style="font-size:8.5px;font-weight:700;color:'+gc+';margin-top:3px">'+v.growth+'</div>'
-        + '<div style="font-size:7.5px;color:'+gc+'">'+v.gSpeed+'</div>'
+        + (pPct > 0 ? '<div style="font-size:8.5px;font-weight:700;color:'+pCol+';margin-top:3px">'+pPct+'%</div><div style="font-size:7.5px;color:var(--muted)">payout</div>' : '<div style="font-size:7.5px;color:var(--muted);margin-top:6px">payout N/A</div>')
         + '</div>'
 
         + '</div>'
@@ -328,8 +310,8 @@ export function renderValorisation(el) {
       + '<span style="font-size:18px;font-weight:700;font-family:DM Mono,monospace;color:#22d47a">$'+Math.round(totalInc).toLocaleString('fr-FR')+'</span>'
       + '</div>'
       + '<div style="margin-top:10px;padding:10px 12px;background:rgba(124,109,255,.05);border:1px solid rgba(124,109,255,.12);border-radius:8px;font-size:9.5px;color:var(--muted);line-height:1.6">'
-      + '<strong style="color:var(--violet)">M\u00e9thode :</strong> Signal basé sur P/E actuel vs moyenne 5 ans (Simply Safe Dividends). '
-      + 'Mini-courbes = évolution historique · point coloré = valeur actuelle. Données au 16/06/2026.'
+      + '<strong style="color:var(--violet)">M\u00e9thode :</strong> Signal calcul\u00e9 depuis P/E TTM (FMP Live) vs P/E de r\u00e9f\u00e9rence sectoriel. '
+      + 'Barre yield = niveau actuel / 6%\u00a0\u00b7 Barre P/E = ratio vs fair PE sectoriel. Donn\u00e9es en temps r\u00e9el.'
       + '</div>';
 
     el.innerHTML = html;
