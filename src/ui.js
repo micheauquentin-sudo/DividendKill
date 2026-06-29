@@ -1079,6 +1079,13 @@ function addManualTransaction() {
   const existing = Storage.loadManual();
   existing.push(tx);
   Storage.saveManual(existing);
+  // Persist to D1 in background — matches the pattern used by submitFABTx
+  D1Client.addTx({ type, ticker, shares: qty, price, date, currency }).then(r => {
+    if (r?.id) {
+      const upd = Storage.loadManual().map(t => t.id === tx.id ? { ...t, d1_id: r.id } : t);
+      Storage.saveManual(upd);
+    }
+  }).catch(() => {});
   BrokerImport.applyToPortfolio();
   _rendered = {};
 
@@ -1205,7 +1212,13 @@ function validateImport() {
     const st = document.getElementById('imp-status');
     if (st) st.innerHTML = '<div style="background:rgba(34,212,122,.1);border:1px solid rgba(34,212,122,.3);border-radius:10px;padding:14px;margin-bottom:14px;text-align:center"><div style="font-size:18px;margin-bottom:4px">&#10003;</div><div style="font-weight:700;color:#22d47a;font-size:14px">Import réussi !</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Récupération fondamentaux en cours…</div></div>';
   }
-  // Récupérer les fondamentaux pour tous les tickers importés
+  // Récupérer fondamentaux : FmpData (payout, streak, fcf…) en parallèle + prix en série
+  FmpData.prefetch(newTickers).then(results => {
+    results.forEach(({ ticker }) => FmpData.mergeIntoAssets(ticker, Data.assets));
+    Calc.recompute();
+    Storage.saveFundamentals(Data.assets);
+    buildKPI();
+  }).catch(() => {});
   autoFetchFundamentals(newTickers, {
     onProgress: (tk, done, total) => {
       const st = document.getElementById('imp-status');
@@ -1537,6 +1550,24 @@ function closeDSESheet() {
   setTimeout(() => { sheet.style.display = 'none'; }, 280);
 }
 
+function _showToast(msg, duration = 3000) {
+  let el = document.getElementById('dk-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'dk-toast';
+    el.style.cssText = 'position:fixed;bottom:76px;left:50%;transform:translateX(-50%) translateY(16px);z-index:9999;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:9px 18px;font-size:12px;font-weight:600;color:var(--text);box-shadow:0 4px 20px rgba(0,0,0,.55);opacity:0;transition:opacity .22s,transform .22s;pointer-events:none;white-space:nowrap;max-width:90vw;text-align:center';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  el.style.transform = 'translateX(-50%) translateY(0)';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateX(-50%) translateY(16px)';
+  }, duration);
+}
+
 function syncIBKR() {
   const tickers = Calc.getPositions().map(p => p.ticker).filter((t,i,a) => a.indexOf(t) === i);
   const btn = document.querySelector('.sync-btn');
@@ -1591,6 +1622,7 @@ function syncIBKR() {
       const _curP = _panels[window._curTab || 0];
       const _curEl = document.getElementById('panel-' + _curP);
       if (_curEl) { try { renderPanel(_curP, _curEl); } catch(_) {} }
+      _showToast(`✓ ${success}/${tickers.length} tickers synchronisés · FMP enrichi`);
       console.log('[syncIBKR] prix OK:', success + '/' + tickers.length, '— FMP fondamentaux chargés');
     })
     .catch(e => {
@@ -2077,4 +2109,5 @@ Object.assign(window, {
   handleFile, handleDrop, cancelImport, validateImport, switchImportTab,
   addManualTransaction, deleteManualTx, deleteByTicker, clearManualTransactions, clearAll,
   saveFundamentalsForm,
+  _retryPanel: (pid) => renderPanel(pid, document.getElementById('panel-' + pid)),
 });

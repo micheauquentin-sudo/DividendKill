@@ -1,4 +1,4 @@
-const CACHE = 'dk-v2';
+const CACHE = '__DK_CACHE__';
 const PRICE_CACHE = 'dk-prices-v1';
 
 self.addEventListener('install', () => self.skipWaiting());

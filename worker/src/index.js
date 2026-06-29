@@ -484,6 +484,13 @@ function normalizeFunda(rawProfile, rawMetrics, rawDivs) {
 // ── Prix FMP avec cache KV ───────────────────────────────────
 // Utilise /stable/profile (plan free) — /stable/quote requiert plan payant (402)
 async function priceProxy(req, env) {
+  // Rate limit: 10 req/min per IP to protect FMP quota
+  const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Real-IP') || 'unknown';
+  if (await isRateLimited(env, `prices:${ip}`, 10)) {
+    return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), {
+      status: 429, headers: { ...CORS, 'Content-Type': 'application/json', 'Retry-After': '60' },
+    });
+  }
   const symbols = new URL(req.url).searchParams.get('symbols');
   if (!symbols)     return err('missing symbols');
   if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
