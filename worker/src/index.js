@@ -696,6 +696,29 @@ async function handleScheduled(env) {
       }
     } catch(e) { console.warn('[Cron] ticker_prices:', e.message); }
 
+    // ── News : 1 seul appel FMP pour tous les tickers, stocké 24h ──
+    try {
+      const newsRes = await fetch(
+        `${FMP_BASE}/stock-news?tickers=${tickers.join(',')}&limit=50&apikey=${env.FMP_KEY}`,
+        { headers: HEADERS }
+      );
+      if (newsRes.ok) {
+        const newsData = await newsRes.json();
+        const articles = (Array.isArray(newsData) ? newsData : []).slice(0, 50).map(a => ({
+          symbol:        (a.symbol        || '').toUpperCase(),
+          title:          a.title         || '',
+          text:          (a.text || a.content || '').slice(0, 400),
+          publishedDate:  a.publishedDate || '',
+          site:           a.site          || '',
+          url:            a.url           || '',
+        }));
+        await env.PRICES_KV.put('news:all', JSON.stringify({ articles, cachedAt: Date.now() }), { expirationTtl: 86400 });
+        console.log(`[Cron] news: ${articles.length} articles pour ${tickers.length} tickers`);
+      } else {
+        console.warn('[Cron] news HTTP', newsRes.status);
+      }
+    } catch(e) { console.warn('[Cron] news:', e.message); }
+
   } catch(e) { console.warn('[Cron]', e.message); }
 }
 
@@ -876,45 +899,23 @@ async function debugPrice(req, env) {
   return json(out);
 }
 
-// ── Actualités FMP par ticker, cache KV 2h ───────────────────
+// ── Actualités : lecture KV uniquement (peuplé par le cron à 22h30) ──
+// Zéro appel FMP côté utilisateur.
 async function newsProxy(req, env) {
   const url = new URL(req.url);
   const tickers = (url.searchParams.get('tickers') || '')
-    .split(',').map(t => t.trim().toUpperCase()).filter(Boolean).slice(0, 15);
-  if (!tickers.length) return json({ articles: [] });
-  if (!env.FMP_KEY)   return json({ articles: [] });
+    .split(',').map(t => t.trim().toUpperCase()).filter(Boolean);
 
-  const cacheKey = `news:${[...tickers].sort().join(',')}`;
-  if (env.PRICES_KV) {
-    const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
-    if (cached) return json(cached);
-  }
-  try {
-    const fmpUrl = `https://financialmodelingprep.com/stable/stock-news?tickers=${tickers.join(',')}&limit=20&apikey=${env.FMP_KEY}`;
-    const res = await fetch(fmpUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-    if (!res.ok) throw new Error(`FMP HTTP ${res.status}`);
-    const data = await res.json();
-    const articles = (Array.isArray(data) ? data : []).slice(0, 20).map(a => ({
-      symbol:        (a.symbol        || '').toUpperCase(),
-      title:          a.title         || '',
-      text:          (a.text || a.content || '').slice(0, 400),
-      publishedDate:  a.publishedDate || '',
-      site:           a.site          || '',
-      url:            a.url           || '',
-    }));
-    const result = { articles, cachedAt: Date.now() };
-    // Cache même si articles vides (endpoint existe mais rien pour ces tickers)
-    if (env.PRICES_KV)
-      await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: 7200 });
-    return json(result);
-  } catch(e) {
-    console.warn('[newsProxy]', e.message);
-    // Cache l'échec 30 min pour éviter de consommer un crédit FMP à chaque ouverture
-    // si l'endpoint est payant (402) ou temporairement indisponible
-    if (env.PRICES_KV)
-      await env.PRICES_KV.put(cacheKey, JSON.stringify({ articles: [], cachedAt: Date.now() }), { expirationTtl: 1800 });
-    return json({ articles: [], error: e.message });
-  }
+  if (!env.PRICES_KV) return json({ articles: [] });
+
+  const pool = await env.PRICES_KV.get('news:all', { type: 'json' });
+  if (!pool) return json({ articles: [], pending: true });
+
+  const articles = tickers.length
+    ? pool.articles.filter(a => tickers.includes(a.symbol))
+    : pool.articles;
+
+  return json({ articles, cachedAt: pool.cachedAt });
 }
 
 // ── Historique prix par ticker depuis D1 ─────────────────────
