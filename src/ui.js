@@ -469,82 +469,35 @@ function _buildInteractiveChart(container, pts, col, activeIdx, spyPts) {
 
 
 
-/* -- TICKER DATABASE (static fundamentals: sector, beta, d, pe, streak) -- */
-const TICKER_DB = {
-  ACN:  {pe_cur:11.6,pe_5y:28.1,fair:346,streak:20,safe:82,sector:'Tech',     beta:1.20,d:4.64,moat:'500k consultants 120 pays, contrats pluriannuels, switching cost \u00e9lev\u00e9.',risk:'Budgets IT compressibles. IA g\u00e9n\u00e9rative sur missions standardis\u00e9es.',why:'ACN -49% depuis son pic. P/E 11.6x vs 28x historique. Yield 3.94% record absolu.'},
-  ADP:  {pe_cur:25.4,pe_5y:30.2,fair:362,streak:50,safe:92,sector:'Tech',     beta:0.85,d:6.16,moat:'Leader paie USA, 1M entreprises clientes, int\u00e9grations ERP profondes.',risk:'Ralentissement emploi US. Pression Workday/Ceridian.',why:'50 ans de hausse dividende. Mod\u00e8le SaaS r\u00e9current. P/E 25x vs 30x historique.'},
-  APD:  {pe_cur:20.8,pe_5y:26.4,fair:361,streak:42,safe:75,sector:'Mat.',     beta:0.85,d:8.00,moat:'Infrastructure gazi\u00e8re irr\u00e9plicable, contrats take-or-pay 15-20 ans.',risk:'H2 vert incertain. CapEx intense.',why:'Diversifi\u00e9 H2 vert. Yield 7.4% sur PRU. Contrats s\u00e9curis\u00e9s.'},
-  BMY:  {pe_cur:7.2, pe_5y:11.8,fair:72, streak:16,safe:62,sector:'Sant\u00e9',    beta:0.35,d:2.40,moat:'Pipeline oncologie Opdivo. Brevets prot\u00e9g\u00e9s jusqu\'en 2030.',risk:'Expiration brevets 2026-2027. Pression g\u00e9n\u00e9riques.',why:'P/E 7.2x, yield 2.36%, d\u00e9cote vs pairs pharma.'},
-  CMCSA:{pe_cur:6.8, pe_5y:10.8,fair:38, streak:14,safe:58,sector:'M\u00e9dias',   beta:1.00,d:1.24,moat:'Infrastructure c\u00e2ble irr\u00e9plicable. Bundle internet/TV/mobile.',risk:'Cord-cutting acc\u00e9l\u00e9r\u00e9. Comp\u00e9tition fibre AT&T/Verizon.',why:'P/E 6.8x historiquement bas. Yield 5.51%. Rachats agressifs.'},
-  CTBI: {pe_cur:13.1,pe_5y:14.2,fair:85, streak:22,safe:70,sector:'Finance',  beta:0.60,d:1.92,moat:'Banque communautaire Kentucky, faible concurrence locale.',risk:'Exposition immobilier r\u00e9gional. Taux bas.',why:'CTBI +102% vs PRU. Dividende stable 22 ans.'},
-  HRL:  {pe_cur:14.2,pe_5y:21.8,fair:36, streak:57,safe:55,sector:'Conso.',   beta:0.50,d:1.10,moat:'Spam, Hormel Natural Choice. 57 ans hausse (Dividend King).',risk:'Co\u00fbts mati\u00e8res premi\u00e8res. Marges sous pression.',why:'Dividend King 57 ans. P/E 14x vs 22x historique. D\u00e9cote -22%.'},
-  HTO:  {pe_cur:10.2,pe_5y:12.8,fair:72, streak:0, safe:50,sector:'Finance',  beta:0.70,d:0.00,moat:'Pr\u00eatuer sur gages UK leader, 270 agences.',risk:'R\u00e9gulation FCA. Exposition GBP. Pas de dividende.',why:'HTO +38% vs PRU. Valorisation attractive. Mod\u00e8le contra-cyclique.'},
-  JNJ:  {pe_cur:15.8,pe_5y:17.2,fair:282,streak:62,safe:97,sector:'Sant\u00e9',    beta:0.55,d:4.96,moat:'MedTech/Pharma diversifi\u00e9. 62 ans hausse. AAA credit.',risk:'Contentieux talc. G\u00e9n\u00e9riques Stelara.',why:'JNJ Dividend King 62 ans. P/E 15.8x. Mod\u00e8le d\u00e9fensif AAA.'},
-  MDT:  {pe_cur:14.1,pe_5y:17.5,fair:98, streak:47,safe:80,sector:'Sant\u00e9',    beta:0.90,d:2.80,moat:'Dispositifs m\u00e9dicaux #1 mondial. 47 ans hausse.',risk:'Concurrence Abbott/Boston Scientific.',why:'MDT -3% vs PRU. P/E 14x vs 17.5x historique. D\u00e9cote injustifi\u00e9e.'},
-  MMM:  {pe_cur:14.5,pe_5y:17.3,fair:198,streak:66,safe:72,sector:'Industrie',beta:0.90,d:1.76,moat:'66 ans hausse. 55k produits, 60k brevets.',risk:'Restructuration post-Solventum. March\u00e9s cycliques.',why:'3M +58% vs PRU. Restructuration prometteuse. Dividende s\u00e9curis\u00e9.'},
-  NEE:  {pe_cur:17.4,pe_5y:22.6,fair:108,streak:28,safe:78,sector:'Utilities',beta:0.50,d:2.06,moat:'#1 renouvelable USA. Pipeline 15GW. PPA long terme.',risk:'Taux \u00e9lev\u00e9s (CapEx). R\u00e9gulation \u00e9tatique.',why:'NEE +24% vs PRU. M\u00e9gatrend renouvelable. Div +10%/an 2028.'},
-  NFG:  {pe_cur:13.8,pe_5y:16.2,fair:94, streak:54,safe:74,sector:'Utilities',beta:0.55,d:1.88,moat:'54 ans hausse. Utility gaz NY/PA. R\u00e9gulation protectrice.',risk:'Transition gaz. R\u00e9gulation NYS.',why:'NFG +42% vs PRU. Utility d\u00e9fensive. 54 ans croissance div.'},
-  NNN:  {pe_cur:15.2,pe_5y:18.4,fair:58, streak:35,safe:76,sector:'Immo.',    beta:0.90,d:2.24,moat:'Triple Net REIT 35 ans. 3500 propri\u00e9t\u00e9s.',risk:'Taux (dette). Exposition retail physique.',why:'NNN +18% vs PRU. Locataire paie tout. Yield 4.1%.'},
-  NWN:  {pe_cur:18.2,pe_5y:20.1,fair:62, streak:67,safe:72,sector:'Utilities',beta:0.45,d:1.96,moat:'67 ans hausse. Utility gaz Oregon/WA. Monopole.',risk:'Transition \u00e9nerg\u00e9tique. R\u00e9gulation co\u00fbts.',why:'NWN +19% vs PRU. Monopole. 67 ans hausse (record).'},
-  O:    {pe_cur:14.8,pe_5y:18.2,fair:78, streak:30,safe:85,sector:'Immo.',    beta:0.90,d:3.17,moat:'Monthly dividend. 30 ans hausse. 15k propri\u00e9t\u00e9s.',risk:'Taux. Concentration retail/restaurant.',why:'O +6% vs PRU. Mensualit\u00e9 dividende. Yield 5.3%.'},
-  PPG:  {pe_cur:12.4,pe_5y:16.8,fair:156,streak:53,safe:70,sector:'Mat.',     beta:1.10,d:2.60,moat:'53 ans hausse. Leader peintures industrielles mondial.',risk:'Co\u00fbts mati\u00e8res. Ralentissement auto.',why:'PPG +10% vs PRU. P/E 12.4x vs 16.8x historique.'},
-  SON:  {pe_cur:11.8,pe_5y:15.4,fair:62, streak:41,safe:66,sector:'Industrie',beta:0.75,d:1.96,moat:'41 ans hausse. Emballages industriels #3 USA.',risk:'Surcapacit\u00e9 emballage. Volumes en baisse.',why:'SON -1% vs PRU. P/E 11.8x. Yield 4%. R\u00e9silient.'},
-  TGT:  {pe_cur:11.2,pe_5y:16.8,fair:195,streak:57,safe:68,sector:'Conso.',   beta:0.85,d:4.48,moat:'57 ans hausse. Own-brand. Pickup same-day.',risk:'Amazon/Walmart. Consommateur sous pression.',why:'TGT +25% vs PRU. P/E 11.2x vs 17x historique. 57 ans div.'},
-  TSN:  {pe_cur:13.2,pe_5y:15.6,fair:68, streak:12,safe:61,sector:'Conso.',   beta:0.60,d:1.04,moat:'#1 prot\u00e9ines USA. Tyson/Jimmy Dean. Int\u00e9gr\u00e9 vertical.',risk:'Grippe aviaire. Marges compress\u00e9es.',why:'TSN +1% vs PRU. Prot\u00e9ines essentielles. Rebond attendu.'},
-  UGI:  {pe_cur:10.8,pe_5y:13.2,fair:44, streak:36,safe:60,sector:'Utilities',beta:0.65,d:1.46,moat:'36 ans hausse. Propane #2 USA (AmeriGas).',risk:'Transition \u00e9nergie renouvelable.',why:'UGI +19% vs PRU. P/E 10.8x d\u00e9cot\u00e9. Yield 4.4%.'},
-  UNM:  {pe_cur:7.8, pe_5y:9.4, fair:115,streak:15,safe:78,sector:'Finance',  beta:0.90,d:1.56,moat:'#1 assurance invalidit\u00e9 USA/UK. Pricing power.',risk:'Long\u00e9vit\u00e9. R\u00e9gulation assurance.',why:'UNM +122% vs PRU. P/E 7.8x. Rerating significatif.'}
-};
-
-const _TICKER_NAMES = {
-  ACN:'Accenture', ADP:'Automatic Data Processing', APD:'Air Products',
-  BMY:'Bristol-Myers Squibb', CMCSA:'Comcast', CTBI:'Community Bankshares',
-  HRL:'Hormel Foods', HTO:'H&T Group', JNJ:'Johnson & Johnson',
-  MDT:'Medtronic', MMM:'3M Company', NEE:'NextEra Energy',
-  NFG:'National Fuel Gas', NNN:'NNN REIT', NWN:'Northwest Natural',
-  O:'Realty Income', PPG:'PPG Industries', SON:'Sonoco Products',
-  TGT:'Target', TSN:'Tyson Foods', UGI:'UGI Corporation', UNM:'Unum Group'
-};
-
-function seedAssetsFromDB() {
-  for (const [ticker, info] of Object.entries(TICKER_DB)) {
-    if (!Data.assets[ticker]) Data.assets[ticker] = {};
-    const a = Data.assets[ticker];
-    if (!a.sector && info.sector)           a.sector = info.sector;
-    if (!a.streak)                          a.streak = info.streak;
-    if (!a.pe_cur)                          a.pe_cur = info.pe_cur;
-    if (!a.beta)                            a.beta   = info.beta;
-    if ((!a.d || a.d === 0) && info.d > 0) a.d      = info.d;
-    if (!a.safe  && info.safe)              a.safe   = info.safe;
-  }
-}
-
 /* -- DEAL FINDER ------------------------------------------ */
 function calculatePriorityRanking(portfolio) {
-  var secAlloc  = {'Tech':3.22,'Mat.':11.26,'Sant\u00e9':18.93,'M\u00e9dias':2.80,'Finance':4.05,'Conso.':27.58,'Industrie':5.53,'Immo.':5.26,'Utilities':21.03};
-  var secTarget = {'Tech':10,  'Mat.':10,   'Sant\u00e9':20,   'M\u00e9dias':8,  'Finance':10, 'Conso.':15,   'Industrie':10, 'Immo.':8,  'Utilities':16};
+  var secAlloc  = {'Tech':3.22,'Mat.':11.26,'Santé':18.93,'Médias':2.80,'Finance':4.05,'Conso.':27.58,'Industrie':5.53,'Immo.':5.26,'Utilities':21.03};
+  var secTarget = {'Tech':10,  'Mat.':10,   'Santé':20,   'Médias':8,  'Finance':10, 'Conso.':15,   'Industrie':10, 'Immo.':8,  'Utilities':16};
+  var SECTOR_FAIR_PE = {'Tech':28,'Santé':22,'Finance':14,'Utilities':18,'Conso.':20,'Industrie':18,'Mat.':16,'Immo.':18,'Énergie':12,'Médias':14};
   var totalMV   = getMV();
-  var fd = TICKER_DB;
 
   var results = [];
   for (var i = 0; i < portfolio.length; i++) {
     var d = portfolio[i];
-    var f = fd[d.ticker];
-    if (!f) continue;
-    var div    = meta[d.ticker] && meta[d.ticker].d || 0;
-    var yd     = d.price > 0 ? div / d.price * 100 : 0;
-    var upside = f.fair > 0 ? (f.fair - d.price) / d.price * 100 : 0;
-    var pe_disc = f.pe_5y > 0 ? (f.pe_5y - f.pe_cur) / f.pe_5y * 100 : 0;
-    var cur_w  = totalMV > 0 ? d.mv / totalMV * 100 : 0;
-    var sec_w  = secAlloc[d.sec]  || 10;
-    var tgt_w  = secTarget[d.sec] || 10;
+    var a = Data.assets[d.ticker] || {};
+    var dseResult = calculateDividendSafety(a);
+    var safetyScore = dseResult.safetyScore;
+    var streak  = a.streak || 0;
+    var pe_cur  = a.pe_cur || 0;
+    var div     = meta[d.ticker] && meta[d.ticker].d || 0;
+    var yd      = d.price > 0 ? div / d.price * 100 : 0;
+    var fair_pe = SECTOR_FAIR_PE[d.sec] || 20;
+    var pe_disc = pe_cur > 0 ? Math.max(0, (fair_pe - pe_cur) / fair_pe * 100) : 0;
+    var cur_w   = totalMV > 0 ? d.mv / totalMV * 100 : 0;
+    var sec_w   = secAlloc[d.sec]  || 10;
+    var tgt_w   = secTarget[d.sec] || 10;
     var sec_gap = tgt_w - sec_w;
-    // 30% Dividend Safety
-    var s_safety = Math.min(100, f.safe);
-    // 25% Valuation (upside cours vs fair value + décote P/E historique)
-    var upsideScore = Math.max(0, Math.min(100, upside * 1.2));
-    var s_val = Math.max(0, Math.min(100, upsideScore * 0.65 + pe_disc * 0.35));
+    // 30% Dividend Safety (DSE score)
+    var s_safety = Math.min(100, safetyScore);
+    // 25% Valuation — P/E discount vs sector fair P/E
+    var s_val = Math.max(0, Math.min(100, pe_disc * 1.8));
     // 20% Yield Quality (yield + streak)
-    var streakNorm = Math.min(f.streak, 60) / 60 * 100;
+    var streakNorm = Math.min(streak, 60) / 60 * 100;
     var s_yq = Math.max(0, Math.min(100, yd * 8 * 0.5 + streakNorm * 0.5));
     // 15% Besoin diversification sectorielle
     var s_div = Math.max(0, Math.min(100, sec_gap * 5 + 50));
@@ -565,30 +518,31 @@ function calculatePriorityRanking(portfolio) {
     );
     // Opportunity type
     var oppType;
-    if (upside > 30 && f.safe >= 75)     oppType = 'D\u00e9cote structurelle';
-    else if (sec_gap > 3 && f.safe >= 70) oppType = 'R\u00e9\u00e9quilibrage sectoriel';
-    else if (yd > 4 && streakNorm > 60)   oppType = 'Rendement long terme';
-    else if (pe_disc > 25)                oppType = 'Compression de valorisation';
-    else                                  oppType = 'Classement relatif';
+    if (pe_disc > 25 && safetyScore >= 75)    oppType = 'Décote structurelle';
+    else if (sec_gap > 3 && safetyScore >= 70) oppType = 'Rééquilibrage sectoriel';
+    else if (yd > 4 && streakNorm > 60)        oppType = 'Rendement long terme';
+    else if (pe_disc > 15)                     oppType = 'Compression de valorisation';
+    else                                       oppType = 'Classement relatif';
     // Reasons
     var reasons = [];
-    if (f.safe >= 80)      reasons.push('Safety dividende \u00e9lev\u00e9e (' + f.safe + '/100)');
-    if (upside > 20)       reasons.push('Upside valorisation +' + upside.toFixed(0) + '%');
-    if (pe_disc > 20)      reasons.push('P/E d\u00e9cot\u00e9 vs historique (' + f.pe_cur + 'x vs ' + f.pe_5y + 'x)');
-    if (f.streak >= 25)    reasons.push('Streak dividende ' + f.streak + ' ans');
-    if (sec_gap > 3)       reasons.push('Secteur sous-pond\u00e9r\u00e9 (' + sec_w.toFixed(1) + '% \u2192 cible ' + tgt_w + '%)');
-    if (yd > 4)            reasons.push('Yield ' + yd.toFixed(2) + '%');
+    if (safetyScore >= 80)  reasons.push('Safety dividende élevée (' + safetyScore + '/100)');
+    if (pe_disc > 20)       reasons.push('P/E décoté vs secteur (' + pe_cur.toFixed(1) + 'x vs ' + fair_pe + 'x cible)');
+    if (streak >= 25)       reasons.push('Streak dividende ' + streak + ' ans');
+    if (sec_gap > 3)        reasons.push('Secteur sous-pondéré (' + sec_w.toFixed(1) + '% → cible ' + tgt_w + '%)');
+    if (yd > 4)             reasons.push('Yield ' + yd.toFixed(2) + '%');
     // Risks
     var risks = [];
-    if (cur_w > 12) risks.push('Position d\u00e9j\u00e0 concentr\u00e9e (' + cur_w.toFixed(1) + '% du portefeuille)');
-    if (f.safe < 70) risks.push('Safety dividende mod\u00e9r\u00e9e (' + f.safe + '/100)');
-    risks.push(f.risk);
+    if (cur_w > 12)       risks.push('Position déjà concentrée (' + cur_w.toFixed(1) + '% du portefeuille)');
+    if (safetyScore < 70) risks.push('Safety dividende modérée (' + safetyScore + '/100)');
+    if (pe_cur > 30)      risks.push('Valorisation élevée (P/E ' + pe_cur.toFixed(1) + 'x > 30x)');
+    if (!a.payout_ratio)  risks.push('Données fondamentales incomplètes');
+    if (!risks.length)    risks.push('Aucun risque structurel identifié');
     results.push({
       ticker: d.ticker, name: d.name, priorityScore: priorityScore,
       reasons: reasons, risks: risks, opportunityType: oppType,
-      _yd: yd, _upside: upside, _safe: f.safe, _streak: f.streak,
+      _yd: yd, _pe_cur: pe_cur, _pe_disc: pe_disc, _safe: safetyScore, _streak: streak,
       _s_safety: s_safety, _s_val: s_val, _s_yq: s_yq, _s_div: s_div, _s_poids: s_poids,
-      _cur_w: cur_w, _sec_gap: sec_gap, _moat: f.moat, _why: f.why, _d: d, _f: f
+      _cur_w: cur_w, _sec_gap: sec_gap, _d: d
     });
   }
   results.sort(function(a, b) { return b.priorityScore - a.priorityScore; });
@@ -676,17 +630,13 @@ function renderDeal(el) {
           + scoreBar('Besoin diversif. sectorielle (15%)', r._s_div, '#f5a623')
           + scoreBar('Poids portefeuille (10%)', r._s_poids, '#f43f5e')
           + '</div>'
-          // Upside + stats
+          // P/E + stats
           + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">'
-          + '<div style="background:var(--surface2);border-radius:8px;padding:10px"><div style="font-size:9.5px;color:var(--muted)">Upside</div><div class="mono fw7" style="font-size:14px;color:#22d47a">+' + r._upside.toFixed(0) + '%</div></div>'
+          + '<div style="background:var(--surface2);border-radius:8px;padding:10px"><div style="font-size:9.5px;color:var(--muted)">P/E actuel</div><div class="mono fw7" style="font-size:14px;color:' + (r._pe_disc > 15 ? '#22d47a' : r._pe_disc > 0 ? '#f5a623' : '#f43f5e') + '">' + (r._pe_cur > 0 ? r._pe_cur.toFixed(1) + 'x' : '—') + '</div></div>'
           + '<div style="background:var(--surface2);border-radius:8px;padding:10px"><div style="font-size:9.5px;color:var(--muted)">Poids actuel</div><div class="mono fw7" style="font-size:14px">' + r._cur_w.toFixed(1) + '%</div></div>'
-          + '<div style="background:var(--surface2);border-radius:8px;padding:10px;cursor:pointer" onclick="showDSESheet(\'' + r.ticker + '\')"><div style="font-size:9.5px;color:var(--muted)">Safety DSE</div><div class="mono fw7" style="font-size:14px;color:' + dseColor(calculateDividendSafety(r._f).safetyScore) + '">' + calculateDividendSafety(r._f).safetyScore + '/100</div><div style="font-size:8px;color:var(--muted)">\u2197 d\u00e9tail</div></div>'
+          + '<div style="background:var(--surface2);border-radius:8px;padding:10px;cursor:pointer" onclick="showDSESheet(\'' + r.ticker + '\')"><div style="font-size:9.5px;color:var(--muted)">Safety DSE</div><div class="mono fw7" style="font-size:14px;color:' + dseColor(calculateDividendSafety(Data.assets[r.ticker] || {}).safetyScore) + '">' + calculateDividendSafety(Data.assets[r.ticker] || {}).safetyScore + '/100</div><div style="font-size:8px;color:var(--muted)">\u2197 d\u00e9tail</div></div>'
           + '</div>'
           // Pourquoi
-          + '<div style="background:rgba(124,109,255,.06);border-radius:8px;padding:10px;margin-bottom:8px">'
-          + '<div style="font-size:11px;font-weight:700;margin-bottom:4px">Priorité actuelle</div>'
-          + '<div style="font-size:12px;color:var(--muted);line-height:1.5">' + r._why + '</div>'
-          + '</div>'
           // Raisons / risques
           + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
           + '<div style="background:rgba(34,212,122,.05);border:1px solid rgba(34,212,122,.15);border-radius:8px;padding:10px">'
@@ -698,10 +648,6 @@ function renderDeal(el) {
           + '<ul style="list-style:none;padding:0">' + r.risks.map(function(rk) { return '<li style="font-size:10.5px;color:var(--muted);line-height:1.5;padding:2px 0;border-bottom:1px solid rgba(244,63,94,.08)">\u2022 ' + rk + '</li>'; }).join('') + '</ul>'
           + '</div></div>'
           // Moat
-          + '<div style="background:var(--surface2);border-radius:8px;padding:10px">'
-          + '<div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:3px">MOAT</div>'
-          + '<div style="font-size:11px;color:var(--muted);line-height:1.5">' + r._moat + '</div>'
-          + '</div>'
           + '</div>';
       }
       html += '</div>';
@@ -775,7 +721,7 @@ function renderDeal(el) {
       var out = '<strong>Top 3 scores de s\u00e9curit\u00e9 dividende\u00a0:</strong><br>';
       for (var i=0;i<top3.length;i++) {
         var t=top3[i];
-        out += '\u2460'.replace('0',String(i+1))+' <strong>'+t.ticker+'</strong> — Safety '+t._safe+'/100 · Payout '+(t._f&&t._f.payout_ratio?Math.round(t._f.payout_ratio*100)+'%':'N/A')+' · Streak '+t._streak+' ans · Raison\u00a0: '+t._why+'<br>';
+        out += '\u2460'.replace('0',String(i+1))+' <strong>'+t.ticker+'</strong> — Safety '+t._safe+'/100 · Payout '+(Data.assets[t.ticker]&&Data.assets[t.ticker].payout_ratio?Math.round(Data.assets[t.ticker].payout_ratio*100)+'%':'N/A')+' · Streak '+t._streak+' ans<br>';
       }
       out += '<br><strong>3 titres avec s\u00e9curit\u00e9 plus fragile\u00a0:</strong><br>';
       for (var j=0;j<bot3.length;j++) {
@@ -807,7 +753,7 @@ function renderDeal(el) {
       }
       /* High payout */
       for (var ri4=0;ri4<ranked.length;ri4++){
-        var f4=ranked[ri4]._f||{};
+        var f4=Data.assets[ranked[ri4].ticker]||{};
         if(f4.payout_ratio>0.75) weakPoints.push('Payout \u00e9lev\u00e9\u00a0: <strong>'+ranked[ri4].ticker+'</strong> distribue '+Math.round(f4.payout_ratio*100)+'% de ses b\u00e9n\u00e9fices.');
       }
       if(weakPoints.length===0) weakPoints.push('Aucun point de faiblesse structurel d\u00e9tect\u00e9 selon les crit\u00e8res analys\u00e9s.');
@@ -1401,8 +1347,6 @@ const App = (() => {
     }
     if (Object.keys(savedFunds).length) Calc.recompute();
 
-    /* Seed static fundamentals (sector, beta, streak, div/share) for known tickers */
-    seedAssetsFromDB();
     Calc.recompute();
     buildKPI();
 
@@ -1715,21 +1659,27 @@ async function _fabDoSearch(q) {
 
 function _fabOfflineSearch(q, el) {
   var ql = q.toLowerCase();
-  var dbMatches = Object.keys(TICKER_DB).filter(function(t) {
-    var name = (_TICKER_NAMES[t] || '').toLowerCase();
-    return t.toLowerCase().includes(ql) || name.includes(ql);
-  });
-  var portMatches = raw.map(function(r){ return r.ticker; }).filter(function(t) {
-    var name = (Data.assets[t] && Data.assets[t].name || '').toLowerCase();
-    return !TICKER_DB[t] && (t.toLowerCase().includes(ql) || name.includes(ql));
-  });
-  var matches = dbMatches.concat(portMatches).slice(0, 7);
+  var seen = {};
+  var matches = [];
+  // Search portfolio tickers (raw) + known Data.assets
+  var candidates = raw.map(function(r) { return r.ticker; });
+  for (var t in Data.assets) { if (Data.assets.hasOwnProperty(t)) candidates.push(t); }
+  for (var ci = 0; ci < candidates.length; ci++) {
+    var t = candidates[ci];
+    if (seen[t]) continue;
+    seen[t] = true;
+    var a = Data.assets[t] || {};
+    var name = (a.name || '').toLowerCase();
+    if (t.toLowerCase().includes(ql) || name.includes(ql)) matches.push(t);
+    if (matches.length >= 7) break;
+  }
   if (!matches.length) {
     el.innerHTML = '<div class="fab-sug-loading" style="color:#f5a623">Hors ligne · Saisis le ticker (ex : TSLA)</div>';
     return;
   }
   el.innerHTML = matches.map(function(t) {
-    var name = _TICKER_NAMES[t] || (Data.assets[t] && Data.assets[t].name) || '';
+    var a = Data.assets[t] || {};
+    var name = a.name || '';
     var nameSafe = name.replace(/'/g, '&#39;');
     return '<div class="fab-sug-item" onclick="fabSelectTicker(\'' + t + '\',\'' + nameSafe + '\',\'NMS\')">'
       + _logo(t, 24)
@@ -1737,10 +1687,11 @@ function _fabOfflineSearch(q, el) {
       + '<span class="fab-sug-tk">' + t + '</span>'
       + '<span class="fab-sug-name">' + name + '</span>'
       + '</div>'
-      + '<div class="fab-sug-right"><span class="fab-sug-flag">\U0001F1FA\U0001F1F8</span></div>'
+      + '<div class="fab-sug-right"><span class="fab-sug-flag">🇺🇸</span></div>'
       + '</div>';
   }).join('');
 }
+
 
 async function _fabEnrichISINs(quotes) {
   try {
