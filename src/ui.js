@@ -1209,7 +1209,7 @@ async function clearAll() {
 const App = (() => {
 
   const initSwipe = () => {
-    let sx = 0, sy = 0, startTarget = null, swiping = false;
+    let sx = 0, sy = 0, startTarget = null, swiping = false, startScrollTop = 0;
     const getInner = () => document.getElementById('panels-inner');
 
     // ── Pull-to-refresh ball ──────────────────────────────────
@@ -1231,6 +1231,8 @@ const App = (() => {
       sy = e.touches[0].clientY;
       startTarget = e.target;
       swiping = false;
+      const ap = document.querySelector('.panel.on');
+      startScrollTop = ap ? ap.scrollTop : 0;
       const inn = getInner();
       if (inn) inn.style.transition = 'none';
     }, {passive:true});
@@ -1254,10 +1256,9 @@ const App = (() => {
         return;
       }
 
-      // Pull-to-refresh: vertical pull from top
+      // Pull-to-refresh: vertical pull from top — only if gesture started at top
       if (!swiping && dy > 0 && Math.abs(dy) > Math.abs(dx) * 1.5) {
-        const ap = document.querySelector('.panel.on');
-        if (!ap || ap.scrollTop <= 2) {
+        if (startScrollTop <= 2) {
           const progress = Math.min(1, dy / 90);
           ptr.style.transform = `translateX(-50%) translateY(${Math.min(dy * 0.45, 38) - 70}px)`;
           ptr.style.opacity = progress.toFixed(2);
@@ -1287,9 +1288,8 @@ const App = (() => {
         return;
       }
 
-      // Pull-to-refresh trigger
-      const ap = document.querySelector('.panel.on');
-      if (dy > 70 && Math.abs(dy) > Math.abs(dx) * 1.5 && (!ap || ap.scrollTop <= 2)) {
+      // Pull-to-refresh trigger — only if gesture started at top
+      if (dy > 70 && Math.abs(dy) > Math.abs(dx) * 1.5 && startScrollTop <= 2) {
         ptr.style.transform = 'translateX(-50%) translateY(0px)';
         const ic = document.getElementById('ptr-icon');
         if (ic) { ic.style.transform = ''; ic.style.animation = 'ptr-spin .8s linear infinite'; }
