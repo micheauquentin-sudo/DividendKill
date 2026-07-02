@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 13:42] chore: add .claude/ persistent memory system | files: .claude/architecture.md,.claude/bugs.md,.claude/decisions.md,.claude/hooks/post-commit,.claude/project-state.md,.claude/prompts/debug.md,.claude/prompts/refactor.md,.claude/prompts/resume.md,.claude/prompts/ship.md,.claude/roadmap.md,.claude/rules.md,.claude/scripts/setup-hooks.sh,.claude/scripts/snapshot.sh,CLAUDE.md -->
+<!-- last-commit: [2026-07-02 13:43] fix: post-commit hook use awk instead of sed to avoid pipe delimiter conflict -- .claude/hooks/post-commit -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
