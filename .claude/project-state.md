@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 20:39] chore: session-stop snapshot [2026-07-02 20:39] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 20:53] chore: session-stop snapshot [2026-07-02 20:53] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 20:53] context: Je ne peux pas générer l'URL de production — je ne la connais pas avec certitude. Le nom du worker est `divkiller`, donc -->
 <!-- resume-from: files: worker/src/index.js, worker/wrangler.toml -->
 
