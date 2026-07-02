@@ -825,9 +825,21 @@ async function fmpProxy(req, env) {
     const rawCashflow = cfRes.status      === 'fulfilled' ? cfRes.value       : null;
     const rawEarnings = earnRes.status    === 'fulfilled' ? earnRes.value     : null;
     const result = normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow, rawEarnings);
-    // Cache 6h si les états financiers ont tous échoué (429 quota / 402 plan) — retry raisonnable
-    const allStatFailed = !rawIncome && !rawBalance && !rawCashflow;
-    const ttl = allStatFailed ? 21600 : ttlFunda();
+    // Complément Alpha Vantage si les métriques financières sont manquantes (402 FMP plan gratuit)
+    if (result.pe_cur == null && env.AV_KEY) {
+      const av = await fetchAlphaVantageOverview(symbol, env);
+      if (av) {
+        if (av.pe_cur       != null) result.pe_cur       = av.pe_cur;
+        if (av.payout_ratio != null) result.payout_ratio = av.payout_ratio;
+        if (av.beta         != null && result.beta       == null) result.beta       = av.beta;
+        if (av.market_cap   != null && result.market_cap == null) result.market_cap = av.market_cap;
+        if (av.annual_div   != null && result.annual_div == null) result.annual_div = av.annual_div;
+        result._av_source = true;
+      }
+    }
+    // Cache 6h si toujours pas de métriques (quota AV épuisé ou clé absente), sinon TTL long
+    const stillIncomplete = result.pe_cur == null && result.payout_ratio == null;
+    const ttl = stillIncomplete ? 21600 : ttlFunda();
     if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: ttl });
     return json(result);
   } catch(e) {
@@ -962,6 +974,42 @@ async function benchmarkProxy(req, env) {
   }
 }
 
+// ── Alpha Vantage OVERVIEW (P/E, payout, EPS, beta) ──────────
+// Plan gratuit : 25 appels/jour — cachés 7 jours en KV (< 1 appel/ticker/semaine)
+async function fetchAlphaVantageOverview(symbol, env) {
+  if (!env.AV_KEY) return null;
+  const cacheKey = `av9:${symbol}`;
+  if (env.PRICES_KV) {
+    const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+    if (cached) return cached;
+  }
+  try {
+    const url = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${encodeURIComponent(symbol)}&apikey=${env.AV_KEY}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!r.ok) { console.warn('[AV] HTTP', r.status, symbol); return null; }
+    const d = await r.json();
+    // AV renvoie {"Information":"..."} si rate-limited, {"Note":"..."} si quota dépassé
+    if (!d.Symbol || d.Information || d.Note) {
+      console.warn('[AV] no data', symbol, d.Information || d.Note || 'empty');
+      return null;
+    }
+    const num = v => { const n = parseFloat(v); return isNaN(n) || n <= 0 ? null : n; };
+    // PayoutRatio AV = décimal (0.559 = 55.9%), même format que notre payout_ratio
+    const parsed = {
+      pe_cur:       num(d.PERatio),
+      payout_ratio: num(d.PayoutRatio),
+      beta:         num(d.Beta),
+      market_cap:   num(d.MarketCapitalization),
+      eps:          num(d.EPS),
+      annual_div:   num(d.DividendPerShare),
+    };
+    if (env.PRICES_KV)
+      await env.PRICES_KV.put(cacheKey, JSON.stringify(parsed), { expirationTtl: 7 * 24 * 3600 });
+    console.log(`[AV] ${symbol} PE=${parsed.pe_cur} payout=${parsed.payout_ratio}`);
+    return parsed;
+  } catch(e) { console.warn('[AV] erreur', symbol, e.message); return null; }
+}
+
 // ── Cron: prix + fondamentaux automatiques à la clôture marché ─
 const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
 
@@ -986,10 +1034,22 @@ async function handleScheduled(env) {
         fetch(`${FMP_BASE}/earnings?symbol=${symbol}&limit=8&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
       ]);
       const normalized = normalizeFunda(profileData, metricsData, divsData, incData, balData, cfData, earnData);
-      const allStatFailed = !incData && !balData && !cfData;
-      const ttl = allStatFailed ? 3600 : ttlFunda();
+      // Complément Alpha Vantage si P/E manquant (402 sur plan FMP gratuit)
+      if (normalized.pe_cur == null && env.AV_KEY) {
+        const av = await fetchAlphaVantageOverview(symbol, env);
+        if (av) {
+          if (av.pe_cur       != null) normalized.pe_cur       = av.pe_cur;
+          if (av.payout_ratio != null) normalized.payout_ratio = av.payout_ratio;
+          if (av.beta         != null && normalized.beta       == null) normalized.beta       = av.beta;
+          if (av.market_cap   != null && normalized.market_cap == null) normalized.market_cap = av.market_cap;
+          if (av.annual_div   != null && normalized.annual_div == null) normalized.annual_div = av.annual_div;
+          normalized._av_source = true;
+        }
+      }
+      const stillIncomplete = normalized.pe_cur == null && normalized.payout_ratio == null;
+      const ttl = stillIncomplete ? 21600 : ttlFunda();
       await env.PRICES_KV.put(`funda9:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttl });
-      console.log(`[Cron] funda9:${symbol} mis à jour — ${reason}${allStatFailed ? ' [stats manquantes]' : ''}`);
+      console.log(`[Cron] funda9:${symbol} mis à jour — ${reason}${stillIncomplete ? ' [incomplet]' : normalized._av_source ? ' [AV]' : ''}`);
       return true;
     } catch(e) { console.warn(`[Cron] funda ${symbol}:`, e.message); return false; }
   }
