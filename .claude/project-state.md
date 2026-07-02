@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-02 15:04] fix: compute streak+CAGR from free dividend history; fix safety score; P/E shows N/A -- src/dividendSafety.js src/fmpData.js src/panels/valorisation.js worker/src/index.js -->
-<!-- interrupted: [2026-07-02 14:55] context: Déployé (~2 min). Relance le même lien : -->
-<!-- resume-from: files: worker/src/index.js -->
+<!-- interrupted: [2026-07-02 15:04] context: Poussé. Voici ce qui change après le déploiement (~2 min) : -->
+<!-- resume-from: files: src/dividendSafety.js, src/fmpData.js, src/panels/valorisation.js, worker/src/index.js -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
