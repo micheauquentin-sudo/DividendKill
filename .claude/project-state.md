@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 15:10] chore: session-stop snapshot [2026-07-02 15:10] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 15:15] fix: valorisation reads assets[] for DSE/fundamentals, not meta[] -- src/panels/valorisation.js -->
 <!-- interrupted: [2026-07-02 15:10] context: Bonne question stratégique. La réponse courte : **tous les plans gratuits interdisent l'usage commercial dans leurs CGU* -->
 <!-- resume-from: files: src/dividendSafety.js, src/fmpData.js, src/panels/valorisation.js, worker/src/index.js -->
 
