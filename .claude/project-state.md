@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 15:15] fix: valorisation reads assets[] for DSE/fundamentals, not meta[] -- src/panels/valorisation.js -->
+<!-- last-commit: [2026-07-02 15:15] chore: session-stop snapshot [2026-07-02 15:15] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 15:15] context: Poussé. Après le déploiement (~2 min), les scores DSE vont vraiment se calculer. Ce que tu vas voir : -->
 <!-- resume-from: files: src/panels/valorisation.js -->
 
