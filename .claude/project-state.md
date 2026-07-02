@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-02 20:08] fix: ne pas servir/stocker le cache si métriques financières toutes nulles -- src/fmpData.js worker/src/index.js -->
-<!-- interrupted: [2026-07-02 20:02] context: **0/250** — le quota est remis à zéro. Le cron va maintenant se déclencher toutes les 30 min et remplir 3 tickers à la f -->
-<!-- resume-from: files: .claude/agents/orchestrator.md -->
+<!-- interrupted: [2026-07-02 20:09] context: Poussé. Une fois le déploiement terminé : -->
+<!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
