@@ -706,25 +706,59 @@ async function searchProxy(req, env) {
   const q = new URL(req.url).searchParams.get('q') || '';
   if (!q || q.length < 2) return json({ results: [] });
   if (!env.FMP_KEY) return json({ results: [] });
-  try {
-    // FMP search — pas de Yahoo Finance (Play Store TOS)
-    const url = `https://financialmodelingprep.com/stable/search-symbol?query=${encodeURIComponent(q)}&limit=10&apikey=${env.FMP_KEY}`;
-    const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-    if (!res.ok) throw new Error(`FMP HTTP ${res.status}`);
-    const data = await res.json();
-    const ALLOWED_EXCHANGES = new Set(['NYSE','NASDAQ','AMEX','NYSE ARCA','TSX','LSE','EURONEXT','XETRA','BME']);
-    const results = (Array.isArray(data) ? data : [])
-      .filter(r => r.exchangeShortName && ALLOWED_EXCHANGES.has(r.exchangeShortName))
+
+  const ALLOWED_EXCHANGES = new Set([
+    'NYSE','NASDAQ','AMEX','NYSE ARCA','NYSE MKT','BATS',
+    'TSX','TSXV','LSE','EURONEXT','XETRA','BME','SIX',
+    'ASX','HKG','JPX','KRX',
+  ]);
+  const _normalizeEx = ex => {
+    if (!ex) return null;
+    const u = ex.toUpperCase();
+    if (u.includes('NASDAQ')) return 'NASDAQ';
+    if (u.includes('NYSE'))   return 'NYSE';
+    if (u.includes('AMEX'))   return 'AMEX';
+    return ex;
+  };
+
+  const _parseResults = data =>
+    (Array.isArray(data) ? data : [])
+      .filter(r => {
+        const ex = _normalizeEx(r.exchangeShortName || r.exchange || '');
+        return !ex || ALLOWED_EXCHANGES.has(ex) || ex.length <= 6;
+      })
       .slice(0, 8)
       .map(r => ({
         symbol:            r.symbol,
-        name:              r.name || r.symbol,
-        exchangeShortName: r.exchangeShortName,
+        name:              r.name || r.companyName || r.symbol,
+        exchangeShortName: _normalizeEx(r.exchangeShortName || r.exchange || '') || 'NYSE',
       }));
-    return json({ results });
-  } catch(e) {
-    return json({ results: [], error: 'Recherche indisponible' }, 502);
-  }
+
+  const headers = { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' };
+
+  // Try stable endpoint first
+  try {
+    const url = `https://financialmodelingprep.com/stable/search-symbol?query=${encodeURIComponent(q)}&limit=10&apikey=${env.FMP_KEY}`;
+    const res = await fetch(url, { headers });
+    if (res.ok) {
+      const data = await res.json();
+      const results = _parseResults(data);
+      if (results.length) return json({ results });
+    }
+  } catch(_) {}
+
+  // Fallback: FMP v3 search (free tier)
+  try {
+    const url = `https://financialmodelingprep.com/api/v3/search?query=${encodeURIComponent(q)}&limit=10&apikey=${env.FMP_KEY}`;
+    const res = await fetch(url, { headers });
+    if (res.ok) {
+      const data = await res.json();
+      const results = _parseResults(data);
+      return json({ results });
+    }
+  } catch(_) {}
+
+  return json({ results: [] });
 }
 
 
@@ -1190,9 +1224,15 @@ async function debugPrice(req, env) {
       if (pr.ok) {
         const pd = JSON.parse(pt);
         const p0 = Array.isArray(pd) ? pd[0] : pd;
-        out.fmp_profile_price   = p0?.price       ?? null;
-        out.fmp_profile_changes = p0?.changes      ?? null;
-        out.fmp_profile_company = p0?.companyName  ?? null;
+        out.fmp_profile_price         = p0?.price          ?? null;
+        out.fmp_profile_changes       = p0?.changes         ?? null;
+        out.fmp_profile_company       = p0?.companyName     ?? null;
+        out.fmp_profile_dividendYield = p0?.dividendYield   ?? null;
+        out.fmp_profile_lastDiv       = p0?.lastDiv         ?? null;
+        out.fmp_profile_pe            = p0?.pe              ?? null;
+        out.fmp_profile_sector        = p0?.sector          ?? null;
+        // Log ALL keys so we can discover available fields
+        out.fmp_profile_keys          = Object.keys(p0 || {});
       }
     } catch(e) { out.fmp_profile_error = e.message; }
   }

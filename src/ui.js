@@ -1422,7 +1422,18 @@ function _fabOfflineSearch(q, el) {
     if (matches.length >= 7) break;
   }
   if (!matches.length) {
-    el.innerHTML = '<div class="fab-sug-loading" style="color:#f5a623">Hors ligne · Saisis le ticker (ex : TSLA)</div>';
+    var qt = q.toUpperCase().replace(/[^A-Z0-9.^-]/g, '').slice(0, 10);
+    if (qt.length >= 1) {
+      el.innerHTML = '<div class="fab-sug-item" onclick="fabSelectTicker(\'' + qt + '\',\'' + qt + '\',\'NMS\')">'
+        + _logo(qt, 24)
+        + '<div style="flex:1;min-width:0;margin-left:8px">'
+        + '<span class="fab-sug-tk">' + qt + '</span>'
+        + '<span class="fab-sug-name" style="color:#f5a623">Saisie manuelle · vérifiez le ticker</span>'
+        + '</div><div class="fab-sug-right"><span class="fab-sug-flag">🇺🇸</span></div>'
+        + '</div>';
+    } else {
+      el.innerHTML = '<div class="fab-sug-loading" style="color:#f5a623">Hors ligne · Saisis le ticker (ex : TSLA)</div>';
+    }
     return;
   }
   el.innerHTML = matches.map(function(t) {
