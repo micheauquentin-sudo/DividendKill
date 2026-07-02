@@ -1,7 +1,7 @@
 import { Config } from './config.js';
 
 export const FmpData = (() => {
-  const CACHE_KEY = 'astra_fmp_cache_v7';
+  const CACHE_KEY = 'astra_fmp_cache_v8';
   const TTL       = 24 * 3600 * 1000; // 24 h
   const _cache    = {};
 
