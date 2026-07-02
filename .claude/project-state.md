@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 13:44] fix: post-commit hook auto-commits snapshot to keep working tree clean -- .claude/hooks/post-commit .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 14:45] feat: project-level stop hook — auto-snapshot project-state.md on session end -- .claude/scripts/stop-hook.py .claude/settings.json -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
