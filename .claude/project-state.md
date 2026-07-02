@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 14:45] feat: project-level stop hook — auto-snapshot project-state.md on session end -- .claude/scripts/stop-hook.py .claude/settings.json -->
+<!-- last-commit: [2026-07-02 14:45] chore: session-stop snapshot [2026-07-02 14:45] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 14:45] context: Voilà, le système est complet. Voici ce qui se passe maintenant à chaque fin de session : -->
 <!-- resume-from: files: .claude/scripts/stop-hook.py, .claude/settings.json -->
 
