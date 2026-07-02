@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-02 16:11] fix: limite 3 refreshes funda par cron + TTL 6h si quota épuisé (429) -- worker/src/index.js -->
-<!-- interrupted: [2026-07-02 16:01] context: Déjà poussé — le commit `6702ad2` (fix earnings fallback + debug/funda + funda9) est sur `main` depuis tout à l'heure. L -->
-<!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
+<!-- interrupted: [2026-07-02 16:12] context: Poussé. Diagnostic confirmé : -->
+<!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
