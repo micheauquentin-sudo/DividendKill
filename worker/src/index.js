@@ -823,9 +823,9 @@ async function fmpProxy(req, env) {
     const rawCashflow = cfRes.status      === 'fulfilled' ? cfRes.value       : null;
     const rawEarnings = earnRes.status    === 'fulfilled' ? earnRes.value     : null;
     const result = normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow, rawEarnings);
-    // Cache 1h si les états financiers ont tous échoué (ex. 402) — cron peut réessayer plus vite
+    // Cache 6h si les états financiers ont tous échoué (429 quota / 402 plan) — retry raisonnable
     const allStatFailed = !rawIncome && !rawBalance && !rawCashflow;
-    const ttl = allStatFailed ? 3600 : ttlFunda();
+    const ttl = allStatFailed ? 21600 : ttlFunda();
     if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: ttl });
     return json(result);
   } catch(e) {
@@ -1067,7 +1067,12 @@ async function handleScheduled(env) {
     } catch(e) { console.warn('[Cron] calendrier dividendes:', e.message); }
 
     // ── Mise à jour prix + fondamentaux (lots de 5) ───────────
+    // Max 3 refreshes funda par run de cron — évite d'épuiser le quota FMP gratuit
+    // (~250 appels/jour) en cas de bump de clé ou de nombreux tickers sans cache.
+    // Avec un TTL de ~120 jours, chaque ticker n'est rafraîchi que sporadiquement.
+    const MAX_FUNDA_PER_CRON = 3;
     let divChanged = 0, declUpdated = 0, fundaInit = 0;
+    const fundaCount = () => fundaInit + divChanged + declUpdated;
     for (let i = 0; i < toStore.length; i += 5) {
       await Promise.all(toStore.slice(i, i + 5).map(async q => {
         const [old, fundaRaw] = await Promise.all([
@@ -1078,9 +1083,11 @@ async function handleScheduled(env) {
         const lastDivChg = old?.lastDiv != null && q.lastDiv != null && old.lastDiv !== q.lastDiv;
         const declChg    = declaredChanges.has(q.symbol);
 
-        if (!fundaRaw)      { if (await refreshFunda(q.symbol, 'init'))          fundaInit++;    }
-        else if (lastDivChg){ if (await refreshFunda(q.symbol, `lastDiv ${old.lastDiv}→${q.lastDiv}`)) divChanged++; }
-        else if (declChg)   { if (await refreshFunda(q.symbol, 'déclaration anticipée')) declUpdated++; }
+        if (fundaCount() < MAX_FUNDA_PER_CRON) {
+          if (!fundaRaw)      { if (await refreshFunda(q.symbol, 'init'))          fundaInit++;    }
+          else if (lastDivChg){ if (await refreshFunda(q.symbol, `lastDiv ${old.lastDiv}→${q.lastDiv}`)) divChanged++; }
+          else if (declChg)   { if (await refreshFunda(q.symbol, 'déclaration anticipée')) declUpdated++; }
+        }
 
         if (lastDivChg && q.lastDiv > old.lastDiv) {
           const delta = (q.lastDiv - old.lastDiv).toFixed(4);
