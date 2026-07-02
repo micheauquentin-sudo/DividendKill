@@ -20,6 +20,7 @@ export function calculatePriorityRanking(portfolio) {
     var pe_cur  = a.pe_cur || 0;
     var div     = meta[d.ticker] && meta[d.ticker].d || 0;
     var yd      = d.price > 0 ? div / d.price * 100 : 0;
+    var yoc     = d.avg   > 0 ? div / d.avg   * 100 : 0;
     var fair_pe = SECTOR_FAIR_PE[d.sec] || 20;
     var pe_disc = pe_cur > 0 ? Math.max(0, (fair_pe - pe_cur) / fair_pe * 100) : 0;
     var cur_w   = totalMV > 0 ? d.mv / totalMV * 100 : 0;
@@ -74,7 +75,7 @@ export function calculatePriorityRanking(portfolio) {
     results.push({
       ticker: d.ticker, name: d.name, priorityScore: priorityScore,
       reasons: reasons, risks: risks, opportunityType: oppType,
-      _yd: yd, _pe_cur: pe_cur, _pe_disc: pe_disc, _safe: safetyScore, _streak: streak,
+      _yd: yd, _yoc: yoc, _pe_cur: pe_cur, _pe_disc: pe_disc, _safe: safetyScore, _streak: streak,
       _s_safety: s_safety, _s_val: s_val, _s_yq: s_yq, _s_div: s_div, _s_poids: s_poids,
       _cur_w: cur_w, _sec_gap: sec_gap, _d: d
     });
@@ -143,7 +144,7 @@ export function renderDeal(el) {
         + '<span style="font-size:9.5px;padding:2px 8px;border-radius:6px;font-weight:700;background:' + bc + '">' + r.opportunityType + '</span>'
         + '</div>'
         + '<div style="font-size:10px;color:var(--muted)">' + r.name + '</div>'
-        + '<div style="font-size:10px;color:var(--muted);margin-top:2px">Yield ' + r._yd.toFixed(2) + '% \u00b7 Safety ' + r._safe + ' \u00b7 Streak ' + r._streak + ' ans</div>'
+        + '<div style="font-size:10px;color:var(--muted);margin-top:2px">Yield ' + r._yd.toFixed(2) + '% \u00b7 YoC ' + r._yoc.toFixed(2) + '% \u00b7 Safety ' + r._safe + ' \u00b7 Streak ' + r._streak + ' ans</div>'
         + '</div>'
         // Score
         + '<div style="text-align:center;flex-shrink:0">'

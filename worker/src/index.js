@@ -96,6 +96,90 @@ async function verifyJWT(token, secret) {
   return p;
 }
 
+
+// ── Web Push / VAPID helpers ──────────────────────────────────
+function _wpConcat(...arrays) {
+  let len = 0; for (const a of arrays) len += a.length;
+  const out = new Uint8Array(len); let off = 0;
+  for (const a of arrays) { out.set(a, off); off += a.length; }
+  return out;
+}
+async function _hkdfExtract(salt, ikm) {
+  const k = await crypto.subtle.importKey('raw', salt, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return new Uint8Array(await crypto.subtle.sign('HMAC', k, ikm));
+}
+async function _hkdfExpand(prk, info, len) {
+  const k = await crypto.subtle.importKey('raw', prk, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const t1 = new Uint8Array(await crypto.subtle.sign('HMAC', k, _wpConcat(info, new Uint8Array([1]))));
+  return t1.slice(0, len);
+}
+async function _getVapidKeys(env) {
+  const cached = await env.PRICES_KV.get('vapid:keys', { type: 'json' });
+  if (cached) return cached;
+  const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const privJwk = await crypto.subtle.exportKey('jwk', pair.privateKey);
+  const rawPub  = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
+  const publicKey = _b64u(rawPub);
+  const keys = { privJwk, publicKey };
+  await env.PRICES_KV.put('vapid:keys', JSON.stringify(keys));
+  return keys;
+}
+async function _vapidJwt(endpoint, privJwk) {
+  const { origin } = new URL(endpoint);
+  const exp = Math.floor(Date.now() / 1000) + 43200;
+  const enc = new TextEncoder();
+  const header  = _b64u(enc.encode(JSON.stringify({ typ: 'JWT', alg: 'ES256' })));
+  const payload = _b64u(enc.encode(JSON.stringify({ aud: origin, exp, sub: 'mailto:admin@dividendkill.app' })));
+  const unsigned = `${header}.${payload}`;
+  const privKey = await crypto.subtle.importKey('jwk', privJwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, privKey, enc.encode(unsigned));
+  return `${unsigned}.${_b64u(sig)}`;
+}
+async function _encryptPush(sub, body) {
+  const enc  = new TextEncoder();
+  const uaPub   = _b64uDec(sub.keys.p256dh);
+  const authSec = _b64uDec(sub.keys.auth);
+  const recipKey = await crypto.subtle.importKey('raw', uaPub, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  const ephPair  = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const asPub    = new Uint8Array(await crypto.subtle.exportKey('raw', ephPair.publicKey));
+  const shared   = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: recipKey }, ephPair.privateKey, 256));
+  const salt     = crypto.getRandomValues(new Uint8Array(16));
+  // PRK = HKDF-Extract(salt=auth_secret, IKM=ecdh_secret)
+  const prk  = await _hkdfExtract(authSec, shared);
+  // IKM = HKDF-Expand(PRK, info="WebPush: info\0 || uaPub || asPub", L=32)
+  const ikm  = await _hkdfExpand(prk, _wpConcat(enc.encode('WebPush: info'), new Uint8Array([0]), uaPub, asPub), 32);
+  // Content PRK via salt
+  const cprk = await _hkdfExtract(salt, ikm);
+  const cek   = await _hkdfExpand(cprk, _wpConcat(enc.encode('Content-Encoding: aes128gcm'), new Uint8Array([0])), 16);
+  const nonce = await _hkdfExpand(cprk, _wpConcat(enc.encode('Content-Encoding: nonce'), new Uint8Array([0])), 12);
+  // Encrypt (AES-128-GCM, plaintext + \x02 delimiter)
+  const plain  = typeof body === 'string' ? enc.encode(body) : enc.encode(JSON.stringify(body));
+  const padded = _wpConcat(plain, new Uint8Array([2]));
+  const aesKey = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['encrypt']);
+  const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, aesKey, padded));
+  // RFC 8188 body: salt(16) | rs(4,BE=4096) | idlen(1=65) | asPub(65) | cipher
+  const rs = new Uint8Array(4); new DataView(rs.buffer).setUint32(0, 4096, false);
+  return _wpConcat(salt, rs, new Uint8Array([asPub.length]), asPub, cipher);
+}
+async function _sendWebPush(sub, payload, keys) {
+  try {
+    const jwt    = await _vapidJwt(sub.endpoint, keys.privJwk);
+    const rawPub = _b64uDec(keys.publicKey);
+    const body   = await _encryptPush(sub, payload);
+    const res = await fetch(sub.endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization':    `vapid t=${jwt},k=${_b64u(rawPub)}`,
+        'Content-Encoding': 'aes128gcm',
+        'Content-Type':     'application/octet-stream',
+        'TTL':              '86400',
+      },
+      body,
+    });
+    if (res.status === 410 || res.status === 404) return 'gone';
+    return res.ok || res.status === 201;
+  } catch(e) { console.warn('[Push]', e.message); return false; }
+}
 // ── Cookies ──────────────────────────────────────────────────
 function getCookie(req, name) {
   const m = (req.headers.get('Cookie') || '').match(
@@ -199,6 +283,7 @@ async function ensureMigrations(db) {
       ['idx_tkprice',    "CREATE INDEX IF NOT EXISTS idx_tkprice ON ticker_prices(ticker, date)"],
       ['refresh_tokens', "CREATE TABLE IF NOT EXISTS refresh_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()))"],
       ['idx_rt_user',    "CREATE INDEX IF NOT EXISTS idx_rt_user ON refresh_tokens(user_id, expires_at)"],
+      ['push_subs',      "CREATE TABLE IF NOT EXISTS push_subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, endpoint TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()), UNIQUE(user_id, endpoint))"],
     ];
     for (const [id, sql] of migs) {
       if (done.has(id)) continue;
@@ -617,8 +702,46 @@ async function searchProxy(req, env) {
   }
 }
 
+
+// ── Push: GET /api/push/vapid-key ────────────────────────────
+async function getPushVapidKey(env) {
+  if (!env.PRICES_KV) return json({ error: 'KV indisponible' }, 503);
+  try {
+    const keys = await _getVapidKeys(env);
+    return json({ publicKey: keys.publicKey });
+  } catch(e) { return json({ error: e.message }, 500); }
+}
+
+// ── Push: POST /api/push/subscribe ───────────────────────────
+async function postPushSubscribe(req, env, userId) {
+  let body; try { body = await req.json(); } catch { return err('invalid JSON'); }
+  const { endpoint, keys } = body;
+  if (!endpoint || !keys?.p256dh || !keys?.auth) return err('subscription invalide');
+  if (typeof endpoint !== 'string' || endpoint.length > 512) return err('endpoint invalide');
+  try {
+    await env.DB.prepare(
+      'INSERT OR REPLACE INTO push_subscriptions (user_id,endpoint,p256dh,auth) VALUES (?,?,?,?)'
+    ).bind(userId, endpoint, keys.p256dh, keys.auth).run();
+    return json({ ok: true });
+  } catch(e) { return json({ error: e.message }, 500); }
+}
+
+// ── Push: POST /api/push/unsubscribe ─────────────────────────
+async function postPushUnsubscribe(req, env, userId) {
+  let body; try { body = await req.json(); } catch { return err('invalid JSON'); }
+  const { endpoint } = body;
+  if (!endpoint) return err('endpoint requis');
+  await env.DB.prepare('DELETE FROM push_subscriptions WHERE user_id=? AND endpoint=?')
+    .bind(userId, endpoint).run().catch(() => {});
+  return json({ ok: true });
+}
+
 async function benchmarkProxy(req, env) {
-  const CACHE_KEY = 'benchmark:SPY';
+  const _bUrl = new URL(req.url);
+  const _bSym = (_bUrl.searchParams.get('symbol') || 'SPY').toUpperCase().replace(/[^A-Z0-9^.]/g,'').slice(0,10);
+  const ALLOWED_BENCH = new Set(['SPY','QQQ','GLD','EZU','URTH','IWDA']);
+  const symbol = ALLOWED_BENCH.has(_bSym) ? _bSym : 'SPY';
+  const CACHE_KEY = `benchmark:${symbol}`;
   const TTL = 82800; // 23h
   if (env.PRICES_KV) {
     const cached = await env.PRICES_KV.get(CACHE_KEY);
@@ -627,7 +750,7 @@ async function benchmarkProxy(req, env) {
   if (!env.FMP_KEY) return json({ entries: [] });
   try {
     // FMP historical EOD — pas de Yahoo Finance (Play Store TOS)
-    const url = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=SPY&apikey=${env.FMP_KEY}`;
+    const url = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&apikey=${env.FMP_KEY}`;
     const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
     if (!res.ok) throw new Error(`FMP HTTP ${res.status}`);
     const data = await res.json();
@@ -678,6 +801,7 @@ async function handleScheduled(env) {
     const tickers = results.map(r => r.ticker).filter(Boolean);
     if (!tickers.length) { console.log('[Cron] Aucun ticker'); return; }
     const tickerSet = new Set(tickers.map(t => t.toUpperCase()));
+    const pushNotifs = []; // {ticker, payload} pairs to send after price update
 
     // ── Prix via /stable/profile batch (1 seul appel FMP) ───────
     // /stable/quote est payant (402) — on utilise profile directement
@@ -733,6 +857,9 @@ async function handleScheduled(env) {
                 if (isNew) {
                   await env.PRICES_KV.put(declKey, JSON.stringify({ amount: d.dividend, declarationDate: d.declarationDate }), { expirationTtl: ttlFunda() });
                   declaredChanges.add(sym);
+                  if (d.paymentDate === fmt(today) && d.dividend > 0) {
+                    pushNotifs.push({ ticker: sym, payload: { title: sym + ' — Dividende versé', body: sym + ' paie ' + d.dividend + '$/action', tag: 'div-pay-' + sym } });
+                  }
                   console.log(`[Cron] Nouvelle déclaration dividende ${sym}: ${d.dividend} (déclaré ${d.declarationDate}, paiement ${d.paymentDate})`);
                 }
               })
@@ -756,6 +883,15 @@ async function handleScheduled(env) {
         if (!fundaRaw)      { if (await refreshFunda(q.symbol, 'init'))          fundaInit++;    }
         else if (lastDivChg){ if (await refreshFunda(q.symbol, `lastDiv ${old.lastDiv}→${q.lastDiv}`)) divChanged++; }
         else if (declChg)   { if (await refreshFunda(q.symbol, 'déclaration anticipée')) declUpdated++; }
+
+        if (lastDivChg && q.lastDiv > old.lastDiv) {
+          const delta = (q.lastDiv - old.lastDiv).toFixed(4);
+          pushNotifs.push({ ticker: q.symbol, payload: { title: q.symbol + ' — Hausse du dividende', body: 'Dividende ' + old.lastDiv + '$ → ' + q.lastDiv + '$ (+' + delta + '$)', tag: 'div-raise-' + q.symbol } });
+        }
+        if (old && old.regularMarketPrice && q.regularMarketPrice) {
+          const chg = (q.regularMarketPrice - old.regularMarketPrice) / old.regularMarketPrice;
+          if (chg < -0.05) pushNotifs.push({ ticker: q.symbol, payload: { title: q.symbol + ' — Chute ' + (chg*100).toFixed(1) + '%', body: q.symbol + ' -' + Math.abs((chg*100).toFixed(1)) + '% (' + q.regularMarketPrice.toFixed(2) + '$)', tag: 'drop-' + q.symbol } });
+        }
 
         await env.PRICES_KV.put(`p:${q.symbol}`, JSON.stringify(q), { expirationTtl: TTL_PRICE });
       }));
@@ -830,6 +966,35 @@ async function handleScheduled(env) {
       }
     } catch(e) { console.warn('[Cron] news:', e.message); }
 
+
+    // ── Envoi push notifications ─────────────────────────────
+    if (pushNotifs.length > 0) {
+      try {
+        const vapidKeys = await _getVapidKeys(env);
+        const { results: pSubs } = await env.DB.prepare('SELECT user_id, endpoint, p256dh, auth FROM push_subscriptions').all();
+        if (pSubs.length > 0) {
+          const { results: posRows } = await env.DB.prepare(
+            "SELECT user_id, ticker, SUM(CASE WHEN type='buy' THEN shares ELSE -shares END) AS net_shares FROM transactions WHERE type IN ('buy','sell') GROUP BY user_id, ticker HAVING net_shares > 0"
+          ).all();
+          const holdsByUser = {};
+          for (const p of posRows) { if (!holdsByUser[p.user_id]) holdsByUser[p.user_id] = new Set(); holdsByUser[p.user_id].add(p.ticker.toUpperCase()); }
+          const subsByUser = {};
+          for (const s of pSubs) { if (!subsByUser[s.user_id]) subsByUser[s.user_id] = []; subsByUser[s.user_id].push(s); }
+          const gone = [];
+          for (const notif of pushNotifs) {
+            for (const [uid, userSubs] of Object.entries(subsByUser)) {
+              if (notif.ticker && !holdsByUser[uid]?.has(notif.ticker)) continue;
+              for (const sub of userSubs) {
+                const res = await _sendWebPush({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, notif.payload, vapidKeys);
+                if (res === 'gone') gone.push({ uid, endpoint: sub.endpoint });
+              }
+            }
+          }
+          for (const { uid, endpoint } of gone) await env.DB.prepare('DELETE FROM push_subscriptions WHERE user_id=? AND endpoint=?').bind(uid, endpoint).run().catch(() => {});
+          console.log('[Cron] Push: ' + pushNotifs.length + ' notif(s), ' + pSubs.length + ' abonné(s)');
+        }
+      } catch(e) { console.warn('[Cron] Push:', e.message); }
+    }
   } catch(e) { console.warn('[Cron]', e.message); }
 }
 
@@ -1094,6 +1259,7 @@ export default {
     if (path === '/api/funda')           return fmpProxy(req, env);
     if (path === '/api/search')          return searchProxy(req, env);
     if (path === '/api/benchmark')       return benchmarkProxy(req, env);
+    if (path === '/api/push/vapid-key' && method === 'GET') return getPushVapidKey(env);
     if (path === '/api/news')            return newsProxy(req, env);
     if (path === '/api/prices/history')  return priceHistoryProxy(req, env);
     if (path === '/api/debug/price')     return debugPrice(req, env);
@@ -1124,6 +1290,8 @@ export default {
         return deleteTransaction(path, env, uid);
       if (path === '/api/account' && method === 'DELETE')
         return deleteAccount(env, uid);
+      if (path === '/api/push/subscribe'   && method === 'POST') return postPushSubscribe(req, env, uid);
+      if (path === '/api/push/unsubscribe' && method === 'POST') return postPushUnsubscribe(req, env, uid);
 
       return err('route not found', 404);
     }

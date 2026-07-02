@@ -45,3 +45,30 @@ self.addEventListener('fetch', e => {
       .catch(() => caches.match(e.request))
   );
 });
+
+self.addEventListener('push', e => {
+  if (!e.data) return;
+  let data;
+  try { data = e.data.json(); } catch(_) { data = { title: 'DividendKill', body: e.data.text() }; }
+  e.waitUntil(
+    self.registration.showNotification(data.title || 'DividendKill', {
+      body:  data.body  || '',
+      icon:  '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      tag:   data.tag   || 'dk',
+      data:  { url: data.url || '/' },
+      requireInteraction: false,
+    })
+  );
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
+      for (const c of cs) if (c.url && 'focus' in c) return c.focus();
+      if (self.clients.openWindow) return self.clients.openWindow(url);
+    })
+  );
+});

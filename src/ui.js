@@ -63,6 +63,53 @@ window._installPWA = async () => {
   if (outcome === 'accepted') localStorage.setItem('dk_pwa_dismissed', '1');
 };
 
+/* ── Push Notifications ─────────────────────────── */
+var _pushSubscribed = false;
+async function _setupPushNotifications() {
+  if (!('Notification' in window) || !('PushManager' in window)) return;
+  if (localStorage.getItem('dk_push_declined')) return;
+  if (Notification.permission === 'denied') return;
+  if (Notification.permission === 'granted') {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) { _pushSubscribed = true; return; }
+      await _doSubscribePush(reg);
+    } catch(e) {}
+    return;
+  }
+  if (document.getElementById('pushBanner')) return;
+  const _pb = document.createElement('div');
+  _pb.id = 'pushBanner';
+  _pb.setAttribute('style', 'position:fixed;bottom:76px;left:50%;transform:translateX(-50%);width:calc(100% - 32px);max-width:400px;background:rgba(18,18,32,.96);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:14px 16px;z-index:9998;display:flex;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(0,0,0,.4)');
+  _pb.innerHTML = '<span style="font-size:22px">🔔</span>'
+    + '<div style="flex:1;font-size:13px"><strong>Activer les alertes</strong><div style="color:rgba(255,255,255,.5);font-size:11px;margin-top:2px">Dividendes, hausses, chutes &gt; 5%</div></div>'
+    + '<button id="pushEnableBtn" style="background:#7c6dff;color:#fff;border:none;padding:8px 14px;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;flex-shrink:0">Activer</button>'
+    + '<button id="pushDismissBtn" style="background:none;border:none;color:rgba(255,255,255,.4);font-size:18px;cursor:pointer;padding:4px;flex-shrink:0">&#x2715;</button>';
+  document.body.appendChild(_pb);
+  document.getElementById('pushEnableBtn').addEventListener('click', async () => {
+    _pb.remove();
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      try { const reg = await navigator.serviceWorker.ready; await _doSubscribePush(reg); } catch(e) {}
+    } else { localStorage.setItem('dk_push_declined', '1'); }
+  });
+  document.getElementById('pushDismissBtn').addEventListener('click', () => {
+    _pb.remove(); localStorage.setItem('dk_push_declined', '1');
+  });
+}
+async function _doSubscribePush(reg) {
+  try {
+    const res = await fetch('/api/push/vapid-key');
+    const { publicKey } = await res.json();
+    if (!publicKey) return;
+    const raw = Uint8Array.from(atob(publicKey.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: raw });
+    await D1Client.subscribePush(sub.toJSON());
+    _pushSubscribed = true;
+  } catch(e) { console.warn('[Push]', e.message); }
+}
+
 const EURUSD = Config.EURUSD;
 const NAV_EUR = Config.NAV_EUR;
 
@@ -188,6 +235,8 @@ var _mode = '1Y';
 var _hoverIdx = -1;
 var _navHistory = null; // { nav: [{date, nav_usd}] } chargé depuis /api/nav
 var _spyHistory = null; // [{date, close}] chargé depuis /api/benchmark
+var _benchmarkSym = localStorage.getItem('dk_benchmark') || 'SPY';
+var _BENCH_LABELS = { SPY: 'S&amp;P 500', QQQ: 'NASDAQ 100', GLD: 'Or', EZU: 'Zone €' };
 
 
 function renderAccueil(el) {
@@ -385,6 +434,10 @@ function _drawAccueil(el) {
   function ctbtn(v, lbl) {
     return '<button class="ctbtn' + (_mode === v ? ' on' : '') + '" data-m="' + v + '">' + lbl + '</button>';
   }
+  function benchBtn(sym, lbl) {
+    var active = sym === _benchmarkSym;
+    return '<button class="benchbtn" data-sym="' + sym + '" style="font-size:9px;padding:2px 7px;border-radius:8px;border:1px solid ' + (active ? 'rgba(124,109,255,.6)' : 'rgba(255,255,255,.1)') + ';background:' + (active ? 'rgba(124,109,255,.15)' : 'transparent') + ';color:' + (active ? '#a78bfa' : 'var(--muted)') + ';cursor:pointer">' + lbl + '</button>';
+  }
   var yld = mv > 0 ? getDivA()/mv*100 : 0;
   var yoc = cost > 0 ? getDivA()/cost*100 : 0;
   var sc  = DividendSafety.getPortfolioDSE();
@@ -408,7 +461,12 @@ function _drawAccueil(el) {
     + '</div>'
     + '<div class="home-chart" id="accChart"></div>'
     + '<div class="chart-toggle">' + ctbtn('1Y','1 an') + ctbtn('MTD','Mois') + ctbtn('7D','7 j') + ctbtn('1D','Auj.') + '</div>'
-    + (spyPts ? '<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 2px 2px;margin-top:2px"><span id="accSpyPct" style="font-size:11px;color:#6b7280;font-family:DM Mono,monospace">S&amp;P 500 '+(spyInitPct!==null?(spyInitPct>=0?'+':'')+spyInitPct.toFixed(2)+'%':'--')+'</span><span id="accAlpha" class="'+(spyInitAlpha!==null&&spyInitAlpha>=0?'badge-up':'badge-dn')+'" style="font-size:10px">\u03b1 '+(spyInitAlpha!==null?(spyInitAlpha>=0?'+':'')+spyInitAlpha.toFixed(2)+'%':'--')+'</span></div>' : '')
+    + '<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 2px 2px;margin-top:2px">'
+    +   '<div style="display:flex;gap:4px">'
+    +     benchBtn('SPY','S&amp;P') + benchBtn('QQQ','NAS') + benchBtn('GLD','Or') + benchBtn('EZU','\u20acZone')
+    +   '</div>'
+    +   (spyPts ? '<div style="display:flex;align-items:center;gap:6px"><span id="accSpyPct" style="font-size:11px;color:#6b7280;font-family:DM Mono,monospace">' + (_BENCH_LABELS[_benchmarkSym]||_benchmarkSym) + ' ' + (spyInitPct!==null?(spyInitPct>=0?'+':'')+spyInitPct.toFixed(2)+'%':'--') + '</span><span id="accAlpha" class="'+(spyInitAlpha!==null&&spyInitAlpha>=0?'badge-up':'badge-dn')+'" style="font-size:10px">\u03b1 '+(spyInitAlpha!==null?(spyInitAlpha>=0?'+':'')+spyInitAlpha.toFixed(2)+'%':'--')+'</span></div>' : '<span style="font-size:11px;color:#6b7280">' + (_BENCH_LABELS[_benchmarkSym]||_benchmarkSym) + '</span>')
+    + '</div>'
     + '<div class="row3">'    +   '<div class="mini-k"><div class="mini-k-l">YoC</div><div class="mini-k-v up">' + yoc.toFixed(2) + '%</div><div class="mini-k-s">Sur coût</div></div>'    +   '<div class="mini-k"><div class="mini-k-l">Score</div><div class="mini-k-v" style="color:' + scCol + '">' + sc + '</div><div class="mini-k-s">/100</div></div>'    +   '<div class="mini-k"><div class="mini-k-l">Div. annuel</div><div class="mini-k-v" style="color:#86efad">' + Math.round(getDivA()/eu()) + '€</div><div class="mini-k-s">brut/an</div></div>'    + '</div>'
         + '<div class="row3">'    +   '<div class="mini-k"><div class="mini-k-l">Yield</div><div class="mini-k-v up">' + yld.toFixed(2) + '%</div><div class="mini-k-s">' + Math.round(getDivA()/eu()) + '€/an</div></div>'    +   '<div class="mini-k"><div class="mini-k-l">Rev.mois</div><div class="mini-k-v" style="color:#86efad">' + Math.round(monthly) + '€</div><div class="mini-k-s">Revenu passif</div></div>'    +   '<div class="mini-k"><div class="mini-k-l">FIRE</div><div class="mini-k-v" style="color:' + fireC + '">' + fire + '%</div><div class="mini-k-s">Progression</div></div>'    + '</div>'
     + '<div class="movers">'
@@ -425,6 +483,23 @@ function _drawAccueil(el) {
         _mode = b.dataset.m; _hoverIdx = -1; _drawAccueil(el);
       });
     })(btns[ci]);
+  }
+  var bBtns = el.querySelectorAll('.benchbtn');
+  for (var bi = 0; bi < bBtns.length; bi++) {
+    (function(bb) {
+      bb.addEventListener('click', function() {
+        var sym = bb.dataset.sym;
+        if (sym === _benchmarkSym) return;
+        _benchmarkSym = sym;
+        localStorage.setItem('dk_benchmark', sym);
+        _spyHistory = null;
+        _drawAccueil(el);
+        fetch('/api/benchmark?symbol=' + sym).then(function(r) { return r.json(); }).then(function(data) {
+          _spyHistory = (data && Array.isArray(data.entries) && data.entries.length >= 2) ? data.entries : [];
+          _drawAccueil(el);
+        }).catch(function() { _spyHistory = []; });
+      });
+    })(bBtns[bi]);
   }
 }
 
@@ -1053,6 +1128,7 @@ const App = (() => {
     /* Init swipe */
     initSwipe();
     _showInstallBanner();
+    _setupPushNotifications().catch(() => {});
 
     /* Render accueil (toujours pré-rendu) */
     renderPanel('accueil', document.getElementById('panel-accueil'));
@@ -1072,8 +1148,8 @@ const App = (() => {
       }
     }).catch(() => {});
 
-    /* Charge le benchmark S&P 500 (non bloquant) */
-    fetch('/api/benchmark').then(r => r.json()).then(data => {
+    /* Charge le benchmark (non bloquant) */
+    fetch('/api/benchmark?symbol=' + _benchmarkSym).then(r => r.json()).then(data => {
       if (data && Array.isArray(data.entries) && data.entries.length >= 2) {
         _spyHistory = data.entries;
         const accEl2 = document.getElementById('panel-accueil');

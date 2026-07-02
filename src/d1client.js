@@ -68,6 +68,22 @@ export const D1Client = (() => {
     try { await _apiFetch(`/api/transaction/${id}`, { method: 'DELETE', headers: _h() }); } catch(_) {}
   }
 
+  async function subscribePush(sub) {
+    try {
+      await _apiFetch('/api/push/subscribe', {
+        method: 'POST', headers: _h(), body: JSON.stringify(sub),
+      });
+    } catch(_) {}
+  }
+
+  async function unsubscribePush(endpoint) {
+    try {
+      await _apiFetch('/api/push/unsubscribe', {
+        method: 'POST', headers: _h(), body: JSON.stringify({ endpoint }),
+      });
+    } catch(_) {}
+  }
+
   async function putSettings(obj) {
     try {
       await _apiFetch('/api/settings', {
@@ -76,5 +92,5 @@ export const D1Client = (() => {
     } catch(_) {}
   }
 
-  return { sync, addTx, deleteTx, putSettings, me, login, logout };
+  return { sync, addTx, deleteTx, putSettings, me, login, logout, subscribePush, unsubscribePush };
 })();
