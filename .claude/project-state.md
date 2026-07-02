@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 15:44] fix: EPS multi-year fallback + per-share payout ratio for charges exceptionnelles -- src/fmpData.js worker/src/index.js -->
+<!-- last-commit: [2026-07-02 15:45] chore: session-stop snapshot [2026-07-02 15:45] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 15:45] context: Pusé. Le déploiement va se déclencher automatiquement. -->
 <!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
