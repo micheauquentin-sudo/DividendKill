@@ -496,23 +496,27 @@ function normalizeProfile(t, p) {
   const prevClose = +(p.price - chg).toFixed(4);
   const chgPct    = p.changePercentage ?? p.changesPercentage
     ?? (prevClose > 0 ? +(chg / prevClose * 100).toFixed(4) : 0);
+  // FMP /stable/profile confirmed fields: lastDividend (annual), marketCap, averageVolume
+  // No dividendYield, no pe, no mktCap, no volAvg, no lastDiv in free plan profile
+  const annualDiv = p.lastDividend || null;
   return {
     symbol:                     t.toUpperCase(),
     regularMarketPrice:         p.price,
     regularMarketChange:        chg,
     regularMarketChangePercent: chgPct,
     regularMarketPreviousClose: prevClose > 0 ? prevClose : null,
-    regularMarketVolume:        p.volAvg         || null,
+    regularMarketVolume:        p.averageVolume  || null,
     longName:                   p.companyName    || null,
     shortName:                  p.companyName    || null,
     currency:                   p.currency       || 'USD',
     trailingPE:                 null,
-    marketCap:                  p.mktCap         || null,
-    fiftyTwoWeekHigh:           null,
-    fiftyTwoWeekLow:            null,
+    marketCap:                  p.marketCap      || null,
+    fiftyTwoWeekHigh:           p.range ? +(p.range.split('-')[1] || 0) : null,
+    fiftyTwoWeekLow:            p.range ? +(p.range.split('-')[0] || 0) : null,
     marketState:                'REGULAR',
-    lastDiv:                    p.lastDiv        || null,
-    dividendYield:              (p.lastDiv && p.price > 0) ? +(p.lastDiv / p.price).toFixed(6) : null,
+    lastDiv:                    annualDiv,
+    dividendYield:              annualDiv && p.price > 0 ? +(annualDiv / p.price).toFixed(6) : null,
+    trailingAnnualDividendRate: annualDiv,
   };
 }
 
@@ -538,6 +542,44 @@ async function isEmailRateLimited(env, email, limit) {
 }
 
 // ── Helpers fondamentaux FMP ─────────────────────────────────
+
+/* Nombre d'années consécutives de maintien ou hausse du dividende annuel */
+function computeStreak(divsArr) {
+  if (!Array.isArray(divsArr) || divsArr.length < 2) return 0;
+  const byYear = {};
+  for (const d of divsArr) {
+    const yr = (d.paymentDate || '').slice(0, 4);
+    if (!yr || isNaN(+yr) || +yr < 1990) continue;
+    const amt = d.dividend || d.adjDividend || 0;
+    if (amt > 0) byYear[yr] = (byYear[yr] || 0) + amt;
+  }
+  const years = Object.keys(byYear).sort().reverse();
+  let streak = 0;
+  for (let i = 0; i < years.length - 1; i++) {
+    // 2% tolerance pour éviter les faux cuts liés aux arrondis
+    if (byYear[years[i]] >= byYear[years[i + 1]] * 0.98) streak++;
+    else break;
+  }
+  return streak;
+}
+
+/* CAGR dividende sur 5 ans (annuel vs annuel 5 ans avant) */
+function computeDivCAGR5y(divsArr) {
+  if (!Array.isArray(divsArr) || divsArr.length < 4) return null;
+  const byYear = {};
+  for (const d of divsArr) {
+    const yr = (d.paymentDate || '').slice(0, 4);
+    if (!yr || isNaN(+yr) || +yr < 1990) continue;
+    const amt = d.dividend || d.adjDividend || 0;
+    if (amt > 0) byYear[yr] = (byYear[yr] || 0) + amt;
+  }
+  const curY = new Date().getFullYear();
+  const now  = byYear[String(curY)] || byYear[String(curY - 1)];
+  const old  = byYear[String(curY - 5)] || byYear[String(curY - 6)];
+  if (!now || !old || old <= 0) return null;
+  return +(Math.pow(now / old, 0.2) - 1).toFixed(4);
+}
+
 function extractPayMonths(divs) {
   if (!Array.isArray(divs) || divs.length === 0) return null;
   const cutoff = Date.now() - 2 * 365 * 86400000; // 2 ans
@@ -551,9 +593,12 @@ function extractPayMonths(divs) {
   return months.size > 0 ? [...months].sort((a, b) => a - b) : null;
 }
 
-function normalizeFunda(rawProfile, rawMetrics, rawDivs) {
-  const p = (Array.isArray(rawProfile) ? rawProfile[0] : rawProfile) || {};
-  const m = (Array.isArray(rawMetrics) ? rawMetrics[0] : rawMetrics) || {};
+function normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow) {
+  const p   = (Array.isArray(rawProfile)  ? rawProfile[0]  : rawProfile)  || {};
+  const m   = (Array.isArray(rawMetrics)  ? rawMetrics[0]  : rawMetrics)  || {};
+  const inc = (Array.isArray(rawIncome)   ? rawIncome[0]   : rawIncome)   || {};
+  const bal = (Array.isArray(rawBalance)  ? rawBalance[0]  : rawBalance)  || {};
+  const cf  = (Array.isArray(rawCashflow) ? rawCashflow[0] : rawCashflow) || {};
 
   // FMP /stable/dividends returns { "historical": [...] } — normalize to flat array
   const divsArr = Array.isArray(rawDivs) ? rawDivs
@@ -569,20 +614,66 @@ function normalizeFunda(rawProfile, rawMetrics, rawDivs) {
       annual_div = +recent.reduce((s, d) => s + (d.dividend || d.adjDividend || 0), 0).toFixed(4);
     }
   }
-  // Fallback: lastDiv × 4 (quarterly → annual approximation)
-  if (!annual_div && p.lastDiv && p.lastDiv > 0) {
-    annual_div = +(p.lastDiv * 4).toFixed(4);
+  // Fallback: lastDividend from profile is ALREADY annual (confirmed via debug)
+  if (!annual_div && p.lastDividend && p.lastDividend > 0) {
+    annual_div = +p.lastDividend.toFixed(4);
   }
 
+  // ── Métriques depuis les états financiers annuels ─────────────
+  // P/E: prix / BPA dilué (income statement, gratuit), fallback key-metrics-ttm (402)
+  const eps    = inc.epsDiluted || inc.eps || null;
+  const pe_cur = (eps && eps > 0 && p.price > 0)
+    ? +(p.price / eps).toFixed(2)
+    : (m.peRatioTTM || null);
+
+  // Cash flow
+  const operatingCF   = cf.operatingCashFlow  != null ? cf.operatingCashFlow  : null;
+  const capex         = cf.capitalExpenditure  != null ? Math.abs(cf.capitalExpenditure) : 0;
+  const fcfRaw        = cf.freeCashFlow        != null ? cf.freeCashFlow
+                      : (operatingCF != null ? operatingCF - capex : null);
+  const dividendsPaid = cf.dividendsPaid       != null ? Math.abs(cf.dividendsPaid) : null;
+
+  // Income statement
+  const netIncome      = inc.netIncome       != null ? inc.netIncome       : null;
+  const ebitda         = inc.ebitda          != null ? inc.ebitda          : null;
+  const ebit           = inc.operatingIncome != null ? inc.operatingIncome : null;
+  const interestExp    = inc.interestExpense != null ? Math.abs(inc.interestExpense) : null;
+
+  // Balance sheet
+  const totalDebt = bal.totalDebt != null ? bal.totalDebt
+    : ((bal.longTermDebt || 0) + (bal.shortTermDebt || 0)) || null;
+
+  // Ratios dérivés (null quand dénominateur ≤ 0 ou données manquantes)
+  const payout_ratio = (dividendsPaid && netIncome && netIncome > 0)
+    ? +(dividendsPaid / netIncome).toFixed(4)
+    : (m.payoutRatioTTM || null);
+
+  const fcf_payout = (dividendsPaid && fcfRaw && fcfRaw > 0)
+    ? +(dividendsPaid / fcfRaw).toFixed(4)
+    : null;
+
+  const debt_ebitda = (totalDebt != null && ebitda && ebitda > 0)
+    ? +(totalDebt / ebitda).toFixed(2)
+    : null;
+
+  const interest_cov = (ebit != null && interestExp && interestExp > 0)
+    ? +(ebit / interestExp).toFixed(2)
+    : null;
+
   return {
-    name:         p.companyName    || null,
-    sector:       p.sector         || null,
-    beta:         p.beta           || null,
-    market_cap:   p.mktCap         || null,
+    name:         p.companyName || null,
+    sector:       p.sector      || null,
+    beta:         p.beta        || null,
+    market_cap:   p.marketCap   || null,
     annual_div,
-    pe_cur:       m.peRatioTTM     || null,
-    payout_ratio: m.payoutRatioTTM || null,
+    pe_cur,
+    payout_ratio,
+    fcf_payout,
+    debt_ebitda,
+    interest_cov,
     pay_months:   extractPayMonths(divsArr),
+    streak:       computeStreak(divsArr),
+    div_cagr_5y:  computeDivCAGR5y(divsArr),
   };
 }
 
@@ -666,7 +757,7 @@ async function fmpProxy(req, env) {
   if (!symbol)      return err('missing symbol');
   if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
 
-  const cacheKey = `funda3:${symbol.toUpperCase()}`;
+  const cacheKey = `funda7:${symbol.toUpperCase()}`;
   if (env.PRICES_KV) {
     const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
     if (cached) return json(cached);
@@ -679,16 +770,23 @@ async function fmpProxy(req, env) {
       const text = await r.text();
       try { return JSON.parse(text); } catch(_) { throw new Error('FMP réponse non-JSON'); }
     };
-    const [profileRes, metricsRes, divsRes] = await Promise.allSettled([
+    const tryJson = r => r.ok ? r.json() : null;
+    const [profileRes, metricsRes, divsRes, incRes, balRes, cfRes] = await Promise.allSettled([
       fetch(`${base}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(safeJson),
-      fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.ok ? r.json() : null),
-      fetch(`${base}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.ok ? r.json() : null),
+      fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(tryJson),
+      fetch(`${base}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(tryJson),
+      fetch(`${base}/income-statement?symbol=${symbol}&period=annual&limit=2&apikey=${env.FMP_KEY}`).then(tryJson),
+      fetch(`${base}/balance-sheet-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`).then(tryJson),
+      fetch(`${base}/cash-flow-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`).then(tryJson),
     ]);
     if (profileRes.status === 'rejected') throw new Error(profileRes.reason?.message || 'profile failed');
-    const rawProfile = profileRes.value;
-    const rawMetrics = metricsRes.status === 'fulfilled' ? metricsRes.value : null;
-    const rawDivs    = divsRes.status === 'fulfilled'   ? divsRes.value   : null;
-    const result = normalizeFunda(rawProfile, rawMetrics, rawDivs);
+    const rawProfile  = profileRes.value;
+    const rawMetrics  = metricsRes.status === 'fulfilled' ? metricsRes.value  : null;
+    const rawDivs     = divsRes.status    === 'fulfilled' ? divsRes.value     : null;
+    const rawIncome   = incRes.status     === 'fulfilled' ? incRes.value      : null;
+    const rawBalance  = balRes.status     === 'fulfilled' ? balRes.value      : null;
+    const rawCashflow = cfRes.status      === 'fulfilled' ? cfRes.value       : null;
+    const result = normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow);
     if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: ttlFunda() });
     return json(result);
   } catch(e) {
@@ -701,25 +799,59 @@ async function searchProxy(req, env) {
   const q = new URL(req.url).searchParams.get('q') || '';
   if (!q || q.length < 2) return json({ results: [] });
   if (!env.FMP_KEY) return json({ results: [] });
-  try {
-    // FMP search — pas de Yahoo Finance (Play Store TOS)
-    const url = `https://financialmodelingprep.com/stable/search-symbol?query=${encodeURIComponent(q)}&limit=10&apikey=${env.FMP_KEY}`;
-    const res = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-    if (!res.ok) throw new Error(`FMP HTTP ${res.status}`);
-    const data = await res.json();
-    const ALLOWED_EXCHANGES = new Set(['NYSE','NASDAQ','AMEX','NYSE ARCA','TSX','LSE','EURONEXT','XETRA','BME']);
-    const results = (Array.isArray(data) ? data : [])
-      .filter(r => r.exchangeShortName && ALLOWED_EXCHANGES.has(r.exchangeShortName))
+
+  const ALLOWED_EXCHANGES = new Set([
+    'NYSE','NASDAQ','AMEX','NYSE ARCA','NYSE MKT','BATS',
+    'TSX','TSXV','LSE','EURONEXT','XETRA','BME','SIX',
+    'ASX','HKG','JPX','KRX',
+  ]);
+  const _normalizeEx = ex => {
+    if (!ex) return null;
+    const u = ex.toUpperCase();
+    if (u.includes('NASDAQ')) return 'NASDAQ';
+    if (u.includes('NYSE'))   return 'NYSE';
+    if (u.includes('AMEX'))   return 'AMEX';
+    return ex;
+  };
+
+  const _parseResults = data =>
+    (Array.isArray(data) ? data : [])
+      .filter(r => {
+        const ex = _normalizeEx(r.exchangeShortName || r.exchange || '');
+        return !ex || ALLOWED_EXCHANGES.has(ex) || ex.length <= 6;
+      })
       .slice(0, 8)
       .map(r => ({
         symbol:            r.symbol,
-        name:              r.name || r.symbol,
-        exchangeShortName: r.exchangeShortName,
+        name:              r.name || r.companyName || r.symbol,
+        exchangeShortName: _normalizeEx(r.exchangeShortName || r.exchange || '') || 'NYSE',
       }));
-    return json({ results });
-  } catch(e) {
-    return json({ results: [], error: 'Recherche indisponible' }, 502);
-  }
+
+  const headers = { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' };
+
+  // Try stable endpoint first
+  try {
+    const url = `https://financialmodelingprep.com/stable/search-symbol?query=${encodeURIComponent(q)}&limit=10&apikey=${env.FMP_KEY}`;
+    const res = await fetch(url, { headers });
+    if (res.ok) {
+      const data = await res.json();
+      const results = _parseResults(data);
+      if (results.length) return json({ results });
+    }
+  } catch(_) {}
+
+  // Fallback: FMP v3 search (free tier)
+  try {
+    const url = `https://financialmodelingprep.com/api/v3/search?query=${encodeURIComponent(q)}&limit=10&apikey=${env.FMP_KEY}`;
+    const res = await fetch(url, { headers });
+    if (res.ok) {
+      const data = await res.json();
+      const results = _parseResults(data);
+      return json({ results });
+    }
+  } catch(_) {}
+
+  return json({ results: [] });
 }
 
 
@@ -802,14 +934,18 @@ async function handleScheduled(env) {
 
   async function refreshFunda(symbol, reason) {
     try {
-      const [profileData, metricsData, divsData] = await Promise.all([
+      const tryJson = r => r.ok ? r.json() : null;
+      const [profileData, metricsData, divsData, incData, balData, cfData] = await Promise.all([
         fetch(`${FMP_BASE}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
-        fetch(`${FMP_BASE}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
-        fetch(`${FMP_BASE}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${FMP_BASE}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
+        fetch(`${FMP_BASE}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
+        fetch(`${FMP_BASE}/income-statement?symbol=${symbol}&period=annual&limit=2&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
+        fetch(`${FMP_BASE}/balance-sheet-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
+        fetch(`${FMP_BASE}/cash-flow-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
       ]);
-      const normalized = normalizeFunda(profileData, metricsData, divsData);
-      await env.PRICES_KV.put(`funda3:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttlFunda() });
-      console.log(`[Cron] funda3:${symbol} mis à jour — ${reason}`);
+      const normalized = normalizeFunda(profileData, metricsData, divsData, incData, balData, cfData);
+      await env.PRICES_KV.put(`funda7:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttlFunda() });
+      console.log(`[Cron] funda7:${symbol} mis à jour — ${reason}`);
       return true;
     } catch(e) { console.warn(`[Cron] funda ${symbol}:`, e.message); return false; }
   }
@@ -894,7 +1030,7 @@ async function handleScheduled(env) {
       await Promise.all(toStore.slice(i, i + 5).map(async q => {
         const [old, fundaRaw] = await Promise.all([
           env.PRICES_KV.get(`p:${q.symbol}`, { type: 'json' }),
-          env.PRICES_KV.get(`funda3:${q.symbol}`),
+          env.PRICES_KV.get(`funda7:${q.symbol}`),
         ]);
 
         const lastDivChg = old?.lastDiv != null && q.lastDiv != null && old.lastDiv !== q.lastDiv;
@@ -1185,11 +1321,141 @@ async function debugPrice(req, env) {
       if (pr.ok) {
         const pd = JSON.parse(pt);
         const p0 = Array.isArray(pd) ? pd[0] : pd;
-        out.fmp_profile_price   = p0?.price       ?? null;
-        out.fmp_profile_changes = p0?.changes      ?? null;
-        out.fmp_profile_company = p0?.companyName  ?? null;
+        out.fmp_profile_price         = p0?.price          ?? null;
+        out.fmp_profile_changes       = p0?.changes         ?? null;
+        out.fmp_profile_company       = p0?.companyName     ?? null;
+        out.fmp_profile_dividendYield = p0?.dividendYield   ?? null;
+        out.fmp_profile_lastDiv       = p0?.lastDiv         ?? null;
+        out.fmp_profile_pe            = p0?.pe              ?? null;
+        out.fmp_profile_sector        = p0?.sector          ?? null;
+        // Log ALL keys so we can discover available fields
+        out.fmp_profile_keys          = Object.keys(p0 || {});
       }
     } catch(e) { out.fmp_profile_error = e.message; }
+
+    // Test 3: /stable/key-metrics-ttm (source actuelle du P/E)
+    try {
+      const kmUrl = `https://financialmodelingprep.com/stable/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`;
+      const kmRes = await fetch(kmUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_metrics_status = kmRes.status;
+      const kmText = await kmRes.text();
+      out.fmp_metrics_raw = kmText.slice(0, 300);
+      if (kmRes.ok) {
+        const kmData = JSON.parse(kmText);
+        const m0 = Array.isArray(kmData) ? kmData[0] : kmData;
+        out.fmp_metrics_peRatioTTM    = m0?.peRatioTTM    ?? null;
+        out.fmp_metrics_payoutRatioTTM = m0?.payoutRatioTTM ?? null;
+        out.fmp_metrics_keys          = Object.keys(m0 || {}).slice(0, 20);
+      }
+    } catch(e) { out.fmp_metrics_error = e.message; }
+
+    // Test 4: /stable/ratios-ttm (fallback PE via priceEarningsRatioTTM)
+    try {
+      const ratUrl = `https://financialmodelingprep.com/stable/ratios-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`;
+      const ratRes = await fetch(ratUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_ratios_status = ratRes.status;
+      const ratText = await ratRes.text();
+      out.fmp_ratios_raw = ratText.slice(0, 300);
+      if (ratRes.ok) {
+        const ratData = JSON.parse(ratText);
+        const r0 = Array.isArray(ratData) ? ratData[0] : ratData;
+        out.fmp_ratios_pe             = r0?.priceEarningsRatioTTM ?? r0?.peRatioTTM ?? null;
+        out.fmp_ratios_payoutRatio    = r0?.dividendPayoutRatioTTM ?? null;
+        out.fmp_ratios_keys           = Object.keys(r0 || {}).slice(0, 20);
+      }
+    } catch(e) { out.fmp_ratios_error = e.message; }
+
+    // Test 5: v3 /api/v3/quote (ancien endpoint, souvent gratuit, inclut pe)
+    try {
+      const v3qUrl = `https://financialmodelingprep.com/api/v3/quote/${symbol}?apikey=${env.FMP_KEY}`;
+      const v3qRes = await fetch(v3qUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_v3quote_status = v3qRes.status;
+      const v3qText = await v3qRes.text();
+      out.fmp_v3quote_raw = v3qText.slice(0, 300);
+      if (v3qRes.ok) {
+        const v3qData = JSON.parse(v3qText);
+        const q0 = Array.isArray(v3qData) ? v3qData[0] : v3qData;
+        out.fmp_v3quote_pe            = q0?.pe            ?? null;
+        out.fmp_v3quote_eps           = q0?.eps           ?? null;
+        out.fmp_v3quote_price         = q0?.price         ?? null;
+        out.fmp_v3quote_keys          = Object.keys(q0 || {}).slice(0, 20);
+      }
+    } catch(e) { out.fmp_v3quote_error = e.message; }
+
+    // Test 6: v3 /api/v3/profile (ancien profil, peut inclure pe)
+    try {
+      const v3pUrl = `https://financialmodelingprep.com/api/v3/profile/${symbol}?apikey=${env.FMP_KEY}`;
+      const v3pRes = await fetch(v3pUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_v3profile_status = v3pRes.status;
+      const v3pText = await v3pRes.text();
+      out.fmp_v3profile_raw = v3pText.slice(0, 300);
+      if (v3pRes.ok) {
+        const v3pData = JSON.parse(v3pText);
+        const p0 = Array.isArray(v3pData) ? v3pData[0] : v3pData;
+        out.fmp_v3profile_pe          = p0?.pe            ?? null;
+        out.fmp_v3profile_beta        = p0?.beta          ?? null;
+        out.fmp_v3profile_mktCap      = p0?.mktCap        ?? null;
+        out.fmp_v3profile_lastDiv     = p0?.lastDiv       ?? null;
+        out.fmp_v3profile_keys        = Object.keys(p0 || {}).slice(0, 25);
+      }
+    } catch(e) { out.fmp_v3profile_error = e.message; }
+
+    // Test 7: /stable/income-statement (EPS, payout, EBITDA, intérêts)
+    try {
+      const incUrl = `https://financialmodelingprep.com/stable/income-statement?symbol=${symbol}&period=annual&limit=2&apikey=${env.FMP_KEY}`;
+      out.fmp_income_url = incUrl.replace(env.FMP_KEY, '***');
+      const incRes = await fetch(incUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_income_status = incRes.status;
+      const incText = await incRes.text();
+      out.fmp_income_raw = incText.slice(0, 400);
+      if (incRes.ok) {
+        const incData = JSON.parse(incText);
+        const i0 = Array.isArray(incData) ? incData[0] : incData;
+        out.fmp_income_eps           = i0?.epsDiluted       ?? i0?.eps           ?? null;
+        out.fmp_income_netIncome     = i0?.netIncome        ?? null;
+        out.fmp_income_ebitda        = i0?.ebitda           ?? null;
+        out.fmp_income_ebit          = i0?.operatingIncome  ?? null;
+        out.fmp_income_interestExp   = i0?.interestExpense  ?? null;
+        out.fmp_income_keys          = Object.keys(i0 || {}).slice(0, 30);
+      }
+    } catch(e) { out.fmp_income_error = e.message; }
+
+    // Test 8: /stable/balance-sheet-statement (dette totale)
+    try {
+      const balUrl = `https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`;
+      out.fmp_balance_url = balUrl.replace(env.FMP_KEY, '***');
+      const balRes = await fetch(balUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_balance_status = balRes.status;
+      const balText = await balRes.text();
+      out.fmp_balance_raw = balText.slice(0, 400);
+      if (balRes.ok) {
+        const balData = JSON.parse(balText);
+        const b0 = Array.isArray(balData) ? balData[0] : balData;
+        out.fmp_balance_totalDebt    = b0?.totalDebt       ?? null;
+        out.fmp_balance_longTerm     = b0?.longTermDebt    ?? null;
+        out.fmp_balance_shortTerm    = b0?.shortTermDebt   ?? null;
+        out.fmp_balance_keys         = Object.keys(b0 || {}).slice(0, 30);
+      }
+    } catch(e) { out.fmp_balance_error = e.message; }
+
+    // Test 9: /stable/cash-flow-statement (FCF, dividendes versés)
+    try {
+      const cfUrl = `https://financialmodelingprep.com/stable/cash-flow-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`;
+      out.fmp_cashflow_url = cfUrl.replace(env.FMP_KEY, '***');
+      const cfRes = await fetch(cfUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_cashflow_status = cfRes.status;
+      const cfText = await cfRes.text();
+      out.fmp_cashflow_raw = cfText.slice(0, 400);
+      if (cfRes.ok) {
+        const cfData = JSON.parse(cfText);
+        const c0 = Array.isArray(cfData) ? cfData[0] : cfData;
+        out.fmp_cashflow_operatingCF   = c0?.operatingCashFlow  ?? null;
+        out.fmp_cashflow_capex         = c0?.capitalExpenditure  ?? null;
+        out.fmp_cashflow_freeCashFlow  = c0?.freeCashFlow        ?? null;
+        out.fmp_cashflow_dividendsPaid = c0?.dividendsPaid       ?? null;
+        out.fmp_cashflow_keys          = Object.keys(c0 || {}).slice(0, 30);
+      }
+    } catch(e) { out.fmp_cashflow_error = e.message; }
   }
 
   return json(out);
