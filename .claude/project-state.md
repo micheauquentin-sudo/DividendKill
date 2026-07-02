@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 20:08] fix: ne pas servir/stocker le cache si métriques financières toutes nulles -- src/fmpData.js worker/src/index.js -->
+<!-- last-commit: [2026-07-02 20:09] chore: session-stop snapshot [2026-07-02 20:09] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 20:09] context: Poussé. Une fois le déploiement terminé : -->
 <!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
