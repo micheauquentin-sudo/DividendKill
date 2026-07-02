@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 14:53] debug: add key-metrics-ttm and ratios-ttm tests to /api/debug/price endpoint -- worker/src/index.js -->
+<!-- last-commit: [2026-07-02 14:53] chore: session-stop snapshot [2026-07-02 14:53] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 14:53] context: Déployé. Dans ~2 min, ouvre cette URL et envoie-moi le JSON : -->
 <!-- resume-from: files: worker/src/index.js -->
 
