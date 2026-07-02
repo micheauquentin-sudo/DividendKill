@@ -12,8 +12,8 @@ export function renderValorisation(el) {
 
   /* ── Signal de valorisation depuis FMP live (pe_cur vs fair PE sectoriel) ── */
   function _computeVal(d) {
-    var a = meta[d.ticker] || {};
-    var sec = d.sec || a.sector || '';
+    var a = assets[d.ticker] || {};
+    var sec = d.sec || a.sector || (meta[d.ticker] || {}).sector || '';
     var fair_pe = SECTOR_FAIR_PE[sec] || 20;
     var pe_cur = a.pe_cur || 0;
     var label;
@@ -198,23 +198,25 @@ export function renderValorisation(el) {
     for (var i=0; i<list.length; i++) {
       var d  = list[i];
       var v  = _computeVal(d);
-      var m  = meta[d.ticker]  || {};
+      var m  = meta[d.ticker]   || {};   // prix, d
+      var ma = assets[d.ticker] || {};   // fondamentaux (beta, sector, streak, …)
       var lc = labelCfg(v.label);
-      var sb = safeBadge(m.safe || 60);
-      /* ── DSE : safety score calculé dynamiquement ── */
-      var dseResult = m.payout_ratio !== undefined ? calculateDividendSafety(m) : null;
-      var dseScore  = dseResult ? dseResult.safetyScore : (m.safe || 60);
+      /* DSE — calcul toujours depuis les fondamentaux (assets), jamais m.safe */
+      var dseInput  = Object.assign({}, ma, { d: ma.d || m.d });
+      var dseResult = calculateDividendSafety(dseInput);
+      var dseScore  = dseResult.safetyScore;
       var dseCol    = dseColor(dseScore);
-      var dseLbl    = dseResult ? dseLabel(dseResult.riskLevel) : sb.lbl;
-      var div = m.d || 0;
+      var dseLbl    = dseLabel(dseResult.riskLevel);
+      var sb        = safeBadge(dseScore);
+      var div = ma.d || m.d || 0;
       var yd  = d.price > 0 ? div/d.price*100 : 0;
       var ann = Math.round(div * d.qty);
-      var pe  = m.pe_cur || 0;
+      var pe  = ma.pe_cur || 0;
       var pp  = d.avg > 0 ? (d.price-d.avg)/d.avg*100 : 0;
       var upside = v.exp > 0 ? (v.exp - d.price)/d.price*100 : 0;
       var pC  = d.pnl >= 0 ? '#22d47a' : '#f43f5e';
       var cap = getBuyCapacity(d);
-      var pPct = Math.round((m.payout_ratio||0)*100);
+      var pPct = Math.round((ma.payout_ratio||0)*100);
       var pCol = pPct < 60 ? '#22d47a' : pPct < 80 ? '#f5a623' : '#f43f5e';
 
       /* jauges : vert si sous-évalué / yield élevé, orange/rouge sinon */
