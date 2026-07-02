@@ -1185,12 +1185,20 @@ const App = (() => {
       results.forEach(({ ticker }) => FmpData.mergeIntoAssets(ticker, Data.assets));
       Calc.recompute();
       buildKPI();
+      // Re-render active panel so pe_cur / d / sector show up (cache may have been expired)
+      const _fmpPanels = ['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation','news','impots','import'];
+      const _fmpEl = document.getElementById('panel-' + _fmpPanels[window._curTab || 0]);
+      if (_fmpEl) { try { renderPanel(_fmpPanels[window._curTab || 0], _fmpEl); } catch(_e) {} }
     }).catch(e => console.warn('[App] FmpData boot:', e.message));
 
     Promise.all([bootPricePromise, bootFmpPromise]).then(() => {
       Storage.saveFundamentals(Data.assets);
       _rendered = {};
       buildKPI();
+      // Final re-render with both prices and fundamentals fully merged
+      const _bootPanels = ['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation','news','impots','import'];
+      const _bootEl = document.getElementById('panel-' + _bootPanels[window._curTab || 0]);
+      if (_bootEl) { try { renderPanel(_bootPanels[window._curTab || 0], _bootEl); } catch(_e) {} }
     }).catch(e => console.warn('[App] boot refresh:', e.message));
   };
 
