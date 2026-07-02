@@ -42,7 +42,11 @@ export const FmpData = (() => {
     const now = Date.now();
     toFetch.forEach((t, i) => {
       if (results[i].status === 'fulfilled') {
-        _cache[t] = { data: results[i].value, ts: now };
+        const d = results[i].value;
+        // Ne pas mettre en cache localStorage si les métriques financières sont toutes nulles
+        // (données incomplètes suite à 429/402) — prochain Sync re-fetche
+        const incomplete = d && d.pe_cur == null && d.payout_ratio == null && d.fcf_payout == null;
+        if (!incomplete) _cache[t] = { data: d, ts: now };
       } else {
         console.warn('[FmpData] échec', t, results[i].reason?.message);
       }

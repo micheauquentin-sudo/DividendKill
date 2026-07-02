@@ -794,7 +794,9 @@ async function fmpProxy(req, env) {
   const cacheKey = `funda9:${symbol.toUpperCase()}`;
   if (env.PRICES_KV) {
     const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
-    if (cached) return json(cached);
+    // Si les métriques financières sont toutes nulles (429/402 lors du cache), on re-fetch
+    const incomplete = cached && cached.pe_cur == null && cached.payout_ratio == null && cached.fcf_payout == null;
+    if (cached && !incomplete) return json(cached);
   }
 
   const base = 'https://financialmodelingprep.com/stable';
