@@ -1,5 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-02 14:45] feat: project-level stop hook — auto-snapshot project-state.md on session end -- .claude/scripts/stop-hook.py .claude/settings.json -->
+<!-- interrupted: [2026-07-02 14:45] context: Voilà, le système est complet. Voici ce qui se passe maintenant à chaque fin de session : -->
+<!-- resume-from: files: .claude/scripts/stop-hook.py, .claude/settings.json -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
