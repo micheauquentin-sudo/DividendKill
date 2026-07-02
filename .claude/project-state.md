@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-02 20:18] feat: Alpha Vantage OVERVIEW comme source de P/E + payout (fallback FMP 402) -- worker/src/index.js -->
-<!-- interrupted: [2026-07-02 20:09] context: Poussé. Une fois le déploiement terminé : -->
-<!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
+<!-- interrupted: [2026-07-02 20:18] context: Poussé. **Il te faut une clé Alpha Vantage gratuite** : -->
+<!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
