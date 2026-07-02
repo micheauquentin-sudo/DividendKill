@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 14:53] chore: session-stop snapshot [2026-07-02 14:53] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 14:55] debug: add FMP v3 quote + v3 profile tests to find free PE source -- worker/src/index.js -->
 <!-- interrupted: [2026-07-02 14:53] context: Déployé. Dans ~2 min, ouvre cette URL et envoie-moi le JSON : -->
 <!-- resume-from: files: worker/src/index.js -->
 
