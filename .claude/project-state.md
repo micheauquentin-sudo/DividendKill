@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 15:06] chore: session-stop snapshot [2026-07-02 15:06] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 15:08] chore: session-stop snapshot [2026-07-02 15:08] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 15:08] context: Non, SEC EDGAR = **US uniquement**. Seules les entreprises qui déposent leurs bilans auprès de la SEC américaine sont co -->
 <!-- resume-from: files: src/dividendSafety.js, src/fmpData.js, src/panels/valorisation.js, worker/src/index.js -->
 
