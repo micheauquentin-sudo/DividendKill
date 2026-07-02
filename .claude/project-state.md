@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 20:09] chore: session-stop snapshot [2026-07-02 20:09] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 20:18] feat: Alpha Vantage OVERVIEW comme source de P/E + payout (fallback FMP 402) -- worker/src/index.js -->
 <!-- interrupted: [2026-07-02 20:09] context: Poussé. Une fois le déploiement terminé : -->
 <!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
