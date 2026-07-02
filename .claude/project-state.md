@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 14:55] chore: session-stop snapshot [2026-07-02 14:55] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 15:04] fix: compute streak+CAGR from free dividend history; fix safety score; P/E shows N/A -- src/dividendSafety.js src/fmpData.js src/panels/valorisation.js worker/src/index.js -->
 <!-- interrupted: [2026-07-02 14:55] context: Déployé (~2 min). Relance le même lien : -->
 <!-- resume-from: files: worker/src/index.js -->
 
