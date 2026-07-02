@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-02 20:53] chore: session-stop snapshot [2026-07-02 20:53] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-02 20:53] context: Je ne peux pas générer l'URL de production — je ne la connais pas avec certitude. Le nom du worker est `divkiller`, donc -->
+<!-- interrupted: [2026-07-02 20:55] context: Le seed a fonctionné — 18 tickers en KV. Appuie maintenant sur **Sync** dans l'app, le P/E devrait apparaître pour APD,  -->
 <!-- resume-from: files: worker/src/index.js, worker/wrangler.toml -->
 
 ## Current mission
