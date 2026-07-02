@@ -794,8 +794,8 @@ async function fmpProxy(req, env) {
   const cacheKey = `funda9:${symbol.toUpperCase()}`;
   if (env.PRICES_KV) {
     const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
-    // Si les métriques financières sont toutes nulles (429/402 lors du cache), on re-fetch
-    const incomplete = cached && cached.pe_cur == null && cached.payout_ratio == null && cached.fcf_payout == null;
+    // Re-fetch si pe_cur manquant (AV peut maintenant le combler via KV cache)
+    const incomplete = cached && cached.pe_cur == null;
     if (cached && !incomplete) return json(cached);
   }
 
@@ -1409,6 +1409,16 @@ async function debugFunda(req, env) {
     out.kv_annual_div = cached?.annual_div ?? null;
     out.kv_streak     = cached?.streak     ?? null;
     out.kv_data       = cached;
+
+    // Vérifier le cache AV (av9:SYMBOL) — pré-rempli par /api/debug/av-seed
+    const avCached = await env.PRICES_KV.get(`av9:${symbol}`, { type: 'json' });
+    out.av9_hit     = !!avCached;
+    out.av9_pe_cur  = avCached?.pe_cur ?? null;
+    out.av9_payout  = avCached?.payout_ratio ?? null;
+    out.av9_data    = avCached;
+
+    // Vérifier si funda9 serait traité comme incomplet → re-fetch déclenché
+    out.funda9_incomplete = !!(cached && cached.pe_cur == null && cached.payout_ratio == null && cached.fcf_payout == null);
 
     // Aussi vérifier l'ancienne clé funda8 (données encore en cache ?)
     const oldCached = await env.PRICES_KV.get(`funda8:${symbol}`, { type: 'json' });
