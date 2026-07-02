@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 15:04] chore: session-stop snapshot [2026-07-02 15:04] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 15:06] chore: session-stop snapshot [2026-07-02 15:06] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 15:06] context: Quatre options concrètes, du plus simple au plus complexe : -->
 <!-- resume-from: files: src/dividendSafety.js, src/fmpData.js, src/panels/valorisation.js, worker/src/index.js -->
 
