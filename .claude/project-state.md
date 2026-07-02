@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 20:18] chore: session-stop snapshot [2026-07-02 20:18] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 20:39] feat: add /api/debug/av-seed endpoint to pre-fill AV KV cache from mock data -- worker/src/index.js worker/test/av-mock.json -->
 <!-- interrupted: [2026-07-02 20:18] context: Poussé. **Il te faut une clé Alpha Vantage gratuite** : -->
 <!-- resume-from: files: worker/src/index.js -->
 
