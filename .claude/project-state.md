@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 15:04] fix: compute streak+CAGR from free dividend history; fix safety score; P/E shows N/A -- src/dividendSafety.js src/fmpData.js src/panels/valorisation.js worker/src/index.js -->
+<!-- last-commit: [2026-07-02 15:04] chore: session-stop snapshot [2026-07-02 15:04] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 15:04] context: Poussé. Voici ce qui change après le déploiement (~2 min) : -->
 <!-- resume-from: files: src/dividendSafety.js, src/fmpData.js, src/panels/valorisation.js, worker/src/index.js -->
 
