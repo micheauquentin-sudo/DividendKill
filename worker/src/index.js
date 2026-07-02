@@ -1234,6 +1234,38 @@ async function debugPrice(req, env) {
         out.fmp_profile_keys          = Object.keys(p0 || {});
       }
     } catch(e) { out.fmp_profile_error = e.message; }
+
+    // Test 3: /stable/key-metrics-ttm (source actuelle du P/E)
+    try {
+      const kmUrl = `https://financialmodelingprep.com/stable/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`;
+      const kmRes = await fetch(kmUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_metrics_status = kmRes.status;
+      const kmText = await kmRes.text();
+      out.fmp_metrics_raw = kmText.slice(0, 300);
+      if (kmRes.ok) {
+        const kmData = JSON.parse(kmText);
+        const m0 = Array.isArray(kmData) ? kmData[0] : kmData;
+        out.fmp_metrics_peRatioTTM    = m0?.peRatioTTM    ?? null;
+        out.fmp_metrics_payoutRatioTTM = m0?.payoutRatioTTM ?? null;
+        out.fmp_metrics_keys          = Object.keys(m0 || {}).slice(0, 20);
+      }
+    } catch(e) { out.fmp_metrics_error = e.message; }
+
+    // Test 4: /stable/ratios-ttm (fallback PE via priceEarningsRatioTTM)
+    try {
+      const ratUrl = `https://financialmodelingprep.com/stable/ratios-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`;
+      const ratRes = await fetch(ratUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_ratios_status = ratRes.status;
+      const ratText = await ratRes.text();
+      out.fmp_ratios_raw = ratText.slice(0, 300);
+      if (ratRes.ok) {
+        const ratData = JSON.parse(ratText);
+        const r0 = Array.isArray(ratData) ? ratData[0] : ratData;
+        out.fmp_ratios_pe             = r0?.priceEarningsRatioTTM ?? r0?.peRatioTTM ?? null;
+        out.fmp_ratios_payoutRatio    = r0?.dividendPayoutRatioTTM ?? null;
+        out.fmp_ratios_keys           = Object.keys(r0 || {}).slice(0, 20);
+      }
+    } catch(e) { out.fmp_ratios_error = e.message; }
   }
 
   return json(out);
