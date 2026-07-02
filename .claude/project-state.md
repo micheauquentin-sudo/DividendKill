@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-02 15:35] merge: integrate financial statements pipeline from feature branch -- -->
-<!-- interrupted: [2026-07-02 15:15] context: Poussé. Après le déploiement (~2 min), les scores DSE vont vraiment se calculer. Ce que tu vas voir : -->
-<!-- resume-from: files: src/panels/valorisation.js -->
+<!-- interrupted: [2026-07-02 15:35] context: Pusé sur `main`. Le workflow GitHub Actions va se déclencher automatiquement et déployer le worker sur Cloudflare. -->
+<!-- resume-from: files: (unknown) -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
