@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 15:35] merge: integrate financial statements pipeline from feature branch -- -->
+<!-- last-commit: [2026-07-02 15:35] chore: session-stop snapshot [2026-07-02 15:35] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 15:35] context: Pusé sur `main`. Le workflow GitHub Actions va se déclencher automatiquement et déployer le worker sur Cloudflare. -->
 <!-- resume-from: files: (unknown) -->
 
