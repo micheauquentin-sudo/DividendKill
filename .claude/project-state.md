@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 15:59] chore: session-stop snapshot [2026-07-02 15:59] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 16:01] chore: session-stop snapshot [2026-07-02 16:01] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 16:01] context: Déjà poussé — le commit `6702ad2` (fix earnings fallback + debug/funda + funda9) est sur `main` depuis tout à l'heure. L -->
 <!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
