@@ -1,0 +1,21 @@
+#!/bin/sh
+# Auto-snapshot: update project-state.md "Last completed" after each commit
+
+CLAUDE_DIR="$(git rev-parse --show-toplevel)/.claude"
+STATE_FILE="$CLAUDE_DIR/project-state.md"
+
+[ -f "$STATE_FILE" ] || exit 0
+
+LAST_MSG=$(git log -1 --pretty=%s)
+LAST_DATE=$(date '+%Y-%m-%d %H:%M')
+LAST_FILES=$(git diff-tree --no-commit-id -r --name-only HEAD | tr '\n' ', ' | sed 's/,$//')
+
+# Inject last commit info as a comment line at the top (after first heading)
+SNAPSHOT="<!-- last-commit: [$LAST_DATE] $LAST_MSG | files: $LAST_FILES -->"
+
+# Replace existing comment or prepend after first line
+if grep -q '^<!-- last-commit:' "$STATE_FILE"; then
+  sed -i "s|^<!-- last-commit:.*-->|$SNAPSHOT|" "$STATE_FILE"
+else
+  sed -i "2i$SNAPSHOT" "$STATE_FILE"
+fi
