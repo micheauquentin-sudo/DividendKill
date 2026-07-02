@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 15:45] chore: session-stop snapshot [2026-07-02 15:45] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 15:58] fix: add /stable/earnings as TTM EPS fallback + debug/funda endpoint + funda9 -- src/fmpData.js worker/src/index.js -->
 <!-- interrupted: [2026-07-02 15:45] context: Pusé. Le déploiement va se déclencher automatiquement. -->
 <!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
