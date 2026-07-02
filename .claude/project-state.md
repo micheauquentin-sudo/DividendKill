@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 20:18] feat: Alpha Vantage OVERVIEW comme source de P/E + payout (fallback FMP 402) -- worker/src/index.js -->
+<!-- last-commit: [2026-07-02 20:18] chore: session-stop snapshot [2026-07-02 20:18] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 20:18] context: Poussé. **Il te faut une clé Alpha Vantage gratuite** : -->
 <!-- resume-from: files: worker/src/index.js -->
 
