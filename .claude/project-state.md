@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-02 14:53] debug: add key-metrics-ttm and ratios-ttm tests to /api/debug/price endpoint -- worker/src/index.js -->
-<!-- interrupted: [2026-07-02 14:49] context: Techniquement oui, mais avec une contrainte importante : **ce container s'arrête quand la session se ferme**. Un script  -->
-<!-- resume-from: files: .claude/settings.json -->
+<!-- interrupted: [2026-07-02 14:53] context: Déployé. Dans ~2 min, ouvre cette URL et envoie-moi le JSON : -->
+<!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
