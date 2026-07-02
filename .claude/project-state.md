@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-02 15:44] fix: EPS multi-year fallback + per-share payout ratio for charges exceptionnelles -- src/fmpData.js worker/src/index.js -->
-<!-- interrupted: [2026-07-02 15:35] context: Pusé sur `main`. Le workflow GitHub Actions va se déclencher automatiquement et déployer le worker sur Cloudflare. -->
-<!-- resume-from: files: (unknown) -->
+<!-- interrupted: [2026-07-02 15:45] context: Pusé. Le déploiement va se déclencher automatiquement. -->
+<!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
