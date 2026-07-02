@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 14:45] chore: session-stop snapshot [2026-07-02 14:45] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 14:47] chore: session-stop snapshot [2026-07-02 14:47] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 14:47] context: Non, pas automatiquement. Il faut toujours **ouvrir une nouvelle session manuellement**. -->
 <!-- resume-from: files: .claude/scripts/stop-hook.py, .claude/settings.json -->
 
