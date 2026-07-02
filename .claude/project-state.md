@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 16:19] chore: session-stop snapshot [2026-07-02 16:19] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 17:42] chore: orchestrator — 1 agent par tâche, output minimal, zéro duplication contexte -- .claude/agents/orchestrator.md -->
 <!-- interrupted: [2026-07-02 16:19] context: Oui — un seul appel par ticker, **une fois dans toute la vie du cache**. -->
 <!-- resume-from: files: worker/src/index.js -->
 
