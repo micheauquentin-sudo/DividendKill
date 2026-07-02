@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 14:47] chore: session-stop snapshot [2026-07-02 14:47] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 14:49] chore: session-stop snapshot [2026-07-02 14:49] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 14:49] context: Techniquement oui, mais avec une contrainte importante : **ce container s'arrête quand la session se ferme**. Un script  -->
 <!-- resume-from: files: .claude/settings.json -->
 
