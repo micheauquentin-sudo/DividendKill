@@ -593,7 +593,7 @@ function extractPayMonths(divs) {
   return months.size > 0 ? [...months].sort((a, b) => a - b) : null;
 }
 
-function normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow) {
+function normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow, rawEarnings) {
   const p   = (Array.isArray(rawProfile)  ? rawProfile[0]  : rawProfile)  || {};
   const m   = (Array.isArray(rawMetrics)  ? rawMetrics[0]  : rawMetrics)  || {};
   // Income statement: tableau d'années (plus récent en premier)
@@ -622,12 +622,23 @@ function normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, 
   }
 
   // ── Métriques depuis les états financiers annuels ─────────────
-  // EPS: parcourir jusqu'à 5 ans pour trouver le premier BPA positif
+  // EPS source 1: income-statement annuel (premier BPA positif sur 5 ans)
   // (évite les exercices avec charges exceptionnelles = EPS négatif, ex. MMM 2023)
   let eps = null;
   for (const yr of incArr.slice(0, 5)) {
     const e = yr?.epsDiluted || yr?.eps || null;
     if (e && e > 0) { eps = e; break; }
+  }
+  // EPS source 2 (fallback): BPA TTM depuis les résultats trimestriels
+  // Utilisé si income-statement retourne 402 (plan payant) pour ce ticker
+  if (eps == null && rawEarnings) {
+    const earnArr = Array.isArray(rawEarnings) ? rawEarnings : [];
+    // Prend les 4 derniers trimestres avec un EPS réel (actuals only)
+    const q4 = earnArr.filter(e => e.actualEarningResult != null && e.actualEarningResult !== '').slice(0, 4);
+    if (q4.length === 4) {
+      const ttm = q4.reduce((s, e) => s + (parseFloat(e.actualEarningResult) || 0), 0);
+      if (ttm > 0) eps = +ttm.toFixed(4);
+    }
   }
   const pe_cur = (eps && p.price > 0)
     ? +(p.price / eps).toFixed(2)
@@ -780,7 +791,7 @@ async function fmpProxy(req, env) {
   if (!symbol)      return err('missing symbol');
   if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
 
-  const cacheKey = `funda8:${symbol.toUpperCase()}`;
+  const cacheKey = `funda9:${symbol.toUpperCase()}`;
   if (env.PRICES_KV) {
     const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
     if (cached) return json(cached);
@@ -794,13 +805,14 @@ async function fmpProxy(req, env) {
       try { return JSON.parse(text); } catch(_) { throw new Error('FMP réponse non-JSON'); }
     };
     const tryJson = r => r.ok ? r.json() : null;
-    const [profileRes, metricsRes, divsRes, incRes, balRes, cfRes] = await Promise.allSettled([
+    const [profileRes, metricsRes, divsRes, incRes, balRes, cfRes, earnRes] = await Promise.allSettled([
       fetch(`${base}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(safeJson),
       fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(tryJson),
       fetch(`${base}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(tryJson),
       fetch(`${base}/income-statement?symbol=${symbol}&period=annual&limit=5&apikey=${env.FMP_KEY}`).then(tryJson),
       fetch(`${base}/balance-sheet-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`).then(tryJson),
       fetch(`${base}/cash-flow-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`).then(tryJson),
+      fetch(`${base}/earnings?symbol=${symbol}&limit=8&apikey=${env.FMP_KEY}`).then(tryJson),
     ]);
     if (profileRes.status === 'rejected') throw new Error(profileRes.reason?.message || 'profile failed');
     const rawProfile  = profileRes.value;
@@ -809,8 +821,12 @@ async function fmpProxy(req, env) {
     const rawIncome   = incRes.status     === 'fulfilled' ? incRes.value      : null;
     const rawBalance  = balRes.status     === 'fulfilled' ? balRes.value      : null;
     const rawCashflow = cfRes.status      === 'fulfilled' ? cfRes.value       : null;
-    const result = normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow);
-    if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: ttlFunda() });
+    const rawEarnings = earnRes.status    === 'fulfilled' ? earnRes.value     : null;
+    const result = normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow, rawEarnings);
+    // Cache 1h si les états financiers ont tous échoué (ex. 402) — cron peut réessayer plus vite
+    const allStatFailed = !rawIncome && !rawBalance && !rawCashflow;
+    const ttl = allStatFailed ? 3600 : ttlFunda();
+    if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: ttl });
     return json(result);
   } catch(e) {
     console.error('[fmpProxy]', e.message);
@@ -958,17 +974,20 @@ async function handleScheduled(env) {
   async function refreshFunda(symbol, reason) {
     try {
       const tryJson = r => r.ok ? r.json() : null;
-      const [profileData, metricsData, divsData, incData, balData, cfData] = await Promise.all([
+      const [profileData, metricsData, divsData, incData, balData, cfData, earnData] = await Promise.all([
         fetch(`${FMP_BASE}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
         fetch(`${FMP_BASE}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
         fetch(`${FMP_BASE}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
         fetch(`${FMP_BASE}/income-statement?symbol=${symbol}&period=annual&limit=5&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
         fetch(`${FMP_BASE}/balance-sheet-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
         fetch(`${FMP_BASE}/cash-flow-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
+        fetch(`${FMP_BASE}/earnings?symbol=${symbol}&limit=8&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
       ]);
-      const normalized = normalizeFunda(profileData, metricsData, divsData, incData, balData, cfData);
-      await env.PRICES_KV.put(`funda8:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttlFunda() });
-      console.log(`[Cron] funda8:${symbol} mis à jour — ${reason}`);
+      const normalized = normalizeFunda(profileData, metricsData, divsData, incData, balData, cfData, earnData);
+      const allStatFailed = !incData && !balData && !cfData;
+      const ttl = allStatFailed ? 3600 : ttlFunda();
+      await env.PRICES_KV.put(`funda9:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttl });
+      console.log(`[Cron] funda9:${symbol} mis à jour — ${reason}${allStatFailed ? ' [stats manquantes]' : ''}`);
       return true;
     } catch(e) { console.warn(`[Cron] funda ${symbol}:`, e.message); return false; }
   }
@@ -1053,7 +1072,7 @@ async function handleScheduled(env) {
       await Promise.all(toStore.slice(i, i + 5).map(async q => {
         const [old, fundaRaw] = await Promise.all([
           env.PRICES_KV.get(`p:${q.symbol}`, { type: 'json' }),
-          env.PRICES_KV.get(`funda8:${q.symbol}`),
+          env.PRICES_KV.get(`funda9:${q.symbol}`),
         ]);
 
         const lastDivChg = old?.lastDiv != null && q.lastDiv != null && old.lastDiv !== q.lastDiv;
@@ -1298,6 +1317,107 @@ async function deleteAccount(env, userId) {
   });
 }
 
+// ── Debug fondamentaux : montre le cache KV + test live income/earnings ──
+// GET /api/debug/funda?symbol=APD          → cache KV uniquement
+// GET /api/debug/funda?symbol=APD&live=1   → cache + tests FMP en direct
+async function debugFunda(req, env) {
+  if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
+  const url    = new URL(req.url);
+  const symbol = (url.searchParams.get('symbol') || 'JNJ').toUpperCase();
+  const live   = url.searchParams.get('live') === '1';
+  const out    = { symbol, kv_key: `funda9:${symbol}`, ts: new Date().toISOString() };
+
+  // Lecture cache KV
+  if (env.PRICES_KV) {
+    const cached = await env.PRICES_KV.get(`funda9:${symbol}`, { type: 'json' });
+    out.kv_hit        = !!cached;
+    out.kv_pe_cur     = cached?.pe_cur     ?? null;
+    out.kv_payout     = cached?.payout_ratio ?? null;
+    out.kv_fcf_payout = cached?.fcf_payout ?? null;
+    out.kv_debt_ebitda= cached?.debt_ebitda ?? null;
+    out.kv_interest   = cached?.interest_cov ?? null;
+    out.kv_annual_div = cached?.annual_div ?? null;
+    out.kv_streak     = cached?.streak     ?? null;
+    out.kv_data       = cached;
+
+    // Aussi vérifier l'ancienne clé funda8 (données encore en cache ?)
+    const oldCached = await env.PRICES_KV.get(`funda8:${symbol}`, { type: 'json' });
+    out.funda8_hit    = !!oldCached;
+    out.funda8_pe_cur = oldCached?.pe_cur ?? null;
+  }
+
+  if (!live) return json(out);
+
+  const base = 'https://financialmodelingprep.com/stable';
+  const H    = { Accept: 'application/json' };
+
+  // Test income-statement
+  try {
+    const r = await fetch(`${base}/income-statement?symbol=${symbol}&period=annual&limit=5&apikey=${env.FMP_KEY}`, { headers: H });
+    out.inc_status = r.status;
+    const t = await r.text();
+    out.inc_raw = t.slice(0, 400);
+    if (r.ok) {
+      const d = JSON.parse(t);
+      const arr = Array.isArray(d) ? d : (d ? [d] : []);
+      out.inc_years = arr.length;
+      out.inc_eps_y = arr.slice(0, 5).map(y => y?.epsDiluted ?? y?.eps ?? null);
+      let posEps = null;
+      for (const y of arr.slice(0, 5)) {
+        const e = y?.epsDiluted || y?.eps || null;
+        if (e && e > 0) { posEps = e; break; }
+      }
+      out.inc_eps_positive = posEps;
+    }
+  } catch(e) { out.inc_error = e.message; }
+
+  // Test earnings (résultats trimestriels)
+  try {
+    const r = await fetch(`${base}/earnings?symbol=${symbol}&limit=8&apikey=${env.FMP_KEY}`, { headers: H });
+    out.earn_status = r.status;
+    const t = await r.text();
+    out.earn_raw = t.slice(0, 600);
+    if (r.ok) {
+      const d = JSON.parse(t);
+      const arr = Array.isArray(d) ? d : [];
+      out.earn_count = arr.length;
+      out.earn_keys  = arr.length > 0 ? Object.keys(arr[0]).slice(0, 20) : [];
+      out.earn_q4    = arr.slice(0, 4).map(e => ({ date: e.date, actual: e.actualEarningResult, eps: e.eps }));
+      const q4act = arr.filter(e => e.actualEarningResult != null && e.actualEarningResult !== '').slice(0, 4);
+      if (q4act.length === 4) {
+        const ttm = q4act.reduce((s, e) => s + (parseFloat(e.actualEarningResult) || 0), 0);
+        out.earn_ttm_eps = +ttm.toFixed(4);
+      }
+    }
+  } catch(e) { out.earn_error = e.message; }
+
+  // Test balance-sheet
+  try {
+    const r = await fetch(`${base}/balance-sheet-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`, { headers: H });
+    out.bal_status = r.status;
+    if (r.ok) {
+      const d = await r.json();
+      const b0 = Array.isArray(d) ? d[0] : d;
+      out.bal_totalDebt = b0?.totalDebt ?? null;
+      out.bal_shares    = b0?.commonStockSharesOutstanding ?? null;
+    }
+  } catch(e) { out.bal_error = e.message; }
+
+  // Test cash-flow
+  try {
+    const r = await fetch(`${base}/cash-flow-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`, { headers: H });
+    out.cf_status = r.status;
+    if (r.ok) {
+      const d = await r.json();
+      const c0 = Array.isArray(d) ? d[0] : d;
+      out.cf_freeCashFlow  = c0?.freeCashFlow  ?? null;
+      out.cf_dividendsPaid = c0?.dividendsPaid ?? null;
+    }
+  } catch(e) { out.cf_error = e.message; }
+
+  return json(out);
+}
+
 // ── Debug prix (diagnostic mobile) ───────────────────────────
 // Par défaut: vérifie KV uniquement (pas d'appel FMP — économise les crédits)
 // Avec ?live=1 : teste aussi les endpoints FMP en direct
@@ -1488,6 +1608,28 @@ async function debugPrice(req, env) {
         out.fmp_cashflow_keys          = Object.keys(c0 || {}).slice(0, 30);
       }
     } catch(e) { out.fmp_cashflow_error = e.message; }
+
+    // Test 10: /stable/earnings (résultats trimestriels — BPA TTM)
+    try {
+      const earnUrl = `https://financialmodelingprep.com/stable/earnings?symbol=${symbol}&limit=8&apikey=${env.FMP_KEY}`;
+      out.fmp_earnings_url = earnUrl.replace(env.FMP_KEY, '***');
+      const earnRes = await fetch(earnUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_earnings_status = earnRes.status;
+      const earnText = await earnRes.text();
+      out.fmp_earnings_raw = earnText.slice(0, 600);
+      if (earnRes.ok) {
+        const earnData = JSON.parse(earnText);
+        const earnArr = Array.isArray(earnData) ? earnData : [];
+        out.fmp_earnings_count = earnArr.length;
+        out.fmp_earnings_keys  = earnArr.length > 0 ? Object.keys(earnArr[0]).slice(0, 20) : [];
+        out.fmp_earnings_q4    = earnArr.slice(0, 4).map(e => ({ date: e.date, actual: e.actualEarningResult, eps: e.eps }));
+        const q4act = earnArr.filter(e => e.actualEarningResult != null && e.actualEarningResult !== '').slice(0, 4);
+        if (q4act.length === 4) {
+          const ttm = q4act.reduce((s, e) => s + (parseFloat(e.actualEarningResult) || 0), 0);
+          out.fmp_earnings_ttm_eps = +ttm.toFixed(4);
+        }
+      }
+    } catch(e) { out.fmp_earnings_error = e.message; }
   }
 
   return json(out);
@@ -1581,6 +1723,7 @@ export default {
     if (path === '/api/news')            return newsProxy(req, env);
     if (path === '/api/prices/history')  return priceHistoryProxy(req, env);
     if (path === '/api/debug/price')     return debugPrice(req, env);
+    if (path === '/api/debug/funda')     return debugFunda(req, env);
 
     // Routes auth
     if (path === '/auth/login')       return handleAuthLogin(req, env);
