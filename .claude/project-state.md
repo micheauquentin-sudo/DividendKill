@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 20:55] chore: session-stop snapshot [2026-07-02 20:55] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-02 20:59] chore: session-stop snapshot [2026-07-02 20:59] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 20:59] context: Le code est correct. Le problème est un **délai de propagation KV** — tu as seedé et appuyé Sync dans la même minute. Cl -->
 <!-- resume-from: files: worker/src/index.js, worker/wrangler.toml -->
 
