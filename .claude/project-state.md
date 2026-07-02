@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-02 16:17] chore: session-stop snapshot [2026-07-02 16:17] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-02 16:17] context: Oui, exactement. Une fois qu'un ticker est populé avec succès : -->
+<!-- interrupted: [2026-07-02 16:19] context: Oui — un seul appel par ticker, **une fois dans toute la vie du cache**. -->
 <!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
