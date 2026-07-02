@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 17:42] chore: orchestrator — 1 agent par tâche, output minimal, zéro duplication contexte -- .claude/agents/orchestrator.md -->
+<!-- last-commit: [2026-07-02 17:43] chore: session-stop snapshot [2026-07-02 17:43] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 17:43] context: Poussé. Voici ce qui a changé dans l'orchestrateur : -->
 <!-- resume-from: files: .claude/agents/orchestrator.md -->
 
