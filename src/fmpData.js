@@ -1,7 +1,7 @@
 import { Config } from './config.js';
 
 export const FmpData = (() => {
-  const CACHE_KEY = 'astra_fmp_cache';
+  const CACHE_KEY = 'astra_fmp_cache_v2';
   const TTL       = 24 * 3600 * 1000; // 24 h
   const _cache    = {};
 
@@ -96,7 +96,7 @@ export const FmpData = (() => {
     set('payout_ratio', f.payout_ratio);
     set('pay_months',   f.pay_months);
     if (f.streak != null && f.streak > 0) set('streak', f.streak);
-    if (f.annual_div != null && (!a.d || a.d === 0)) set('d', f.annual_div);
+    set('d', f.annual_div); // funda annual div (sum of last 12 months) always wins when non-null
     if (f.name && !a.name) set('name', f.name);
 
     a._fmp_api = true;

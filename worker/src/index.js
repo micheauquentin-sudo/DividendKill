@@ -554,12 +554,29 @@ function extractPayMonths(divs) {
 function normalizeFunda(rawProfile, rawMetrics, rawDivs) {
   const p = (Array.isArray(rawProfile) ? rawProfile[0] : rawProfile) || {};
   const m = (Array.isArray(rawMetrics) ? rawMetrics[0] : rawMetrics) || {};
+
+  // Compute annual dividend from the last 12 months of payments (sum of quarterly divs)
+  // This is more reliable than p.lastDiv which may be 0, null, or quarterly-only
+  let annual_div = null;
+  const divsArr = Array.isArray(rawDivs) ? rawDivs : [];
+  if (divsArr.length > 0) {
+    const cutoff = new Date(Date.now() - 400 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const recent = divsArr.filter(d => (d.paymentDate || '') >= cutoff && (d.dividend || d.adjDividend || 0) > 0);
+    if (recent.length > 0) {
+      annual_div = +recent.reduce((s, d) => s + (d.dividend || d.adjDividend || 0), 0).toFixed(4);
+    }
+  }
+  // Fallback: lastDiv × 4 (quarterly → annual approximation)
+  if (!annual_div && p.lastDiv && p.lastDiv > 0) {
+    annual_div = +(p.lastDiv * 4).toFixed(4);
+  }
+
   return {
     name:         p.companyName    || null,
     sector:       p.sector         || null,
     beta:         p.beta           || null,
     market_cap:   p.mktCap         || null,
-    annual_div:   p.lastDiv        || null,
+    annual_div,
     pe_cur:       m.peRatioTTM     || null,
     payout_ratio: m.payoutRatioTTM || null,
     pay_months:   extractPayMonths(rawDivs),
@@ -646,7 +663,7 @@ async function fmpProxy(req, env) {
   if (!symbol)      return err('missing symbol');
   if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
 
-  const cacheKey = `funda:${symbol.toUpperCase()}`;
+  const cacheKey = `funda2:${symbol.toUpperCase()}`;
   if (env.PRICES_KV) {
     const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
     if (cached) return json(cached);
@@ -788,8 +805,8 @@ async function handleScheduled(env) {
         fetch(`${FMP_BASE}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
       const normalized = normalizeFunda(profileData, metricsData, divsData);
-      await env.PRICES_KV.put(`funda:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttlFunda() });
-      console.log(`[Cron] funda:${symbol} mis à jour — ${reason}`);
+      await env.PRICES_KV.put(`funda2:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttlFunda() });
+      console.log(`[Cron] funda2:${symbol} mis à jour — ${reason}`);
       return true;
     } catch(e) { console.warn(`[Cron] funda ${symbol}:`, e.message); return false; }
   }
@@ -874,7 +891,7 @@ async function handleScheduled(env) {
       await Promise.all(toStore.slice(i, i + 5).map(async q => {
         const [old, fundaRaw] = await Promise.all([
           env.PRICES_KV.get(`p:${q.symbol}`, { type: 'json' }),
-          env.PRICES_KV.get(`funda:${q.symbol}`),
+          env.PRICES_KV.get(`funda2:${q.symbol}`),
         ]);
 
         const lastDivChg = old?.lastDiv != null && q.lastDiv != null && old.lastDiv !== q.lastDiv;
