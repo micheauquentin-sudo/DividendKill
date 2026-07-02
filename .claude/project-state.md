@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 21:05] fix: re-fetch funda quand pe_cur null + expose av9 dans debug/funda -- worker/src/index.js -->
+<!-- last-commit: [2026-07-02 21:06] chore: session-stop snapshot [2026-07-02 21:06] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 21:06] context: Pushé. Une fois déployé, appelle d'abord le debug pour comprendre l'état réel : -->
 <!-- resume-from: files: worker/src/index.js -->
 
