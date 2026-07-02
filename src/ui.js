@@ -1165,6 +1165,7 @@ const App = (() => {
       const a = Data.assets[ticker];
       if (quote.annual_div != null) { a.d = quote.annual_div; }
       else if (quote.div_yield > 0 && quote.price > 0) { a.d = +(quote.div_yield * quote.price).toFixed(4); }
+      else if (a.d === undefined) { a.d = 0; }
       if (quote.name        != null) a.name        = quote.name;
       if (quote.pe_cur      != null) a.pe_cur      = quote.pe_cur;
       if (quote.pe_fwd      != null) a.pe_fwd      = quote.pe_fwd;
