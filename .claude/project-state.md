@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 13:43] fix: post-commit hook use awk instead of sed to avoid pipe delimiter conflict -- .claude/hooks/post-commit -->
+<!-- last-commit: [2026-07-02 13:43] chore: auto-snapshot project-state -- .claude/project-state.md -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores

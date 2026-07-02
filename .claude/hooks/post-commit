@@ -1,9 +1,14 @@
 #!/bin/sh
-# Auto-snapshot: update project-state.md after each commit
+# Auto-snapshot project-state.md after each commit, then commit the change.
+# Recursion guard prevents infinite loop when committing the snapshot itself.
 
-CLAUDE_DIR="$(git rev-parse --show-toplevel)/.claude"
-STATE_FILE="$CLAUDE_DIR/project-state.md"
+LOCK="/tmp/.claude-post-commit-running"
+[ -f "$LOCK" ] && exit 0
+touch "$LOCK"
+trap 'rm -f "$LOCK"' EXIT
 
+ROOT="$(git rev-parse --show-toplevel)"
+STATE_FILE="$ROOT/.claude/project-state.md"
 [ -f "$STATE_FILE" ] || exit 0
 
 LAST_MSG=$(git log -1 --pretty=%s)
@@ -12,11 +17,13 @@ LAST_FILES=$(git diff-tree --no-commit-id -r --name-only HEAD | tr '\n' ' ')
 
 SNAPSHOT="<!-- last-commit: [$LAST_DATE] $LAST_MSG -- $LAST_FILES-->"
 
-# Use awk to replace or insert the snapshot comment (avoids sed delimiter conflicts)
 if grep -q '^<!-- last-commit:' "$STATE_FILE"; then
-  awk -v snap="$SNAPSHOT" '/^<!-- last-commit:/{print snap; next} {print}' "$STATE_FILE" > "${STATE_FILE}.tmp" \
-    && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+  awk -v snap="$SNAPSHOT" '/^<!-- last-commit:/{print snap; next} {print}' "$STATE_FILE" \
+    > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
 else
-  awk -v snap="$SNAPSHOT" 'NR==2{print snap} {print}' "$STATE_FILE" > "${STATE_FILE}.tmp" \
-    && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+  awk -v snap="$SNAPSHOT" 'NR==2{print snap} {print}' "$STATE_FILE" \
+    > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
 fi
+
+git -C "$ROOT" add "$STATE_FILE"
+git -C "$ROOT" commit --no-verify -q -m "chore: auto-snapshot project-state"
