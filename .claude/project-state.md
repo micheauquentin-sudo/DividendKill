@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 20:39] feat: add /api/debug/av-seed endpoint to pre-fill AV KV cache from mock data -- worker/src/index.js worker/test/av-mock.json -->
+<!-- last-commit: [2026-07-02 20:39] chore: session-stop snapshot [2026-07-02 20:39] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 20:39] context: Pushed. Here's what to do once the deploy lands: -->
 <!-- resume-from: files: worker/src/index.js -->
 
