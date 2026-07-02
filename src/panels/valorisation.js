@@ -198,16 +198,16 @@ export function renderValorisation(el) {
     for (var i=0; i<list.length; i++) {
       var d  = list[i];
       var v  = _computeVal(d);
-      var m  = meta[d.ticker]   || {};   // prix, d
-      var ma = assets[d.ticker] || {};   // fondamentaux (beta, sector, streak, …)
+      var m  = meta[d.ticker]   || {};
+      var ma = assets[d.ticker] || {};
       var lc = labelCfg(v.label);
-      /* DSE — calcul toujours depuis les fondamentaux (assets), jamais m.safe */
+      /* ── DSE calculé depuis assets[] (fondamentaux FMP) ── */
       var dseInput  = Object.assign({}, ma, { d: ma.d || m.d });
       var dseResult = calculateDividendSafety(dseInput);
       var dseScore  = dseResult.safetyScore;
       var dseCol    = dseColor(dseScore);
       var dseLbl    = dseLabel(dseResult.riskLevel);
-      var sb        = safeBadge(dseScore);
+      var sb        = { lbl: dseLbl, col: dseCol };
       var div = ma.d || m.d || 0;
       var yd  = d.price > 0 ? div/d.price*100 : 0;
       var ann = Math.round(div * d.qty);
@@ -278,8 +278,8 @@ export function renderValorisation(el) {
         /* P/E */
         + '<div style="background:var(--surface2);border-radius:9px;padding:8px;text-align:center">'
         + '<div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">P/E</div>'
-        + miniGauge(v.fair_pe > 0 && pe > 0 ? Math.min(100, pe/v.fair_pe*100) : 0, peDot, pe > 0 ? 'vs fair PE '+v.fair_pe+'x' : 'non dispo. (plan gratuit)')
-        + '<div style="font-size:12px;font-weight:700;font-family:DM Mono,monospace;color:'+(pe>0?'var(--text)':'var(--muted)')+';margin-top:3px">'+(pe > 0 ? pe.toFixed(1)+'x' : 'N/A')+'</div>'
+        + miniGauge(v.fair_pe > 0 && pe > 0 ? Math.min(100, pe/v.fair_pe*100) : 0, peDot, 'vs fair PE '+v.fair_pe+'x')
+        + '<div style="font-size:12px;font-weight:700;font-family:DM Mono,monospace;color:var(--text);margin-top:3px">'+(pe > 0 ? pe.toFixed(1)+'x' : 'N/A')+'</div>'
         + '</div>'
 
         /* Safety DSE */
@@ -305,7 +305,10 @@ export function renderValorisation(el) {
 
     /* ── Total + note ────────────────────────────────────────── */
     var totalInc = 0;
-    for (var k=0; k<raw.length; k++) totalInc += (meta[raw[k].ticker]&&meta[raw[k].ticker].d||0)*raw[k].qty;
+    for (var k=0; k<raw.length; k++) {
+      var _t = raw[k].ticker;
+      totalInc += ((assets[_t]&&assets[_t].d) || (meta[_t]&&meta[_t].d) || 0) * raw[k].qty;
+    }
 
     html += '<div style="display:flex;justify-content:space-between;align-items:center;background:var(--surface2);border-radius:12px;padding:12px 16px;margin-top:4px;border:1px solid var(--border)">'
       + '<span style="font-size:11px;font-weight:700;color:var(--muted)">REVENU ANNUEL TOTAL</span>'

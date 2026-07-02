@@ -593,9 +593,12 @@ function extractPayMonths(divs) {
   return months.size > 0 ? [...months].sort((a, b) => a - b) : null;
 }
 
-function normalizeFunda(rawProfile, rawMetrics, rawDivs) {
-  const p = (Array.isArray(rawProfile) ? rawProfile[0] : rawProfile) || {};
-  const m = (Array.isArray(rawMetrics) ? rawMetrics[0] : rawMetrics) || {};
+function normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow) {
+  const p   = (Array.isArray(rawProfile)  ? rawProfile[0]  : rawProfile)  || {};
+  const m   = (Array.isArray(rawMetrics)  ? rawMetrics[0]  : rawMetrics)  || {};
+  const inc = (Array.isArray(rawIncome)   ? rawIncome[0]   : rawIncome)   || {};
+  const bal = (Array.isArray(rawBalance)  ? rawBalance[0]  : rawBalance)  || {};
+  const cf  = (Array.isArray(rawCashflow) ? rawCashflow[0] : rawCashflow) || {};
 
   // FMP /stable/dividends returns { "historical": [...] } — normalize to flat array
   const divsArr = Array.isArray(rawDivs) ? rawDivs
@@ -616,14 +619,58 @@ function normalizeFunda(rawProfile, rawMetrics, rawDivs) {
     annual_div = +p.lastDividend.toFixed(4);
   }
 
+  // ── Métriques depuis les états financiers annuels ─────────────
+  // P/E: prix / BPA dilué (income statement, gratuit), fallback key-metrics-ttm (402)
+  const eps    = inc.epsDiluted || inc.eps || null;
+  const pe_cur = (eps && eps > 0 && p.price > 0)
+    ? +(p.price / eps).toFixed(2)
+    : (m.peRatioTTM || null);
+
+  // Cash flow
+  const operatingCF   = cf.operatingCashFlow  != null ? cf.operatingCashFlow  : null;
+  const capex         = cf.capitalExpenditure  != null ? Math.abs(cf.capitalExpenditure) : 0;
+  const fcfRaw        = cf.freeCashFlow        != null ? cf.freeCashFlow
+                      : (operatingCF != null ? operatingCF - capex : null);
+  const dividendsPaid = cf.dividendsPaid       != null ? Math.abs(cf.dividendsPaid) : null;
+
+  // Income statement
+  const netIncome      = inc.netIncome       != null ? inc.netIncome       : null;
+  const ebitda         = inc.ebitda          != null ? inc.ebitda          : null;
+  const ebit           = inc.operatingIncome != null ? inc.operatingIncome : null;
+  const interestExp    = inc.interestExpense != null ? Math.abs(inc.interestExpense) : null;
+
+  // Balance sheet
+  const totalDebt = bal.totalDebt != null ? bal.totalDebt
+    : ((bal.longTermDebt || 0) + (bal.shortTermDebt || 0)) || null;
+
+  // Ratios dérivés (null quand dénominateur ≤ 0 ou données manquantes)
+  const payout_ratio = (dividendsPaid && netIncome && netIncome > 0)
+    ? +(dividendsPaid / netIncome).toFixed(4)
+    : (m.payoutRatioTTM || null);
+
+  const fcf_payout = (dividendsPaid && fcfRaw && fcfRaw > 0)
+    ? +(dividendsPaid / fcfRaw).toFixed(4)
+    : null;
+
+  const debt_ebitda = (totalDebt != null && ebitda && ebitda > 0)
+    ? +(totalDebt / ebitda).toFixed(2)
+    : null;
+
+  const interest_cov = (ebit != null && interestExp && interestExp > 0)
+    ? +(ebit / interestExp).toFixed(2)
+    : null;
+
   return {
-    name:         p.companyName    || null,
-    sector:       p.sector         || null,
-    beta:         p.beta           || null,
-    market_cap:   p.marketCap      || null,
+    name:         p.companyName || null,
+    sector:       p.sector      || null,
+    beta:         p.beta        || null,
+    market_cap:   p.marketCap   || null,
     annual_div,
-    pe_cur:       m.peRatioTTM     || null,
-    payout_ratio: m.payoutRatioTTM || null,
+    pe_cur,
+    payout_ratio,
+    fcf_payout,
+    debt_ebitda,
+    interest_cov,
     pay_months:   extractPayMonths(divsArr),
     streak:       computeStreak(divsArr),
     div_cagr_5y:  computeDivCAGR5y(divsArr),
@@ -710,7 +757,7 @@ async function fmpProxy(req, env) {
   if (!symbol)      return err('missing symbol');
   if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
 
-  const cacheKey = `funda6:${symbol.toUpperCase()}`;
+  const cacheKey = `funda7:${symbol.toUpperCase()}`;
   if (env.PRICES_KV) {
     const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
     if (cached) return json(cached);
@@ -723,16 +770,23 @@ async function fmpProxy(req, env) {
       const text = await r.text();
       try { return JSON.parse(text); } catch(_) { throw new Error('FMP réponse non-JSON'); }
     };
-    const [profileRes, metricsRes, divsRes] = await Promise.allSettled([
+    const tryJson = r => r.ok ? r.json() : null;
+    const [profileRes, metricsRes, divsRes, incRes, balRes, cfRes] = await Promise.allSettled([
       fetch(`${base}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(safeJson),
-      fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.ok ? r.json() : null),
-      fetch(`${base}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(r => r.ok ? r.json() : null),
+      fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(tryJson),
+      fetch(`${base}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(tryJson),
+      fetch(`${base}/income-statement?symbol=${symbol}&period=annual&limit=2&apikey=${env.FMP_KEY}`).then(tryJson),
+      fetch(`${base}/balance-sheet-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`).then(tryJson),
+      fetch(`${base}/cash-flow-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`).then(tryJson),
     ]);
     if (profileRes.status === 'rejected') throw new Error(profileRes.reason?.message || 'profile failed');
-    const rawProfile = profileRes.value;
-    const rawMetrics = metricsRes.status === 'fulfilled' ? metricsRes.value : null;
-    const rawDivs    = divsRes.status === 'fulfilled'   ? divsRes.value   : null;
-    const result = normalizeFunda(rawProfile, rawMetrics, rawDivs);
+    const rawProfile  = profileRes.value;
+    const rawMetrics  = metricsRes.status === 'fulfilled' ? metricsRes.value  : null;
+    const rawDivs     = divsRes.status    === 'fulfilled' ? divsRes.value     : null;
+    const rawIncome   = incRes.status     === 'fulfilled' ? incRes.value      : null;
+    const rawBalance  = balRes.status     === 'fulfilled' ? balRes.value      : null;
+    const rawCashflow = cfRes.status      === 'fulfilled' ? cfRes.value       : null;
+    const result = normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow);
     if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: ttlFunda() });
     return json(result);
   } catch(e) {
@@ -880,14 +934,18 @@ async function handleScheduled(env) {
 
   async function refreshFunda(symbol, reason) {
     try {
-      const [profileData, metricsData, divsData] = await Promise.all([
+      const tryJson = r => r.ok ? r.json() : null;
+      const [profileData, metricsData, divsData, incData, balData, cfData] = await Promise.all([
         fetch(`${FMP_BASE}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
-        fetch(`${FMP_BASE}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
-        fetch(`${FMP_BASE}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${FMP_BASE}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
+        fetch(`${FMP_BASE}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
+        fetch(`${FMP_BASE}/income-statement?symbol=${symbol}&period=annual&limit=2&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
+        fetch(`${FMP_BASE}/balance-sheet-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
+        fetch(`${FMP_BASE}/cash-flow-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
       ]);
-      const normalized = normalizeFunda(profileData, metricsData, divsData);
-      await env.PRICES_KV.put(`funda6:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttlFunda() });
-      console.log(`[Cron] funda6:${symbol} mis à jour — ${reason}`);
+      const normalized = normalizeFunda(profileData, metricsData, divsData, incData, balData, cfData);
+      await env.PRICES_KV.put(`funda7:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttlFunda() });
+      console.log(`[Cron] funda7:${symbol} mis à jour — ${reason}`);
       return true;
     } catch(e) { console.warn(`[Cron] funda ${symbol}:`, e.message); return false; }
   }
@@ -972,7 +1030,7 @@ async function handleScheduled(env) {
       await Promise.all(toStore.slice(i, i + 5).map(async q => {
         const [old, fundaRaw] = await Promise.all([
           env.PRICES_KV.get(`p:${q.symbol}`, { type: 'json' }),
-          env.PRICES_KV.get(`funda6:${q.symbol}`),
+          env.PRICES_KV.get(`funda7:${q.symbol}`),
         ]);
 
         const lastDivChg = old?.lastDiv != null && q.lastDiv != null && old.lastDiv !== q.lastDiv;
@@ -1341,6 +1399,63 @@ async function debugPrice(req, env) {
         out.fmp_v3profile_keys        = Object.keys(p0 || {}).slice(0, 25);
       }
     } catch(e) { out.fmp_v3profile_error = e.message; }
+
+    // Test 7: /stable/income-statement (EPS, payout, EBITDA, intérêts)
+    try {
+      const incUrl = `https://financialmodelingprep.com/stable/income-statement?symbol=${symbol}&period=annual&limit=2&apikey=${env.FMP_KEY}`;
+      out.fmp_income_url = incUrl.replace(env.FMP_KEY, '***');
+      const incRes = await fetch(incUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_income_status = incRes.status;
+      const incText = await incRes.text();
+      out.fmp_income_raw = incText.slice(0, 400);
+      if (incRes.ok) {
+        const incData = JSON.parse(incText);
+        const i0 = Array.isArray(incData) ? incData[0] : incData;
+        out.fmp_income_eps           = i0?.epsDiluted       ?? i0?.eps           ?? null;
+        out.fmp_income_netIncome     = i0?.netIncome        ?? null;
+        out.fmp_income_ebitda        = i0?.ebitda           ?? null;
+        out.fmp_income_ebit          = i0?.operatingIncome  ?? null;
+        out.fmp_income_interestExp   = i0?.interestExpense  ?? null;
+        out.fmp_income_keys          = Object.keys(i0 || {}).slice(0, 30);
+      }
+    } catch(e) { out.fmp_income_error = e.message; }
+
+    // Test 8: /stable/balance-sheet-statement (dette totale)
+    try {
+      const balUrl = `https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`;
+      out.fmp_balance_url = balUrl.replace(env.FMP_KEY, '***');
+      const balRes = await fetch(balUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_balance_status = balRes.status;
+      const balText = await balRes.text();
+      out.fmp_balance_raw = balText.slice(0, 400);
+      if (balRes.ok) {
+        const balData = JSON.parse(balText);
+        const b0 = Array.isArray(balData) ? balData[0] : balData;
+        out.fmp_balance_totalDebt    = b0?.totalDebt       ?? null;
+        out.fmp_balance_longTerm     = b0?.longTermDebt    ?? null;
+        out.fmp_balance_shortTerm    = b0?.shortTermDebt   ?? null;
+        out.fmp_balance_keys         = Object.keys(b0 || {}).slice(0, 30);
+      }
+    } catch(e) { out.fmp_balance_error = e.message; }
+
+    // Test 9: /stable/cash-flow-statement (FCF, dividendes versés)
+    try {
+      const cfUrl = `https://financialmodelingprep.com/stable/cash-flow-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`;
+      out.fmp_cashflow_url = cfUrl.replace(env.FMP_KEY, '***');
+      const cfRes = await fetch(cfUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_cashflow_status = cfRes.status;
+      const cfText = await cfRes.text();
+      out.fmp_cashflow_raw = cfText.slice(0, 400);
+      if (cfRes.ok) {
+        const cfData = JSON.parse(cfText);
+        const c0 = Array.isArray(cfData) ? cfData[0] : cfData;
+        out.fmp_cashflow_operatingCF   = c0?.operatingCashFlow  ?? null;
+        out.fmp_cashflow_capex         = c0?.capitalExpenditure  ?? null;
+        out.fmp_cashflow_freeCashFlow  = c0?.freeCashFlow        ?? null;
+        out.fmp_cashflow_dividendsPaid = c0?.dividendsPaid       ?? null;
+        out.fmp_cashflow_keys          = Object.keys(c0 || {}).slice(0, 30);
+      }
+    } catch(e) { out.fmp_cashflow_error = e.message; }
   }
 
   return json(out);
