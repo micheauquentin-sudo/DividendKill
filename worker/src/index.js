@@ -506,13 +506,14 @@ function normalizeProfile(t, p) {
     longName:                   p.companyName    || null,
     shortName:                  p.companyName    || null,
     currency:                   p.currency       || 'USD',
-    trailingPE:                 null,
+    trailingPE:                 p.pe             || null,
     marketCap:                  p.mktCap         || null,
-    fiftyTwoWeekHigh:           null,
-    fiftyTwoWeekLow:            null,
+    fiftyTwoWeekHigh:           p.range ? +(p.range.split('-')[1] || 0) : null,
+    fiftyTwoWeekLow:            p.range ? +(p.range.split('-')[0] || 0) : null,
     marketState:                'REGULAR',
     lastDiv:                    p.lastDiv        || null,
-    dividendYield:              (p.lastDiv && p.price > 0) ? +(p.lastDiv / p.price).toFixed(6) : null,
+    dividendYield:              p.dividendYield  || (p.lastDiv && p.price > 0 ? +(p.lastDiv / p.price * 4).toFixed(6) : null),
+    trailingAnnualDividendRate: p.dividendYield && p.price > 0 ? +(p.dividendYield * p.price).toFixed(4) : (p.lastDiv > 0 ? +(p.lastDiv * 4).toFixed(4) : null),
   };
 }
 
@@ -569,7 +570,11 @@ function normalizeFunda(rawProfile, rawMetrics, rawDivs) {
       annual_div = +recent.reduce((s, d) => s + (d.dividend || d.adjDividend || 0), 0).toFixed(4);
     }
   }
-  // Fallback: lastDiv × 4 (quarterly → annual approximation)
+  // Fallback 1: FMP profile annual dividendYield × price (annual, not quarterly)
+  if (!annual_div && p.dividendYield && p.dividendYield > 0 && p.price > 0) {
+    annual_div = +(p.dividendYield * p.price).toFixed(4);
+  }
+  // Fallback 2: lastDiv × 4 (quarterly → annual approximation)
   if (!annual_div && p.lastDiv && p.lastDiv > 0) {
     annual_div = +(p.lastDiv * 4).toFixed(4);
   }
@@ -580,7 +585,7 @@ function normalizeFunda(rawProfile, rawMetrics, rawDivs) {
     beta:         p.beta           || null,
     market_cap:   p.mktCap         || null,
     annual_div,
-    pe_cur:       m.peRatioTTM     || null,
+    pe_cur:       m.peRatioTTM     || p.pe          || null,
     payout_ratio: m.payoutRatioTTM || null,
     pay_months:   extractPayMonths(divsArr),
   };
@@ -666,7 +671,7 @@ async function fmpProxy(req, env) {
   if (!symbol)      return err('missing symbol');
   if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
 
-  const cacheKey = `funda3:${symbol.toUpperCase()}`;
+  const cacheKey = `funda4:${symbol.toUpperCase()}`;
   if (env.PRICES_KV) {
     const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
     if (cached) return json(cached);
@@ -808,8 +813,8 @@ async function handleScheduled(env) {
         fetch(`${FMP_BASE}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
       const normalized = normalizeFunda(profileData, metricsData, divsData);
-      await env.PRICES_KV.put(`funda3:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttlFunda() });
-      console.log(`[Cron] funda3:${symbol} mis à jour — ${reason}`);
+      await env.PRICES_KV.put(`funda4:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttlFunda() });
+      console.log(`[Cron] funda4:${symbol} mis à jour — ${reason}`);
       return true;
     } catch(e) { console.warn(`[Cron] funda ${symbol}:`, e.message); return false; }
   }
@@ -894,7 +899,7 @@ async function handleScheduled(env) {
       await Promise.all(toStore.slice(i, i + 5).map(async q => {
         const [old, fundaRaw] = await Promise.all([
           env.PRICES_KV.get(`p:${q.symbol}`, { type: 'json' }),
-          env.PRICES_KV.get(`funda3:${q.symbol}`),
+          env.PRICES_KV.get(`funda4:${q.symbol}`),
         ]);
 
         const lastDivChg = old?.lastDiv != null && q.lastDiv != null && old.lastDiv !== q.lastDiv;
