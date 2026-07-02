@@ -12,8 +12,8 @@ export function renderValorisation(el) {
 
   /* ── Signal de valorisation depuis FMP live (pe_cur vs fair PE sectoriel) ── */
   function _computeVal(d) {
-    var a = meta[d.ticker] || {};
-    var sec = d.sec || a.sector || '';
+    var a = assets[d.ticker] || {};
+    var sec = d.sec || a.sector || (meta[d.ticker] || {}).sector || '';
     var fair_pe = SECTOR_FAIR_PE[sec] || 20;
     var pe_cur = a.pe_cur || 0;
     var label;
@@ -198,23 +198,25 @@ export function renderValorisation(el) {
     for (var i=0; i<list.length; i++) {
       var d  = list[i];
       var v  = _computeVal(d);
-      var m  = meta[d.ticker]  || {};
+      var m  = meta[d.ticker]   || {};
+      var ma = assets[d.ticker] || {};
       var lc = labelCfg(v.label);
-      var sb = safeBadge(m.safe || 60);
-      /* ── DSE : safety score calculé dynamiquement ── */
-      var dseResult = m.payout_ratio !== undefined ? calculateDividendSafety(m) : null;
-      var dseScore  = dseResult ? dseResult.safetyScore : (m.safe || 60);
+      /* ── DSE calculé depuis assets[] (fondamentaux FMP) ── */
+      var dseInput  = Object.assign({}, ma, { d: ma.d || m.d });
+      var dseResult = calculateDividendSafety(dseInput);
+      var dseScore  = dseResult.safetyScore;
       var dseCol    = dseColor(dseScore);
-      var dseLbl    = dseResult ? dseLabel(dseResult.riskLevel) : sb.lbl;
-      var div = m.d || 0;
+      var dseLbl    = dseLabel(dseResult.riskLevel);
+      var sb        = { lbl: dseLbl, col: dseCol };
+      var div = ma.d || m.d || 0;
       var yd  = d.price > 0 ? div/d.price*100 : 0;
       var ann = Math.round(div * d.qty);
-      var pe  = m.pe_cur || 0;
+      var pe  = ma.pe_cur || 0;
       var pp  = d.avg > 0 ? (d.price-d.avg)/d.avg*100 : 0;
       var upside = v.exp > 0 ? (v.exp - d.price)/d.price*100 : 0;
       var pC  = d.pnl >= 0 ? '#22d47a' : '#f43f5e';
       var cap = getBuyCapacity(d);
-      var pPct = Math.round((m.payout_ratio||0)*100);
+      var pPct = Math.round((ma.payout_ratio||0)*100);
       var pCol = pPct < 60 ? '#22d47a' : pPct < 80 ? '#f5a623' : '#f43f5e';
 
       /* jauges : vert si sous-évalué / yield élevé, orange/rouge sinon */
@@ -277,7 +279,7 @@ export function renderValorisation(el) {
         + '<div style="background:var(--surface2);border-radius:9px;padding:8px;text-align:center">'
         + '<div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">P/E</div>'
         + miniGauge(v.fair_pe > 0 && pe > 0 ? Math.min(100, pe/v.fair_pe*100) : 0, peDot, 'vs fair PE '+v.fair_pe+'x')
-        + '<div style="font-size:12px;font-weight:700;font-family:DM Mono,monospace;color:var(--text);margin-top:3px">'+pe.toFixed(1)+'x</div>'
+        + '<div style="font-size:12px;font-weight:700;font-family:DM Mono,monospace;color:var(--text);margin-top:3px">'+(pe > 0 ? pe.toFixed(1)+'x' : 'N/A')+'</div>'
         + '</div>'
 
         /* Safety DSE */
@@ -303,7 +305,10 @@ export function renderValorisation(el) {
 
     /* ── Total + note ────────────────────────────────────────── */
     var totalInc = 0;
-    for (var k=0; k<raw.length; k++) totalInc += (meta[raw[k].ticker]&&meta[raw[k].ticker].d||0)*raw[k].qty;
+    for (var k=0; k<raw.length; k++) {
+      var _t = raw[k].ticker;
+      totalInc += ((assets[_t]&&assets[_t].d) || (meta[_t]&&meta[_t].d) || 0) * raw[k].qty;
+    }
 
     html += '<div style="display:flex;justify-content:space-between;align-items:center;background:var(--surface2);border-radius:12px;padding:12px 16px;margin-top:4px;border:1px solid var(--border)">'
       + '<span style="font-size:11px;font-weight:700;color:var(--muted)">REVENU ANNUEL TOTAL</span>'
