@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-02 16:12] chore: session-stop snapshot [2026-07-02 16:12] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-02 16:12] context: Poussé. Diagnostic confirmé : -->
+<!-- interrupted: [2026-07-02 16:17] context: Oui, exactement. Une fois qu'un ticker est populé avec succès : -->
 <!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
