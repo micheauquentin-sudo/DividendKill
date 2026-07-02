@@ -542,6 +542,44 @@ async function isEmailRateLimited(env, email, limit) {
 }
 
 // ── Helpers fondamentaux FMP ─────────────────────────────────
+
+/* Nombre d'années consécutives de maintien ou hausse du dividende annuel */
+function computeStreak(divsArr) {
+  if (!Array.isArray(divsArr) || divsArr.length < 2) return 0;
+  const byYear = {};
+  for (const d of divsArr) {
+    const yr = (d.paymentDate || '').slice(0, 4);
+    if (!yr || isNaN(+yr) || +yr < 1990) continue;
+    const amt = d.dividend || d.adjDividend || 0;
+    if (amt > 0) byYear[yr] = (byYear[yr] || 0) + amt;
+  }
+  const years = Object.keys(byYear).sort().reverse();
+  let streak = 0;
+  for (let i = 0; i < years.length - 1; i++) {
+    // 2% tolerance pour éviter les faux cuts liés aux arrondis
+    if (byYear[years[i]] >= byYear[years[i + 1]] * 0.98) streak++;
+    else break;
+  }
+  return streak;
+}
+
+/* CAGR dividende sur 5 ans (annuel vs annuel 5 ans avant) */
+function computeDivCAGR5y(divsArr) {
+  if (!Array.isArray(divsArr) || divsArr.length < 4) return null;
+  const byYear = {};
+  for (const d of divsArr) {
+    const yr = (d.paymentDate || '').slice(0, 4);
+    if (!yr || isNaN(+yr) || +yr < 1990) continue;
+    const amt = d.dividend || d.adjDividend || 0;
+    if (amt > 0) byYear[yr] = (byYear[yr] || 0) + amt;
+  }
+  const curY = new Date().getFullYear();
+  const now  = byYear[String(curY)] || byYear[String(curY - 1)];
+  const old  = byYear[String(curY - 5)] || byYear[String(curY - 6)];
+  if (!now || !old || old <= 0) return null;
+  return +(Math.pow(now / old, 0.2) - 1).toFixed(4);
+}
+
 function extractPayMonths(divs) {
   if (!Array.isArray(divs) || divs.length === 0) return null;
   const cutoff = Date.now() - 2 * 365 * 86400000; // 2 ans
@@ -587,6 +625,8 @@ function normalizeFunda(rawProfile, rawMetrics, rawDivs) {
     pe_cur:       m.peRatioTTM     || null,
     payout_ratio: m.payoutRatioTTM || null,
     pay_months:   extractPayMonths(divsArr),
+    streak:       computeStreak(divsArr),
+    div_cagr_5y:  computeDivCAGR5y(divsArr),
   };
 }
 
@@ -670,7 +710,7 @@ async function fmpProxy(req, env) {
   if (!symbol)      return err('missing symbol');
   if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
 
-  const cacheKey = `funda5:${symbol.toUpperCase()}`;
+  const cacheKey = `funda6:${symbol.toUpperCase()}`;
   if (env.PRICES_KV) {
     const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
     if (cached) return json(cached);
@@ -846,8 +886,8 @@ async function handleScheduled(env) {
         fetch(`${FMP_BASE}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
       const normalized = normalizeFunda(profileData, metricsData, divsData);
-      await env.PRICES_KV.put(`funda5:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttlFunda() });
-      console.log(`[Cron] funda5:${symbol} mis à jour — ${reason}`);
+      await env.PRICES_KV.put(`funda6:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttlFunda() });
+      console.log(`[Cron] funda6:${symbol} mis à jour — ${reason}`);
       return true;
     } catch(e) { console.warn(`[Cron] funda ${symbol}:`, e.message); return false; }
   }
@@ -932,7 +972,7 @@ async function handleScheduled(env) {
       await Promise.all(toStore.slice(i, i + 5).map(async q => {
         const [old, fundaRaw] = await Promise.all([
           env.PRICES_KV.get(`p:${q.symbol}`, { type: 'json' }),
-          env.PRICES_KV.get(`funda5:${q.symbol}`),
+          env.PRICES_KV.get(`funda6:${q.symbol}`),
         ]);
 
         const lastDivChg = old?.lastDiv != null && q.lastDiv != null && old.lastDiv !== q.lastDiv;

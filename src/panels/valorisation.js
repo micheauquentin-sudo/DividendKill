@@ -276,8 +276,8 @@ export function renderValorisation(el) {
         /* P/E */
         + '<div style="background:var(--surface2);border-radius:9px;padding:8px;text-align:center">'
         + '<div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">P/E</div>'
-        + miniGauge(v.fair_pe > 0 && pe > 0 ? Math.min(100, pe/v.fair_pe*100) : 0, peDot, 'vs fair PE '+v.fair_pe+'x')
-        + '<div style="font-size:12px;font-weight:700;font-family:DM Mono,monospace;color:var(--text);margin-top:3px">'+pe.toFixed(1)+'x</div>'
+        + miniGauge(v.fair_pe > 0 && pe > 0 ? Math.min(100, pe/v.fair_pe*100) : 0, peDot, pe > 0 ? 'vs fair PE '+v.fair_pe+'x' : 'non dispo. (plan gratuit)')
+        + '<div style="font-size:12px;font-weight:700;font-family:DM Mono,monospace;color:'+(pe>0?'var(--text)':'var(--muted)')+';margin-top:3px">'+(pe > 0 ? pe.toFixed(1)+'x' : 'N/A')+'</div>'
         + '</div>'
 
         /* Safety DSE */

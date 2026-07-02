@@ -185,7 +185,7 @@ export const DividendSafety = (() => {
   const color = sc => sc>=80?'#22d47a':sc>=65?'#86efad':sc>=50?'#f5a623':sc>=35?'#fb923c':'#f43f5e';
   const label = rl => ({SAFE:'Sûr',MODERATE:'Modéré',CAUTION:'Prudence',RISKY:'Risqué',DANGER:'Danger'}[rl]||rl);
 
-  const getStockDSE = m => m.payout_ratio != null ? calculate(m).score : (m.safe || calculate(m).score);
+  const getStockDSE = m => calculate(m).score;
 
   const getPortfolioDSE = () => {
     let totalMV = 0, weightedDSE = 0;
