@@ -1266,6 +1266,41 @@ async function debugPrice(req, env) {
         out.fmp_ratios_keys           = Object.keys(r0 || {}).slice(0, 20);
       }
     } catch(e) { out.fmp_ratios_error = e.message; }
+
+    // Test 5: v3 /api/v3/quote (ancien endpoint, souvent gratuit, inclut pe)
+    try {
+      const v3qUrl = `https://financialmodelingprep.com/api/v3/quote/${symbol}?apikey=${env.FMP_KEY}`;
+      const v3qRes = await fetch(v3qUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_v3quote_status = v3qRes.status;
+      const v3qText = await v3qRes.text();
+      out.fmp_v3quote_raw = v3qText.slice(0, 300);
+      if (v3qRes.ok) {
+        const v3qData = JSON.parse(v3qText);
+        const q0 = Array.isArray(v3qData) ? v3qData[0] : v3qData;
+        out.fmp_v3quote_pe            = q0?.pe            ?? null;
+        out.fmp_v3quote_eps           = q0?.eps           ?? null;
+        out.fmp_v3quote_price         = q0?.price         ?? null;
+        out.fmp_v3quote_keys          = Object.keys(q0 || {}).slice(0, 20);
+      }
+    } catch(e) { out.fmp_v3quote_error = e.message; }
+
+    // Test 6: v3 /api/v3/profile (ancien profil, peut inclure pe)
+    try {
+      const v3pUrl = `https://financialmodelingprep.com/api/v3/profile/${symbol}?apikey=${env.FMP_KEY}`;
+      const v3pRes = await fetch(v3pUrl, { headers: { Accept: 'application/json' } });
+      out.fmp_v3profile_status = v3pRes.status;
+      const v3pText = await v3pRes.text();
+      out.fmp_v3profile_raw = v3pText.slice(0, 300);
+      if (v3pRes.ok) {
+        const v3pData = JSON.parse(v3pText);
+        const p0 = Array.isArray(v3pData) ? v3pData[0] : v3pData;
+        out.fmp_v3profile_pe          = p0?.pe            ?? null;
+        out.fmp_v3profile_beta        = p0?.beta          ?? null;
+        out.fmp_v3profile_mktCap      = p0?.mktCap        ?? null;
+        out.fmp_v3profile_lastDiv     = p0?.lastDiv       ?? null;
+        out.fmp_v3profile_keys        = Object.keys(p0 || {}).slice(0, 25);
+      }
+    } catch(e) { out.fmp_v3profile_error = e.message; }
   }
 
   return json(out);
