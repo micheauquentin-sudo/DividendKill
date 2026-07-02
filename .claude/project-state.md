@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-02 16:11] fix: limite 3 refreshes funda par cron + TTL 6h si quota épuisé (429) -- worker/src/index.js -->
+<!-- last-commit: [2026-07-02 16:12] chore: session-stop snapshot [2026-07-02 16:12] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-02 16:12] context: Poussé. Diagnostic confirmé : -->
 <!-- resume-from: files: worker/src/index.js -->
 
