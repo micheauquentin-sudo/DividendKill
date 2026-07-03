@@ -159,8 +159,31 @@ export const DividendSafety = (() => {
       recession_res:  scoreRecession(sec, streak, payout || 0, beta)
     };
 
-    let total = 0;
-    for (const k in WEIGHTS) total += (scores[k] || 0) * WEIGHTS[k];
+    // Disponibilité réelle des données par facteur — fcf_payout/debt_ebitda/interest_cov
+    // ne viennent QUE des états financiers FMP payants (402 en gratuit) : sur le plan
+    // gratuit ils sont désormais TOUJOURS indisponibles pour toutes les actions, pas
+    // seulement occasionnellement. Les compter en neutre 50 plafonnait artificiellement
+    // le score max à ~78/100 pour absolument tout le monde (45% du poids bloqué à 50).
+    // On renormalise donc sur les seuls facteurs réellement disponibles pour cette action,
+    // pour que le score reflète ce qu'on sait vraiment, pas un manque de données structurel.
+    const AVAILABLE = {
+      payout_ratio:   payout != null,
+      fcf_payout:     fcfP   != null,
+      debt_ebitda:    debtE  != null,
+      interest_cov:   intC   != null,
+      div_streak:     true,
+      div_cagr_5y:    cagr   != null,
+      earn_stability: true,
+      recession_res:  true,
+    };
+
+    let total = 0, weightSum = 0;
+    for (const k in WEIGHTS) {
+      if (!AVAILABLE[k]) continue;
+      total     += (scores[k] || 0) * WEIGHTS[k];
+      weightSum += WEIGHTS[k];
+    }
+    total = weightSum > 0 ? total / weightSum : 50;
 
     // Pénalité corrélation : payout élevé ET FCF payout élevé simultanément
     if (payout != null && fcfP != null && payout > 0.80 && fcfP > 0.90) total -= 5;

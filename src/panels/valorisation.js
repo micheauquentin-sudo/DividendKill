@@ -8,19 +8,29 @@ export function renderValorisation(el) {
   if (raw.length === 0) { el.innerHTML = _emptyState('📊', 'Aucune valorisation', 'Les scores de valorisation s\'affichent une fois des positions ajoutées.'); return; }
 
   /* ── P/E de référence sectoriel ─────────────────────────── */
-  var SECTOR_FAIR_PE = {'Tech':28,'Santé':22,'Finance':14,'Utilities':18,'Conso.':20,'Industrie':18,'Mat.':16,'Immo.':18,'Énergie':12,'Médias':14};
+  var SECTOR_FAIR_PE = {'Tech':28,'Santé':22,'Finance':15,'Utilities':18,'Conso.':20,'Industrie':20,'Mat.':17,'Immo.':18,'Énergie':12,'Médias':16};
 
-  /* ── Signal de valorisation depuis FMP live (pe_cur vs fair PE sectoriel) ── */
+  /* ── Signal de valorisation : pe_cur vs fair PE sectoriel, ajusté qualité ──
+     Une moyenne sectorielle brute pénalise systématiquement les compounders de
+     qualité (ex. ADP, longue série de hausses, faible bêta) qui méritent
+     historiquement un multiple plus élevé que la moyenne de leur secteur, et
+     inversement pour les actions plus fragiles. On ajuste donc le P/E de
+     référence avec le score de sécurité dividende déjà calculé (DSE=50 neutre
+     → aucun ajustement), et on élargit la bande "raisonnable" à ±15% (au lieu
+     de ±10%) pour éviter de sur-déclencher sur des écarts marginaux. */
   function _computeVal(d) {
     var a = assets[d.ticker] || {};
     var sec = d.sec || a.sector || (meta[d.ticker] || {}).sector || '';
-    var fair_pe = SECTOR_FAIR_PE[sec] || 20;
+    var baseFairPe = SECTOR_FAIR_PE[sec] || 20;
+    var dseScore = _computeSafety(d);
+    var qualityAdj = 1 + (dseScore - 50) / 75;
+    var fair_pe = +(baseFairPe * qualityAdj).toFixed(1);
     var pe_cur = a.pe_cur || 0;
     var label;
     if (pe_cur > 0) {
       var disc = (fair_pe - pe_cur) / fair_pe;
-      if (disc > 0.10) label = 'under';
-      else if (disc < -0.10) label = 'over';
+      if (disc > 0.15) label = 'under';
+      else if (disc < -0.15) label = 'over';
       else label = 'fair';
     } else {
       label = 'fair';

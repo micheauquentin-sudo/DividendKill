@@ -7,7 +7,7 @@ import { calculateDividendSafety, dseColor } from '../dividendSafety.js';
 export function calculatePriorityRanking(portfolio) {
   var secAlloc  = {'Tech':3.22,'Mat.':11.26,'Santé':18.93,'Médias':2.80,'Finance':4.05,'Conso.':27.58,'Industrie':5.53,'Immo.':5.26,'Utilities':21.03};
   var secTarget = {'Tech':10,  'Mat.':10,   'Santé':20,   'Médias':8,  'Finance':10, 'Conso.':15,   'Industrie':10, 'Immo.':8,  'Utilities':16};
-  var SECTOR_FAIR_PE = {'Tech':28,'Santé':22,'Finance':14,'Utilities':18,'Conso.':20,'Industrie':18,'Mat.':16,'Immo.':18,'Énergie':12,'Médias':14};
+  var SECTOR_FAIR_PE = {'Tech':28,'Santé':22,'Finance':15,'Utilities':18,'Conso.':20,'Industrie':20,'Mat.':17,'Immo.':18,'Énergie':12,'Médias':16};
   var totalMV   = getMV();
 
   var results = [];
