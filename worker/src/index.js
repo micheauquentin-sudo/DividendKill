@@ -1783,6 +1783,19 @@ async function debugFinnhub(req, env) {
       out.metric_equity_keys   = Object.keys(m).filter(k => /equity|assets|liabilit/i.test(k));
       // Toutes les clés, triées — pour un balayage visuel complet si les regex ci-dessus ratent
       out.metric_all_keys = Object.keys(m).sort();
+      // Valeurs réelles des candidats retenus — pour vérifier les unités avant de les
+      // brancher dans le vrai calcul (ex: ratio en % vs décimal changerait tout)
+      out.candidate_values = {
+        totalDebtToEquityAnnual:    m['totalDebt/totalEquityAnnual']    ?? null,
+        totalDebtToEquityQuarterly: m['totalDebt/totalEquityQuarterly'] ?? null,
+        longTermDebtToEquityAnnual: m['longTermDebt/equityAnnual']      ?? null,
+        netInterestCoverageTTM:     m.netInterestCoverageTTM            ?? null,
+        netInterestCoverageAnnual: m.netInterestCoverageAnnual         ?? null,
+        pfcfShareTTM:               m.pfcfShareTTM                     ?? null,
+        pfcfShareAnnual:            m.pfcfShareAnnual                  ?? null,
+        evEbitdaTTM:                m.evEbitdaTTM                      ?? null,
+        currentRatioAnnual:         m.currentRatioAnnual                ?? null,
+      };
     }
   } catch(e) { out.metric_error = e.message; }
 
