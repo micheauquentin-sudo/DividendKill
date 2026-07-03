@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 07:52] chore: session-stop snapshot [2026-07-03 07:52] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 07:52] context: Poussé (déploiement ~1-2 min). L'audit n'a trouvé aucun bug dans le code — le mécanisme fonctionne correctement (vérifié -->
+<!-- interrupted: [2026-07-03 07:54] context: Ce point est déjà traité — j'ai reçu la notification de l'agent, revu son diff, commité (`b126ec8`) et poussé sur `main` -->
 <!-- resume-from: files: (unknown) -->
 
 ## Current mission
