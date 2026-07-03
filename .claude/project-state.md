@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 14:34] chore: session-stop snapshot [2026-07-03 14:34] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 21:35] feat: restructure dividend safety scoring — server-side V2 engine with reconstruction + confidence -- src/dividendSafety.js src/fmpData.js src/panels/deal.js src/panels/rendement.js src/panels/valorisation.js src/ui.js worker/src/dividendScore.js worker/src/index.js -->
 <!-- interrupted: [2026-07-03 14:34] context: Reprenons où j'en étais : j'ai confirmé que les 3 fournisseurs gratuits (FMP, Finnhub, Twelve Data) bloquent tous l'hist -->
 <!-- resume-from: files: .claude/project-state.md -->
 
