@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 08:38] chore: session-stop snapshot [2026-07-03 08:38] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 08:48] feat: use Finnhub as primary fundamentals fallback, Alpha Vantage as backup -- worker/src/index.js worker/wrangler.toml -->
 <!-- interrupted: [2026-07-03 08:38] context: Poussé et déployé (~1-2 min). Prochaine étape : -->
 <!-- resume-from: files: worker/src/index.js -->
 
