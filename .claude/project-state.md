@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 08:32] chore: session-stop snapshot [2026-07-03 08:32] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 08:34] chore: session-stop snapshot [2026-07-03 08:34] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 08:34] context: D'après ce qu'on a confirmé cette session (via `/api/debug/funda?live=1`) : -->
 <!-- resume-from: files: .claude/project-state.md, .claude/roadmap.md, worker/src/index.js -->
 
