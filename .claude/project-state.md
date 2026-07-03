@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 12:58] chore: session-stop snapshot [2026-07-03 12:58] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 12:58] context: **Fait — Alpha Vantage retiré, Twelve Data étendu.** Poussé en deux commits (`d0edd33` code + `cacd4ee` mémoire) : -->
-<!-- resume-from: files: .claude/project-state.md, src/fmpData.js -->
+<!-- interrupted: [2026-07-03 14:34] context: Reprenons où j'en étais : j'ai confirmé que les 3 fournisseurs gratuits (FMP, Finnhub, Twelve Data) bloquent tous l'hist -->
+<!-- resume-from: files: .claude/project-state.md -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the fundamentals/valuation
