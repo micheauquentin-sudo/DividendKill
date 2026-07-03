@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 10:09] fix: DSE score no longer capped ~78, valuation signal adjusted for quality -- src/dividendSafety.js src/panels/deal.js src/panels/valorisation.js -->
-<!-- interrupted: [2026-07-03 09:59] context: Poussé et déployé (~1-2 min). Bug trouvé : mon limiteur de débit et le verrou anti-doublon n'avaient aucune protection s -->
-<!-- resume-from: files: worker/src/index.js -->
+<!-- interrupted: [2026-07-03 10:09] context: Poussé et déployé (~1-2 min). Résumé de l'audit : -->
+<!-- resume-from: files: src/panels/deal.js, src/panels/valorisation.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
