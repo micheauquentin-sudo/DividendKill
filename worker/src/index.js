@@ -781,8 +781,13 @@ async function fmpProxy(req, env) {
   if (env.PRICES_KV) {
     try {
       const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
-      // Re-fetch si pe_cur manquant (AV peut maintenant le combler via KV cache)
-      const incomplete = cached && cached.pe_cur == null;
+      // Re-fetch si pe_cur manquant (AV peut le combler via KV cache), OU si un payeur
+      // de dividende n'a pas encore de fair_value et qu'on n'a jamais tenté la réversion
+      // (_fv_tried absent = entrée mise en cache avant l'ajout de la valorisation yield).
+      const incomplete = cached && (
+        cached.pe_cur == null ||
+        (cached.annual_div > 0 && cached.fair_value == null && !cached._fv_tried)
+      );
       if (cached && !incomplete) return json(cached);
     } catch(e) {
       console.warn('[fmpProxy] lecture cache KV échouée, on refetch:', e.message);
@@ -855,6 +860,7 @@ async function fmpProxy(req, env) {
     if (price > 0 && result.annual_div > 0) {
       const yr = await fetchYieldReversion(symbol, price, result.annual_div, rawDivs, env);
       if (yr) { result.fair_value = yr.fair_value; result.avg_yield_5y = yr.avg_yield_5y; }
+      result._fv_tried = true; // marqueur : évite de re-fetcher en boucle si la réversion échoue
     }
     // Cache 6h si toujours pas de métriques (quotas épuisés ou clés absentes), sinon TTL long
     const stillIncomplete = result.pe_cur == null && result.payout_ratio == null;
@@ -1276,6 +1282,7 @@ async function handleScheduled(env) {
       if (price > 0 && normalized.annual_div > 0) {
         const yr = await fetchYieldReversion(symbol, price, normalized.annual_div, divsData, env);
         if (yr) { normalized.fair_value = yr.fair_value; normalized.avg_yield_5y = yr.avg_yield_5y; }
+        normalized._fv_tried = true;
       }
       const stillIncomplete = normalized.pe_cur == null && normalized.payout_ratio == null;
       const ttl = stillIncomplete ? 21600 : ttlFunda();
