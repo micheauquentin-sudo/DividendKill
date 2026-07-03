@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 10:09] fix: DSE score no longer capped ~78, valuation signal adjusted for quality -- src/dividendSafety.js src/panels/deal.js src/panels/valorisation.js -->
+<!-- last-commit: [2026-07-03 10:09] chore: session-stop snapshot [2026-07-03 10:09] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 10:09] context: Poussé et déployé (~1-2 min). Résumé de l'audit : -->
 <!-- resume-from: files: src/panels/deal.js, src/panels/valorisation.js -->
 
