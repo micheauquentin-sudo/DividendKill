@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 09:43] fix: degrade gracefully when FMP profile fails, don't abandon Finnhub/AV fallback -- worker/src/index.js -->
+<!-- last-commit: [2026-07-03 09:44] chore: session-stop snapshot [2026-07-03 09:44] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 09:44] context: Trouvé et corrigé. Le vrai problème : le quota journalier FMP (250 appels/jour) est de nouveau épuisé après tous nos tes -->
 <!-- resume-from: files: worker/src/index.js -->
 
