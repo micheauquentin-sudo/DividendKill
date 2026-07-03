@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 22:46] fix: client cache exact-version-check for dse2, plus clean CACHE_KEY bump -- src/fmpData.js -->
-<!-- interrupted: [2026-07-03 22:41] context: Poussé (`560fa8b` + memory updates). Résumé de ce qui a changé : -->
-<!-- resume-from: files: .claude/project-state.md -->
+<!-- interrupted: [2026-07-03 22:46] context: Poussé (`ef67e7c`). Cette fois le correctif compare la version exacte de `dse2` (pas juste sa présence) — devrait empêch -->
+<!-- resume-from: files: src/fmpData.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
