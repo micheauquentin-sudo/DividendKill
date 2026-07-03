@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 08:49] chore: update claude memory — Finnhub primary fallback shipped -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 08:38] context: Poussé et déployé (~1-2 min). Prochaine étape : -->
-<!-- resume-from: files: worker/src/index.js -->
+<!-- interrupted: [2026-07-03 08:49] context: Intégré et déployé (~1-2 min). Résumé : -->
+<!-- resume-from: files: .claude/project-state.md, worker/src/index.js, worker/wrangler.toml -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
