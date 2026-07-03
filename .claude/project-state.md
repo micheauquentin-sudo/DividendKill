@@ -1,126 +1,96 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:57] refactor: drop Alpha Vantage, widen Twelve Data as fundamentals/dividends fallback -- src/fmpData.js worker/src/index.js worker/wrangler.toml -->
-<!-- interrupted: [2026-07-03 12:39] context: **Diagnostic final :** le quota gratuit Alpha Vantage (25 appels/jour) est épuisé pour aujourd'hui — la réponse `{"Infor -->
-<!-- resume-from: files: src/public/sw.js, worker/src/index.js -->
 
 ## Current mission
-Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
-fundamentals pipeline was confirmed fixed (P/E, payout, safety all display
-correctly end-to-end via AV fallback for FMP-402'd tickers).
+Roadmap Phase 3/4 UX improvements, resumed after the fundamentals/valuation
+pipeline was hardened against real-world API instability (this session's focus).
 
 ---
 
 ## Last completed (this session)
-- **P/E N/A root cause**: confirmed via `/api/debug/funda?avlive=1` — AV_KEY is
-  correctly bound, free-tier AV quota (25/day) was exhausted from testing.
-  Not a bug; resets daily. Also fixed a real leak: AV's rate-limit error echoes
-  the API key in plaintext, and the public debug endpoint relayed it — redacted.
-- **Skeleton loading states** (roadmap Phase 3 + bugs.md medium item): added
-  `_loadingSkeleton()` in `ui-shared.js` + `.dk-skel` shimmer class in
-  `style.css`. `ui.js` shows it only on a true first-boot (positions exist but
-  `MarketData.getCacheInfo().total === 0`), cleared on first price tick.
-- **Screener** (roadmap Phase 4): added sector/yield-min/safety-min filter bar
-  directly into the existing Valorisation panel (`src/panels/valorisation.js`)
-  — reuses its card list rather than a new nav tab.
-- **Dividend history chart** (roadmap Phase 4): new "📊 Historique" mode in
-  `src/panels/dividendes.js` (`renderHistory`) — real yearly totals from
-  `Data.transactions` (type `dividend`), bar chart + per-year top contributors.
-- All 3 verified end-to-end with Playwright against the built app (mocked
-  auth/API routes), not unit tests — screenshots confirmed correct rendering,
-  filtering, and skeleton→real-data transition.
-- **Finnhub added as primary fundamentals fallback**: confirmed live via
-  `/api/debug/finnhub?symbol=APD` that Finnhub's free tier (60 req/min) returns
-  P/E, EPS, payout, beta for tickers FMP 402s — no per-ticker blocking like FMP.
-  `fillFundaFallback()` now tries Finnhub before Alpha Vantage (25/day, kept as
-  backup only). Requires `FINNHUB_KEY` secret. KV cache key `fh9:SYMBOL`, 7d TTL.
-- **P/E always self-computed**: removed every provider's own P/E field
-  (FMP `peRatioTTM`, Finnhub `peXxxTTM`, AV `PERatio`) from the pipeline.
-  `pe_cur` is now ALWAYS `price / eps` computed by us — providers only ever
-  supply `eps`. Avoids inconsistent numbers from differing TTM/forward/diluted
-  methodologies across sources.
-- **Twelve Data added for price** (fallback after FMP, confirmed working free)
-  **and attempted for fundamentals** — confirmed via `/api/debug/twelvedata`
-  that `/statistics` 403s on the free plan ("pro/ultra/venture/enterprise
-  only"). The fundamentals call is commented out in `fillFundaFallback`
-  (dead weight otherwise); `fetchTwelveDataFundamentals()` stays in the code
-  in case the plan is upgraded later. Price fallback (`fetchTwelveDataQuote`
-  in `priceProxy`) is active. Requires `TWELVEDATA_KEY` secret.
-- **Fundamentals pipeline slimmed down**: FMP's 5 always-402 endpoints
-  (income-statement, key-metrics-ttm, balance-sheet, cash-flow, earnings)
-  removed entirely — `normalizeFunda(rawProfile, rawDivs)` now takes 2 params
-  instead of 7, and both `fmpProxy`/cron `refreshFunda` only fetch FMP
-  `/profile` + `/dividends` (2 calls instead of 7 per ticker). Finnhub is now
-  the de-facto primary source for eps/payout/beta in practice. fcf_payout/
-  debt_ebitda/interest_cov are permanently null now (no source provides them
-  on any free tier used here) — safe, `dividendSafety.js` already scores
-  null fields as neutral (50/100), not zero.
+
+- **Yield-reversion valuation** (Simply Safe Dividends method): `fair_value =
+  annual_div / median(TTM yield over 5y, monthly)`. Replaces flat sector-P/E
+  comparison as the primary valuation method in `valorisation.js` (`_computeVal`,
+  `method:'yield'`); sector-P/E stays as fallback when `fair_value` is null.
+- **DSE score renormalization** (`src/dividendSafety.js`): only averages over
+  factors that actually have data, instead of scoring permanently-null fields
+  (fcf_payout/debt_ebitda/interest_cov) as neutral-50 forever, which had capped
+  every score around ~78/100.
+- **UNM investigation (root-caused via code reading, prod URL not reachable
+  from this sandbox — network policy blocks it)**: fair_value stayed null
+  because FMP's `/stable/dividends` 402s for non-mega-cap tickers, and the
+  fetch used `tryJson` (resolves to `null` on failure) instead of throwing, so
+  no fallback ever kicked in. Then found the CLIENT never even re-asked the
+  server once `pe_cur` was cached (its 24h localStorage check ignored
+  `fair_value`) — that was the real "nothing changes after Sync" blocker.
+- **Alpha Vantage removed entirely** (commit `d0edd33`): its 25 calls/day quota
+  was the reason UNM's dividend-history fallback kept failing — too tight once
+  a portfolio has more than a couple of Finnhub-uncovered tickers. Removed
+  `fetchAlphaVantageOverview`, `fetchAlphaVantageDividends`, `AV_KEY`, the
+  `/api/debug/av-seed` mock endpoint, all `av9`/`avdiv9` KV keys.
+- **Twelve Data widened as the fallback after Finnhub** (was mostly disabled):
+  `fetchTwelveDataFundamentals` re-enabled in `fillFundaFallback` (previously
+  commented out after an earlier 403 on `/statistics` — retried since it's the
+  only remaining fallback, fails fast and harmlessly if still gated). New
+  `fetchTwelveDataDividends()` (`/dividends` endpoint) as the dividend-history
+  fallback for `fetchYieldReversion`, replacing Alpha Vantage's role.
 - **Final fundamentals chain**: FMP profile+dividends (name/sector/beta/
-  market_cap/annual_div/streak/pay_months/CAGR) → Finnhub (eps/payout/beta,
-  primary) → Alpha Vantage (secondary, 25/day) → [Twelve Data disabled, 403].
-  Price chain: FMP profile → Twelve Data quote.
+  market_cap/annual_div/streak/pay_months/CAGR) → Finnhub (eps/payout/beta/
+  interest_cov/debt_equity, primary, 60 req/min) → Twelve Data (secondary).
+  Dividend-history chain (for yield reversion): FMP → Finnhub `/stock/dividend`
+  (confirmed 403 on this account's plan, kept in case it changes) → Twelve
+  Data `/dividends`. Price chain: FMP profile → Twelve Data quote.
+- **Cache resilience fixes**:
+  - `FV_VER` constant (now 4) stamped as `_fv_ver` alongside `_fv_tried` —
+    forces exactly one retry when the fallback chain gains a new source,
+    instead of a stuck `fair_value:null` blocking retries for the full
+    ~120-day funda TTL.
+  - Tickers with a known dividend but still no `fair_value` now get a 24h KV
+    TTL instead of ~120 days, since that's usually a same-day quota miss, not
+    permanent unavailability — self-heals the next day without a code change.
+  - `src/fmpData.js` client cache: incomplete-check now also considers
+    `fair_value`/`_fv_tried` (was `pe_cur`-only, which is why Sync silently
+    no-op'd on tickers whose EPS/payout Finnhub already covered). `CACHE_KEY`
+    bumped v11→v15 total across this session's fixes.
+- **Debug tooling**: `/api/debug/funda` now reports `kv_fv_tried`, `kv_fv_ver`,
+  `fhdiv9_hit/count`, `tddiv9_hit/count`, `yr9_hit/data`; live-test params
+  renamed `tdlive`/`tddivlive` (was `avlive`/`avdivlive`).
 
 ---
 
 ## Current task
-Just fixed: UNM (and other non-mega-cap tickers) stayed on the old
-sector-P/E label after the yield-reversion deploy because FMP's
-`/stable/dividends` 402s for them, so `fetchYieldReversion` never had
-≥4 dividend payments to compute `fair_value`. Root-caused by reading
-the worker code (prod URL blocked from this sandbox's network egress,
-couldn't hit `/api/debug/funda` live) — confirmed `divsRes` uses
-`tryJson` which resolves to `null` on non-2xx instead of rejecting, so
-the "profile failed → still try Finnhub" fallback path never applied
-to the dividends call.
-Fix pushed to `main` (commit `40cccfc`):
-- New `fetchFinnhubDividends()` — `/stock/dividend` on Finnhub (same
-  key as the existing metrics fallback), cached `fhdiv9:SYMBOL` 30d.
-  `fetchYieldReversion` now tries it when FMP's own dividend array has
-  < 4 entries.
-- New `FV_VER` constant (=2) + `_fv_ver` stamp alongside `_fv_tried` —
-  forces exactly one retry for tickers already cached with a failed
-  attempt under the old logic, without looping forever after.
-- `src/fmpData.js` CACHE_KEY bumped v12→v13 to force clients past
-  stale localStorage entries.
-- `debugFunda` now also reports `kv_fv_tried`, `kv_fv_ver`,
-  `fhdiv9_hit/count`, `yr9_hit/data` for future debugging.
-Awaiting user confirmation that UNM (and ADP/HRL/APD/ACN) now show the
-yield-reversion label/gauge after a fresh Sync.
-
----
-
-## Files touched (this session)
-- `worker/src/index.js` — `/api/debug/av-seed` (+ `action=clear`), `av_key_set`/
-  `av_key_len`, `?avlive=1` live AV test (key redacted from response),
-  `/api/debug/finnhub`, `fetchFinnhubMetrics()`, `fillFundaFallback()`
-- `worker/wrangler.toml` — documented `FINNHUB_KEY`/`AV_KEY` secrets
-- `src/fmpData.js` — CACHE_KEY bumped v9→v11 (mock-data purge + tightened
-  incomplete check to `pe_cur == null` only, matching server logic)
-- `src/ui.js` — boot skeleton flag/dispatch, `_loadingSkeleton` import
-- `src/ui-shared.js` — `_loadingSkeleton()` helper
-- `src/style.css` — `.dk-skel` shimmer class
-- `src/panels/valorisation.js` — screener filter bar + state
-- `src/panels/dividendes.js` — `renderHistory()` + 3rd mode switcher button
+None in progress — awaiting confirmation that UNM (and ADP/HRL/APD/ACN) show
+the yield-reversion label after a Sync post-deploy, and that Twelve Data's
+`/statistics` and `/dividends` endpoints actually work on this account's free
+plan (both were re-enabled optimistically; `/statistics` was previously
+confirmed 403 — worth checking `/api/debug/funda?symbol=X&tdlive=1` and
+`&tddivlive=1` to see current real status).
 
 ---
 
 ## Known blockers / notes
-- FMP free plan still 402s financial statements for all but a handful of
-  popular tickers — Finnhub (primary) → Alpha Vantage (backup) cover the gap.
-- **Important**: tickers whose `funda9:SYMBOL` KV entry already has a non-null
-  `pe_cur` (e.g. from earlier AV-mock testing) are cached for ~120 days and
-  won't automatically switch to Finnhub data. If a ticker still shows old/mock
-  values, clear it: `/api/debug/av-seed?action=clear` (covers the 18 tickers
-  used for mock testing) or delete `funda9:SYMBOL` for a specific ticker.
-- Mock AV seed endpoint (`/api/debug/av-seed`) exists for testing without
-  burning AV quota — remember to `?action=clear` before relying on live data.
+- FMP free plan still 402s `/stable/dividends` for all but a handful of
+  popular tickers, and always 402s the 5 financial-statement endpoints
+  (income-statement, key-metrics-ttm, balance-sheet, cash-flow, earnings).
+- Finnhub's `/stock/dividend` confirmed 403 ("You don't have access to this
+  resource") on this account — paid-plan gated. `/stock/metric?metric=all`
+  (EPS/payout/beta/debt/interest) works fine on the free tier.
+- Twelve Data's `/statistics` was confirmed 403 earlier this session
+  ("pro/ultra/venture/enterprise only") but is re-enabled in the fallback
+  chain since Alpha Vantage's removal leaves it as the only remaining
+  secondary source — needs a fresh live check to confirm current status.
+- `fcf_payout`/`debt_ebitda` are permanently null (no free-tier source
+  anywhere) — `dividendSafety.js` renormalizes over available factors only,
+  doesn't just score them neutral-50.
 - Pay months for some tickers still hardcoded in `calendar.js` PAY_MONTHS map.
 
 ---
 
 ## Resume instruction
 When restarting:
-1. Read `architecture.md` → understand the FMP→AV→KV→client pipeline
-2. Read this file → pick up current task (none pending as of last session)
-3. Check git log for the latest commit to confirm deploy state
+1. Read `architecture.md` → understand the FMP→Finnhub→TwelveData→KV→client
+   pipeline (Alpha Vantage is gone, don't reintroduce it).
+2. Read this file → pick up current task.
+3. Check git log for the latest commit to confirm deploy state.
 4. Roadmap Phase 3/4 remaining items: mobile keyboard handling, faster boot
-   prefetch, dark/light theme, PDF/CSV export, watchlist alerts
+   prefetch, dark/light theme, PDF/CSV export, watchlist alerts.
