@@ -674,6 +674,7 @@ function normalizeFunda(rawProfile, rawDivs) {
     payout_ratio: null,
     fcf_payout:   null,
     debt_ebitda:  null,
+    debt_equity:  null,
     interest_cov: null,
     pay_months:   extractPayMonths(divsArr),
     streak:       computeStreak(divsArr),
@@ -1047,11 +1048,24 @@ async function fetchFinnhubMetrics(symbol, env) {
     // Finnhub renvoie payoutRatio en pourcentage (75.63) — converti en décimal (0.7563)
     // pour matcher le format utilisé partout ailleurs dans l'app (FMP/AV).
     const rawPayout = num(m.payoutRatioTTM ?? m.payoutRatioAnnual);
+    // Couverture d'intérêts — netInterestCoverageTTM confirmé en direct sur APD (709),
+    // trop élevé pour être un multiple "x fois" (plage normale ~2-50x) → en pourcentage
+    // (709 → 7.09x, cohérent avec un groupe industriel solide).
+    const rawIntCov = num(m.netInterestCoverageTTM ?? m.netInterestCoverageAnnual);
+    // Dette/capitaux propres — pas de dette/EBITDA direct chez Finnhub, mais ce ratio
+    // alimente le fallback existant (debt_equity * 2.0) dans dividendSafety.js.
+    const debtEquity = num(m['totalDebt/totalEquityAnnual'] ?? m['totalDebt/totalEquityQuarterly']);
+    // P/FCF par action — permet de dériver le FCF par action (prix / ratio), puis le FCF
+    // payout (dividende / FCF par action) dans fillFundaFallback où le prix est connu.
+    const pfcfShare = num(m.pfcfShareTTM ?? m.pfcfShareAnnual);
     const parsed = {
       eps:          num(m.epsBasicExclExtraItemsTTM ?? m.epsTTM ?? m.epsExclExtraItemsTTM),
       payout_ratio: rawPayout != null ? +(rawPayout / 100).toFixed(4) : null,
       beta:         num(m.beta),
       annual_div:   num(m.dividendPerShareTTM ?? m.dividendPerShareAnnual),
+      interest_cov: rawIntCov != null ? +(rawIntCov / 100).toFixed(2) : null,
+      debt_equity:  debtEquity,
+      pfcf_share:   pfcfShare,
     };
     if (env.PRICES_KV)
       await env.PRICES_KV.put(cacheKey, JSON.stringify(parsed), { expirationTtl: 7 * 24 * 3600 });
@@ -1109,6 +1123,16 @@ async function fillFundaFallback(result, symbol, env, price) {
     if (fh.payout_ratio != null) result.payout_ratio = fh.payout_ratio;
     if (fh.beta         != null && result.beta       == null) result.beta       = fh.beta;
     if (fh.annual_div   != null && result.annual_div == null) result.annual_div = fh.annual_div;
+    // Couverture d'intérêts directe (netInterestCoverageTTM), confirmée en direct sur APD.
+    if (fh.interest_cov != null && result.interest_cov == null) result.interest_cov = fh.interest_cov;
+    // Pas de dette/EBITDA direct chez Finnhub — on transmet le ratio dette/capitaux propres,
+    // que dividendSafety.js sait déjà approximer en dette/EBITDA (debt_equity * 2.0).
+    if (fh.debt_equity != null && result.debt_equity == null) result.debt_equity = fh.debt_equity;
+    // fcf_payout volontairement PAS dérivé de pfcfShareTTM (Price/FCF) : testé sur APD,
+    // ce ratio dépend trop du cours de bourse (et de son cycle de capex en cours) pour
+    // être un signal de sécurité fiable — ça faisait chuter le DSE au lieu de le corriger.
+    // Reste neutre (50) plutôt qu'un faux signal bruyant. fh.pfcf_share n'est donc pas
+    // utilisé pour l'instant (gardé côté fetchFinnhubMetrics si on retente plus tard).
     result._finnhub_source = true;
   }
   if (result.pe_cur == null) {
