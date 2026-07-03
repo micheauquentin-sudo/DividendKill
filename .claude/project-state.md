@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 22:24] chore: session-stop snapshot [2026-07-03 22:24] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 22:24] context: Poussé (`c18ea99`). Une fois déployé, refais un Sync et regarde la carte ADP — le score DSE reste probablement similaire -->
+<!-- interrupted: [2026-07-03 22:29] context: Bonne question, et la réponse a deux niveaux différents. -->
 <!-- resume-from: files: .claude/project-state.md, src/panels/valorisation.js -->
 
 ## Current mission
