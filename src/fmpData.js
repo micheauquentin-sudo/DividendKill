@@ -1,9 +1,19 @@
 import { Config } from './config.js';
 
 export const FmpData = (() => {
-  const CACHE_KEY = 'astra_fmp_cache_v17';
+  const CACHE_KEY = 'astra_fmp_cache_v18';
   const TTL       = 24 * 3600 * 1000; // 24 h
   const _cache    = {};
+
+  // Doit rester synchronisé avec DSE2_VER dans worker/src/index.js. Sans ce numéro,
+  // l'incomplete-check ne peut voir QUE si _dse2_ver est présent, pas s'il correspond à
+  // la dernière version du moteur — un score déjà en cache avec une ancienne version
+  // resterait "complet" pour le client (donc jamais re-demandé) jusqu'à expiration du
+  // TTL de 24h, même après Sync/reload. Ça nous a fait perdre du temps à plusieurs
+  // reprises (DSE2_VER 2→3) : on a dû bumper CACHE_KEY à chaque fois pour forcer un
+  // nouveau fetch. En comparant la version exacte ici, un simple bump de ce nombre
+  // suffit désormais, sans vider tout le cache local des autres tickers/champs.
+  const EXPECTED_DSE2_VER = 3;
 
   function _save() {
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(_cache)); } catch(e) {}
@@ -30,7 +40,7 @@ export const FmpData = (() => {
     return !d || (
       d.pe_cur == null ||
       (d.annual_div > 0 && d.fair_value == null && !d._fv_tried) ||
-      d._dse2_ver == null
+      d._dse2_ver !== EXPECTED_DSE2_VER
     );
   }
   function _isFresh(ticker) {
