@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:37] chore: session-stop snapshot [2026-07-03 12:37] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 12:39] fix: shorter cache TTL when fair_value stays pending (quota, not permanent) -- worker/src/index.js -->
 <!-- interrupted: [2026-07-03 12:37] context: `kv_fv_ver:3` confirme que le nouveau code a tourné, mais `avdiv9_hit:false` et `avdiv9_count:0` — Alpha Vantage n'a rie -->
 <!-- resume-from: files: src/fmpData.js, src/public/sw.js -->
 
