@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 10:20] chore: session-stop snapshot [2026-07-03 10:20] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 11:52] feat: valuation via own-history yield reversion (Simply Safe Dividends method) -- src/fmpData.js src/panels/valorisation.js worker/src/index.js -->
 <!-- interrupted: [2026-07-03 10:20] context: Poussé et déployé (~1-2 min). Bilan : -->
 <!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
