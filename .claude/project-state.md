@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:30] chore: session-stop snapshot [2026-07-03 12:30] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 12:33] fix: client-side cache never re-asked server once pe_cur was cached -- src/fmpData.js -->
 <!-- interrupted: [2026-07-03 12:30] context: Le déploiement du dernier correctif (`217be77`, avec le fallback Alpha Vantage + FV_VER 3) est bien confirmé réussi sur  -->
 <!-- resume-from: files: worker/src/index.js -->
 
