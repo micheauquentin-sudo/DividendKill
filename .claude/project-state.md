@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:33] fix: client-side cache never re-asked server once pe_cur was cached -- src/fmpData.js -->
+<!-- last-commit: [2026-07-03 12:33] chore: session-stop snapshot [2026-07-03 12:33] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 12:33] context: Encore un correctif poussé (`3784694`) : le cache du navigateur (24h, indépendant du cache serveur) ne revérifiait que ` -->
 <!-- resume-from: files: src/fmpData.js, src/public/sw.js -->
 
