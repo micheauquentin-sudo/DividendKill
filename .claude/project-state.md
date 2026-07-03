@@ -100,28 +100,17 @@ significant accuracy upgrade found by inspecting Finnhub's full
   all populated instead of null) — NOT yet confirmed live in prod (no
   network access from this sandbox to verify).
 
-Also shipped (`c18ea99`, confirmed root cause but NOT yet verified live
+Also shipped (`c18ea99`, root cause confirmed but NOT yet verified live
 whether it flips the label): ADP showed "Could be overvalued" via the
 sector-P/E fallback (`fair_value` still null, same dividend-history
 wall). Root cause: the fallback's quality adjustment scales sector P/E
 by the DSE score, and a low-confidence dse2 score (driven by null
 sub-scores, not real risk) was dragging an already-approximate P/E
 estimate into a falsely confident "overvalued" call. Fix: only apply
-the quality adjustment when dse2 confidence >= 0.6. Should partially
-self-resolve now too, since confidence should be higher with the
-Finnhub growth hints above.
-
-Latest fix (`c18ea99`): live case found where ADP showed "Could be
-overvalued" via the sector-P/E fallback (fair_value still null — same
-dividend-history wall). Root cause: the fallback's quality adjustment
-scales sector P/E by the DSE score, and ADP's dse2 score (41, low
-confidence, driven by null sub-scores not real risk) dragged the
-already-approximate sector P/E down into a falsely confident
-"overvalued" signal for what's actually considered a safe compounder
-(SSD shows it undervalued). Fix: only apply the quality adjustment when
-dse2 confidence >= 0.6; below that, use the neutral unadjusted sector
-P/E. NOT yet confirmed live whether this actually flips ADP's label —
-awaiting user's next Sync + screenshot.
+the quality adjustment when dse2 confidence >= 0.6; below that, use the
+neutral unadjusted sector P/E. Should partially self-resolve now too,
+since confidence should be higher with the Finnhub growth hints above.
+Awaiting user's next Sync + screenshot for both of these.
 
 Two bugs found and fixed getting DSE V2 live, both worth remembering as
 a pattern: (1) server cache-incomplete-check didn't know `dse2` existed,
