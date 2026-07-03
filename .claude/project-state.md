@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 07:03] chore: session-stop snapshot [2026-07-03 07:03] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 07:17] feat: add clear mode to /api/debug/av-seed for switching mock to live AV data -- worker/src/index.js -->
 <!-- interrupted: [2026-07-03 07:03] context: Trouvé et corrigé. Le serveur renvoyait déjà les bonnes données (`pe_cur: 29.4`), mais le cache `localStorage` du naviga -->
 <!-- resume-from: files: src/fmpData.js -->
 
