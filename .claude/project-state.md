@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 22:32] chore: session-stop snapshot [2026-07-03 22:32] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 22:39] feat: tap Finnhub's precomputed growth/leverage fields for balance/stability/growth -- worker/src/dividendScore.js worker/src/index.js -->
 <!-- interrupted: [2026-07-03 22:32] context: Oui, il y a un angle plus prometteur que ce qu'on a fait jusqu'ici — et il ne nécessite aucune nouvelle API. -->
 <!-- resume-from: files: .claude/project-state.md -->
 
