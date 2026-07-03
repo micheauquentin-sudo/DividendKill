@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 21:36] chore: session-stop snapshot [2026-07-03 21:36] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 21:59] fix: dse2 never computed for tickers cached before the V2 scoring deploy -- src/fmpData.js worker/src/index.js -->
 <!-- interrupted: [2026-07-03 21:36] context: Everything's pushed to `main`. Here's the summary of the restructure: -->
 <!-- resume-from: files: .claude/project-state.md, src/fmpData.js -->
 
