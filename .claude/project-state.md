@@ -1,5 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 21:36] chore: update claude memory — dividend score V2 restructure -- .claude/project-state.md -->
+<!-- interrupted: [2026-07-03 21:36] context: Everything's pushed to `main`. Here's the summary of the restructure: -->
+<!-- resume-from: files: .claude/project-state.md, src/fmpData.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
