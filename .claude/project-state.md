@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 08:01] fix: redact AV_KEY value from debug/funda avlive response -- worker/src/index.js -->
-<!-- interrupted: [2026-07-03 07:54] context: Ce point est déjà traité — j'ai reçu la notification de l'agent, revu son diff, commité (`b126ec8`) et poussé sur `main` -->
-<!-- resume-from: files: (unknown) -->
+<!-- interrupted: [2026-07-03 08:01] context: Poussé. Résumé de la situation : -->
+<!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
