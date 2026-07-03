@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 22:06] fix: market-stability volatility ~2.2x too high (weekly bars fed as daily) -- worker/src/index.js -->
-<!-- interrupted: [2026-07-03 22:03] context: Le déploiement (`22635d0`) a bien réussi à 21:59:56 UTC, avant ta vérification à 22:02. Mais `/api/debug/funda` ne fait  -->
-<!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
+<!-- interrupted: [2026-07-03 22:06] context: **Ça fonctionne end-to-end !** `dse2` s'est calculé correctement pour UNM : -->
+<!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
