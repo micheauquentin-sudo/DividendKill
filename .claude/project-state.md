@@ -38,11 +38,26 @@ correctly end-to-end via AV fallback for FMP-402'd tickers).
   `pe_cur` is now ALWAYS `price / eps` computed by us — providers only ever
   supply `eps`. Avoids inconsistent numbers from differing TTM/forward/diluted
   methodologies across sources.
-- **Twelve Data added as final fallback (price AND fundamentals)**: chain is
-  now FMP → Finnhub → Alpha Vantage → Twelve Data for fundamentals, and
-  FMP → Twelve Data for price. Requires `TWELVEDATA_KEY` secret (unverified
-  free-tier fundamentals access — test via `/api/debug/twelvedata?symbol=X`
-  before trusting, same as the other sources). KV cache `td9:SYMBOL`, 7d TTL.
+- **Twelve Data added for price** (fallback after FMP, confirmed working free)
+  **and attempted for fundamentals** — confirmed via `/api/debug/twelvedata`
+  that `/statistics` 403s on the free plan ("pro/ultra/venture/enterprise
+  only"). The fundamentals call is commented out in `fillFundaFallback`
+  (dead weight otherwise); `fetchTwelveDataFundamentals()` stays in the code
+  in case the plan is upgraded later. Price fallback (`fetchTwelveDataQuote`
+  in `priceProxy`) is active. Requires `TWELVEDATA_KEY` secret.
+- **Fundamentals pipeline slimmed down**: FMP's 5 always-402 endpoints
+  (income-statement, key-metrics-ttm, balance-sheet, cash-flow, earnings)
+  removed entirely — `normalizeFunda(rawProfile, rawDivs)` now takes 2 params
+  instead of 7, and both `fmpProxy`/cron `refreshFunda` only fetch FMP
+  `/profile` + `/dividends` (2 calls instead of 7 per ticker). Finnhub is now
+  the de-facto primary source for eps/payout/beta in practice. fcf_payout/
+  debt_ebitda/interest_cov are permanently null now (no source provides them
+  on any free tier used here) — safe, `dividendSafety.js` already scores
+  null fields as neutral (50/100), not zero.
+- **Final fundamentals chain**: FMP profile+dividends (name/sector/beta/
+  market_cap/annual_div/streak/pay_months/CAGR) → Finnhub (eps/payout/beta,
+  primary) → Alpha Vantage (secondary, 25/day) → [Twelve Data disabled, 403].
+  Price chain: FMP profile → Twelve Data quote.
 
 ---
 
