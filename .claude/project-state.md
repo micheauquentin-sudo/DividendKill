@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 12:16] chore: update claude memory -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 11:55] context: Tout est poussé et déployé. Voici ce que j'ai reconstitué et corrigé. -->
-<!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
+<!-- interrupted: [2026-07-03 12:16] context: Pushed to `main` (commits `40cccfc` + memory update `0681049`). GitHub Actions should now redeploy. -->
+<!-- resume-from: files: .claude/project-state.md -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
