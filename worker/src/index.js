@@ -1358,7 +1358,11 @@ async function fetchTwelveDataTimeSeries(symbol, env) {
   }
   if (!env.TWELVEDATA_KEY) return [];
   try {
-    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1week&outputsize=260&apikey=${env.TWELVEDATA_KEY}`;
+    // Barres QUOTIDIENNES (pas hebdo) : computeMarket() dans dividendScore.js annualise
+    // avec sqrt(252) et prend une fenêtre de 252 points en supposant des rendements
+    // journaliers — des barres hebdo y feraient exploser la volatilité annualisée
+    // (~×2.2, sqrt(252/52)) et fausseraient la fenêtre "1 an" (deviendrait ~5 ans).
+    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=1300&apikey=${env.TWELVEDATA_KEY}`;
     const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
     if (!r.ok) { console.warn('[TwelveData] time_series HTTP', r.status, symbol); return []; }
     const d = await r.json();
@@ -1493,7 +1497,9 @@ const FV_VER = 4;
 // dse2) n'ont pas ce champ, et le check "incomplete" ci-dessous ne le retentera JAMAIS
 // tant qu'on ne compare pas explicitement _dse2_ver, sinon la longue TTL de funda9
 // (~120 jours) figerait dse2 absent indéfiniment pour tout le portefeuille existant.
-const DSE2_VER = 1;
+// v2 : fetchTwelveDataTimeSeries passé de barres hebdo à quotidiennes (la volatilité
+// annualisée était ~2.2x trop élevée, sqrt(252) appliqué à des rendements hebdo).
+const DSE2_VER = 2;
 
 // ── Valorisation par réversion du rendement (méthode Simply Safe Dividends) ──
 // Au lieu de comparer le P/E à une moyenne sectorielle rigide (qui juge à tort
