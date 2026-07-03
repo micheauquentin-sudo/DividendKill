@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 09:28] chore: session-stop snapshot [2026-07-03 09:28] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 09:32] feat: rate-limit and coalesce /api/funda's external-fetch path for scale -- worker/src/index.js -->
 <!-- interrupted: [2026-07-03 09:28] context: Bonne nouvelle : le cache (`fh9:SYMBOL`, `funda9:SYMBOL`) est partagé **par ticker**, pas par utilisateur. Donc la conso -->
 <!-- resume-from: files: .claude/project-state.md -->
 
