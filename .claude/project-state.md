@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 12:33] fix: client-side cache never re-asked server once pe_cur was cached -- src/fmpData.js -->
-<!-- interrupted: [2026-07-03 12:30] context: Le déploiement du dernier correctif (`217be77`, avec le fallback Alpha Vantage + FV_VER 3) est bien confirmé réussi sur  -->
-<!-- resume-from: files: worker/src/index.js -->
+<!-- interrupted: [2026-07-03 12:33] context: Encore un correctif poussé (`3784694`) : le cache du navigateur (24h, indépendant du cache serveur) ne revérifiait que ` -->
+<!-- resume-from: files: src/fmpData.js, src/public/sw.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
