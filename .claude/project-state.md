@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 09:44] chore: session-stop snapshot [2026-07-03 09:44] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 09:44] context: Trouvé et corrigé. Le vrai problème : le quota journalier FMP (250 appels/jour) est de nouveau épuisé après tous nos tes -->
+<!-- interrupted: [2026-07-03 09:54] context: Reprenons le diagnostic. Vérifie à nouveau, et cette fois envoie-moi aussi si tu vois un message d'erreur différent : -->
 <!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
