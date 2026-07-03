@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 07:52] feat: expose AV_KEY binding status and add live Alpha Vantage debug test -- .claude/bugs.md worker/src/index.js -->
-<!-- interrupted: [2026-07-03 07:51] context: L'agent de debug travaille en arrière-plan sur l'audit de `fetchAlphaVantageOverview()` — je reviens vers toi dès qu'il  -->
+<!-- interrupted: [2026-07-03 07:52] context: Poussé (déploiement ~1-2 min). L'audit n'a trouvé aucun bug dans le code — le mécanisme fonctionne correctement (vérifié -->
 <!-- resume-from: files: (unknown) -->
 
 ## Current mission
