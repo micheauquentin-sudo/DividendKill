@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 22:53] feat: use real dividend streak as proof of 0 cuts when history unavailable -- src/fmpData.js worker/src/dividendScore.js worker/src/index.js -->
+<!-- last-commit: [2026-07-03 22:54] chore: update claude memory — streak-based cut detection + version sync fix -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 22:46] context: Poussé (`ef67e7c`). Cette fois le correctif compare la version exacte de `dse2` (pas juste sa présence) — devrait empêch -->
 <!-- resume-from: files: src/fmpData.js -->
 
