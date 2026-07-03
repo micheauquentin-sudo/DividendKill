@@ -1,7 +1,7 @@
 import { Config } from './config.js';
 
 export const FmpData = (() => {
-  const CACHE_KEY = 'astra_fmp_cache_v13';
+  const CACHE_KEY = 'astra_fmp_cache_v14';
   const TTL       = 24 * 3600 * 1000; // 24 h
   const _cache    = {};
 
@@ -43,9 +43,16 @@ export const FmpData = (() => {
     toFetch.forEach((t, i) => {
       if (results[i].status === 'fulfilled') {
         const d = results[i].value;
-        // Ne pas mettre en cache localStorage si pe_cur est manquant
-        // (données incomplètes suite à 429/402) — prochain Sync re-fetche
-        const incomplete = d && d.pe_cur == null;
+        // Ne pas mettre en cache localStorage si pe_cur est manquant (données
+        // incomplètes suite à 429/402), OU si le serveur n'a pas encore fini de
+        // tenter la valorisation par réversion (annonce un dividende mais pas de
+        // fair_value ET pas de _fv_tried) — sinon ce ticker resterait bloqué sur
+        // une réponse partielle pendant tout le TTL local (24h), même après un
+        // Sync manuel, tant que le serveur n'a pas conclu son propre essai.
+        const incomplete = d && (
+          d.pe_cur == null ||
+          (d.annual_div > 0 && d.fair_value == null && !d._fv_tried)
+        );
         if (!incomplete) _cache[t] = { data: d, ts: now };
       } else {
         console.warn('[FmpData] échec', t, results[i].reason?.message);
