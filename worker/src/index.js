@@ -520,6 +520,40 @@ function normalizeProfile(t, p) {
   };
 }
 
+// ── Twelve Data /quote — fallback prix de dernier recours si FMP échoue ──
+// Pas de cache KV dédié : écrit directement dans le même cache p:SYMBOL que FMP.
+async function fetchTwelveDataQuote(symbol, env) {
+  if (!env.TWELVEDATA_KEY) return null;
+  try {
+    const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${env.TWELVEDATA_KEY}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!r.ok) { console.warn('[TwelveData] quote HTTP', r.status, symbol); return null; }
+    const d = await r.json();
+    if (d.status === 'error' || d.code) { console.warn('[TwelveData] quote erreur', symbol, d.message || d.code); return null; }
+    const price = parseFloat(d.close);
+    if (!price || price <= 0) return null;
+    return {
+      symbol:                     symbol.toUpperCase(),
+      regularMarketPrice:         price,
+      regularMarketChange:        parseFloat(d.change) || 0,
+      regularMarketChangePercent: parseFloat(d.percent_change) || 0,
+      regularMarketPreviousClose: parseFloat(d.previous_close) || null,
+      regularMarketVolume:        parseInt(d.volume, 10) || null,
+      longName:                   d.name || null,
+      shortName:                  d.name || null,
+      currency:                   d.currency || 'USD',
+      trailingPE:                 null, // jamais le P/E d'un fournisseur — voir fillFundaFallback
+      marketCap:                  null,
+      fiftyTwoWeekHigh:           d.fifty_two_week ? (parseFloat(d.fifty_two_week.high) || null) : null,
+      fiftyTwoWeekLow:            d.fifty_two_week ? (parseFloat(d.fifty_two_week.low)  || null) : null,
+      marketState:                'REGULAR',
+      lastDiv:                    null,
+      dividendYield:              null,
+      trailingAnnualDividendRate: null,
+    };
+  } catch(e) { console.warn('[TwelveData] erreur quote', symbol, e.message); return null; }
+}
+
 async function isRateLimited(env, key, limit) {
   if (!env.PRICES_KV) return false;
   const window = Math.floor(Date.now() / 60000);
@@ -776,6 +810,18 @@ async function priceProxy(req, env) {
         console.warn(`[price] Batch profile HTTP ${r.status}`);
       }
     } catch(e) { console.warn('[price] Batch profile:', e.message); }
+
+    // Twelve Data en dernier recours si FMP n'a toujours pas de prix pour certains tickers
+    const stillMissingAfterFmp = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null);
+    if (stillMissingAfterFmp.length > 0 && env.TWELVEDATA_KEY) {
+      await Promise.all(stillMissingAfterFmp.map(async t => {
+        const td = await fetchTwelveDataQuote(t, env);
+        if (td && td.regularMarketPrice != null) {
+          cached[t] = td;
+          if (env.PRICES_KV) await env.PRICES_KV.put(`p:${t}`, JSON.stringify(td), { expirationTtl: 86400 });
+        }
+      }));
+    }
   }
 
   const fmpError = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null).length
@@ -1042,13 +1088,47 @@ async function fetchFinnhubMetrics(symbol, env) {
   } catch(e) { console.warn('[Finnhub] erreur', symbol, e.message); return null; }
 }
 
+// ── Twelve Data /statistics (EPS, payout, beta) — secours FINAL (après Finnhub + AV) ──
+// Cache 7 jours en KV. N.B. : pas de pe_cur ici non plus — même règle que les autres
+// fallbacks, le P/E est toujours recalculé nous-mêmes (prix FMP / EPS).
+async function fetchTwelveDataFundamentals(symbol, env) {
+  const cacheKey = `td9:${symbol}`;
+  if (env.PRICES_KV) {
+    const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+    if (cached) return cached;
+  }
+  if (!env.TWELVEDATA_KEY) return null;
+  try {
+    const url = `https://api.twelvedata.com/statistics?symbol=${encodeURIComponent(symbol)}&apikey=${env.TWELVEDATA_KEY}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!r.ok) { console.warn('[TwelveData] statistics HTTP', r.status, symbol); return null; }
+    const d = await r.json();
+    if (d.status === 'error' || d.code) { console.warn('[TwelveData] statistics erreur', symbol, d.message || d.code); return null; }
+    const s = d.statistics || {};
+    const num = v => { const n = parseFloat(v); return isNaN(n) || n <= 0 ? null : n; };
+    const eps = num(s.financials?.income_statement?.diluted_eps_ttm ?? s.financials?.income_statement?.basic_eps_ttm);
+    // payout_ratio peut arriver en fraction (0.75) ou en pourcentage (75) selon les comptes/plans — normalisé si > 1
+    const rawPayout = num(s.dividends_and_splits?.payout_ratio);
+    const parsed = {
+      eps,
+      payout_ratio: rawPayout != null ? +((rawPayout > 1 ? rawPayout / 100 : rawPayout).toFixed(4)) : null,
+      beta:         num(s.stock_statistics?.beta),
+      annual_div:   num(s.dividends_and_splits?.forward_annual_dividend_rate),
+    };
+    if (env.PRICES_KV)
+      await env.PRICES_KV.put(cacheKey, JSON.stringify(parsed), { expirationTtl: 7 * 24 * 3600 });
+    console.log(`[TwelveData] ${symbol} EPS=${parsed.eps} payout=${parsed.payout_ratio}`);
+    return parsed;
+  } catch(e) { console.warn('[TwelveData] erreur statistics', symbol, e.message); return null; }
+}
+
 // ── Complète un résultat normalizeFunda incomplet (402 FMP plan gratuit) ──
-// Ordre : Finnhub (60/min, principal) → Alpha Vantage (25/jour, secours).
+// Ordre : Finnhub (60/min, principal) → Alpha Vantage (25/jour) → Twelve Data (secours final).
 // Mute le `result` en place et pose un flag `_source` pour traçabilité/debug.
 // `price` = prix courant FMP (/stable/profile, plan gratuit) — seule source de prix utilisée.
 // Le P/E n'est JAMAIS pris tel quel chez un fournisseur : toujours recalculé ici
 // (prix / EPS), pour rester indépendant des méthodologies (TTM/forward/dilué…)
-// qui diffèrent entre FMP, Finnhub et Alpha Vantage.
+// qui diffèrent entre FMP, Finnhub, Alpha Vantage et Twelve Data.
 async function fillFundaFallback(result, symbol, env, price) {
   if (result.pe_cur != null) return;
   const fh = await fetchFinnhubMetrics(symbol, env);
@@ -1068,6 +1148,16 @@ async function fillFundaFallback(result, symbol, env, price) {
       if (av.market_cap   != null && result.market_cap == null) result.market_cap = av.market_cap;
       if (av.annual_div   != null && result.annual_div == null) result.annual_div = av.annual_div;
       result._av_source = true;
+    }
+  }
+  if (result.pe_cur == null) {
+    const td = await fetchTwelveDataFundamentals(symbol, env);
+    if (td) {
+      if (td.eps != null && price > 0) result.pe_cur = +(price / td.eps).toFixed(2);
+      if (td.payout_ratio != null) result.payout_ratio = td.payout_ratio;
+      if (td.beta         != null && result.beta       == null) result.beta       = td.beta;
+      if (td.annual_div   != null && result.annual_div == null) result.annual_div = td.annual_div;
+      result._twelvedata_source = true;
     }
   }
 }
@@ -1485,6 +1575,13 @@ async function debugFunda(req, env) {
     out.av9_payout  = avCached?.payout_ratio ?? null;
     out.av9_data    = avCached;
 
+    // Vérifier le cache Twelve Data (td9:SYMBOL) — fallback final
+    const tdCached = await env.PRICES_KV.get(`td9:${symbol}`, { type: 'json' });
+    out.td9_hit     = !!tdCached;
+    out.td9_eps     = tdCached?.eps ?? null;
+    out.td9_payout  = tdCached?.payout_ratio ?? null;
+    out.td9_data    = tdCached;
+
     // Vérifier si funda9 serait traité comme incomplet → re-fetch déclenché
     out.funda9_incomplete = !!(cached && cached.pe_cur == null && cached.payout_ratio == null && cached.fcf_payout == null);
 
@@ -1709,6 +1806,57 @@ async function debugFinnhub(req, env) {
       out.profile_market_cap = d.marketCapitalization ?? null;
     }
   } catch(e) { out.profile_error = e.message; }
+
+  return json(out);
+}
+
+// ── Debug Twelve Data : teste en direct /quote (prix) + /statistics (fondamentaux) ──
+// GET /api/debug/twelvedata?symbol=APD
+// Nécessite le secret TWELVEDATA_KEY (wrangler secret put TWELVEDATA_KEY) — clé gratuite
+// sur twelvedata.com. Endpoint volontairement "brut" tant que la disponibilité réelle
+// des champs EPS/payout sur le plan gratuit n'est pas confirmée (voir debugFinnhub).
+async function debugTwelveData(req, env) {
+  const url    = new URL(req.url);
+  const symbol = (url.searchParams.get('symbol') || 'JNJ').toUpperCase();
+  const out    = { symbol, twelvedata_key_set: !!env.TWELVEDATA_KEY, twelvedata_key_len: env.TWELVEDATA_KEY ? env.TWELVEDATA_KEY.length : 0 };
+
+  if (!env.TWELVEDATA_KEY) return json(out);
+
+  const base = 'https://api.twelvedata.com';
+  const H    = { Accept: 'application/json' };
+
+  // /quote — prix, variation, 52 semaines
+  try {
+    const r = await fetch(`${base}/quote?symbol=${symbol}&apikey=${env.TWELVEDATA_KEY}`, { headers: H });
+    out.quote_status = r.status;
+    const t = await r.text();
+    out.quote_raw = t.slice(0, 500);
+    if (r.ok) {
+      const d = JSON.parse(t);
+      out.quote_is_error = d.status === 'error' || !!d.code;
+      out.quote_price    = d.close ?? null;
+      out.quote_name     = d.name  ?? null;
+    }
+  } catch(e) { out.quote_error = e.message; }
+
+  // /statistics — EPS, payout, beta (souvent réservé aux plans payants ailleurs — à vérifier ici)
+  try {
+    const r = await fetch(`${base}/statistics?symbol=${symbol}&apikey=${env.TWELVEDATA_KEY}`, { headers: H });
+    out.stats_status = r.status;
+    const t = await r.text();
+    out.stats_raw = t.slice(0, 800);
+    if (r.ok) {
+      const d = JSON.parse(t);
+      out.stats_is_error = d.status === 'error' || !!d.code;
+      const s = d.statistics || {};
+      out.stats_top_keys           = Object.keys(s);
+      out.stats_eps_diluted_ttm    = s.financials?.income_statement?.diluted_eps_ttm ?? null;
+      out.stats_eps_basic_ttm      = s.financials?.income_statement?.basic_eps_ttm ?? null;
+      out.stats_payout_ratio       = s.dividends_and_splits?.payout_ratio ?? null;
+      out.stats_beta               = s.stock_statistics?.beta ?? null;
+      out.stats_forward_annual_div = s.dividends_and_splits?.forward_annual_dividend_rate ?? null;
+    }
+  } catch(e) { out.stats_error = e.message; }
 
   return json(out);
 }
@@ -2021,6 +2169,7 @@ export default {
     if (path === '/api/debug/funda')     return debugFunda(req, env);
     if (path === '/api/debug/av-seed')   return debugAvSeed(req, env);
     if (path === '/api/debug/finnhub')   return debugFinnhub(req, env);
+    if (path === '/api/debug/twelvedata') return debugTwelveData(req, env);
 
     // Routes auth
     if (path === '/auth/login')       return handleAuthLogin(req, env);
