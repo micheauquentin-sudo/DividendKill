@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 09:36] chore: session-stop snapshot [2026-07-03 09:36] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 09:39] chore: session-stop snapshot [2026-07-03 09:39] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 09:39] context: `kv_hit: false` — le cache `funda9:APD` est complètement vide, alors qu'un vrai Sync a dû l'appeler. Ça veut dire que la -->
 <!-- resume-from: files: src/fmpData.js -->
 
