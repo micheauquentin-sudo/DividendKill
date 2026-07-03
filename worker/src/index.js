@@ -627,14 +627,15 @@ function extractPayMonths(divs) {
   return months.size > 0 ? [...months].sort((a, b) => a - b) : null;
 }
 
-function normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow, rawEarnings) {
-  const p   = (Array.isArray(rawProfile)  ? rawProfile[0]  : rawProfile)  || {};
-  const m   = (Array.isArray(rawMetrics)  ? rawMetrics[0]  : rawMetrics)  || {};
-  // Income statement: tableau d'années (plus récent en premier)
-  const incArr = Array.isArray(rawIncome) ? rawIncome : (rawIncome ? [rawIncome] : []);
-  const inc    = incArr[0] || {};
-  const bal = (Array.isArray(rawBalance)  ? rawBalance[0]  : rawBalance)  || {};
-  const cf  = (Array.isArray(rawCashflow) ? rawCashflow[0] : rawCashflow) || {};
+// Uniquement les 2 endpoints FMP gratuits et fiables (profile + dividends).
+// Les 5 autres (income-statement, key-metrics-ttm, balance-sheet, cash-flow,
+// earnings) retournent 402 pour la quasi-totalité des tickers en plan gratuit
+// (confirmé en direct sur APD/ADP/UNM/MMM/ACN/HRL) — abandonnés pour éviter de
+// gaspiller le quota FMP sur des appels qui échouent systématiquement.
+// eps/pe_cur/payout_ratio/fcf_payout/debt_ebitda/interest_cov viennent donc
+// toujours de fillFundaFallback (Finnhub en priorité, Alpha Vantage en secours).
+function normalizeFunda(rawProfile, rawDivs) {
+  const p = (Array.isArray(rawProfile) ? rawProfile[0] : rawProfile) || {};
 
   // FMP /stable/dividends returns { "historical": [...] } — normalize to flat array
   const divsArr = Array.isArray(rawDivs) ? rawDivs
@@ -655,92 +656,17 @@ function normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, 
     annual_div = +p.lastDividend.toFixed(4);
   }
 
-  // ── Métriques depuis les états financiers annuels ─────────────
-  // EPS source 1: income-statement annuel (premier BPA positif sur 5 ans)
-  // (évite les exercices avec charges exceptionnelles = EPS négatif, ex. MMM 2023)
-  let eps = null;
-  for (const yr of incArr.slice(0, 5)) {
-    const e = yr?.epsDiluted || yr?.eps || null;
-    if (e && e > 0) { eps = e; break; }
-  }
-  // EPS source 2 (fallback): BPA TTM depuis les résultats trimestriels
-  // Utilisé si income-statement retourne 402 (plan payant) pour ce ticker
-  if (eps == null && rawEarnings) {
-    const earnArr = Array.isArray(rawEarnings) ? rawEarnings : [];
-    // Prend les 4 derniers trimestres avec un EPS réel (actuals only)
-    const q4 = earnArr.filter(e => e.actualEarningResult != null && e.actualEarningResult !== '').slice(0, 4);
-    if (q4.length === 4) {
-      const ttm = q4.reduce((s, e) => s + (parseFloat(e.actualEarningResult) || 0), 0);
-      if (ttm > 0) eps = +ttm.toFixed(4);
-    }
-  }
-  // P/E toujours calculé nous-mêmes (prix / EPS) — jamais depuis un champ P/E
-  // pré-calculé du fournisseur (méthodologies TTM/forward/dilué incohérentes entre eux).
-  const pe_cur = (eps && p.price > 0)
-    ? +(p.price / eps).toFixed(2)
-    : null;
-
-  // Cash flow
-  const operatingCF   = cf.operatingCashFlow  != null ? cf.operatingCashFlow  : null;
-  const capex         = cf.capitalExpenditure  != null ? Math.abs(cf.capitalExpenditure) : 0;
-  const fcfRaw        = cf.freeCashFlow        != null ? cf.freeCashFlow
-                      : (operatingCF != null ? operatingCF - capex : null);
-  const dividendsPaid = cf.dividendsPaid       != null ? Math.abs(cf.dividendsPaid) : null;
-
-  // Income statement (année de référence = même année que l'EPS retenu)
-  const netIncome      = inc.netIncome       != null ? inc.netIncome       : null;
-  const ebitda         = inc.ebitda          != null ? inc.ebitda          : null;
-  const ebit           = inc.operatingIncome != null ? inc.operatingIncome : null;
-  const interestExp    = inc.interestExpense != null ? Math.abs(inc.interestExpense) : null;
-
-  // Balance sheet
-  const totalDebt = bal.totalDebt != null ? bal.totalDebt
-    : ((bal.longTermDebt || 0) + (bal.shortTermDebt || 0)) || null;
-
-  // Payout ratio — chaîne de fallback :
-  //  1. dividendes versés / résultat net (agrégat, année courante)
-  //  2. dividende/action ÷ BPA (par action — robuste aux charges exceptionnelles)
-  //  3. payoutRatioTTM de key-metrics (plan payant, 402 → null)
-  let payout_ratio = null;
-  if (dividendsPaid && netIncome && netIncome > 0) {
-    payout_ratio = +(dividendsPaid / netIncome).toFixed(4);
-  } else if (annual_div && eps && eps > 0) {
-    payout_ratio = +(annual_div / eps).toFixed(4);
-  } else {
-    payout_ratio = m.payoutRatioTTM || null;
-  }
-
-  // FCF payout — dividendes / FCF
-  // Fallback par action : dividende/action ÷ FCF/action (sharesOutstanding du bilan)
-  let fcf_payout = null;
-  if (dividendsPaid && fcfRaw && fcfRaw > 0) {
-    fcf_payout = +(dividendsPaid / fcfRaw).toFixed(4);
-  } else if (annual_div && eps && eps > 0 && fcfRaw && fcfRaw > 0) {
-    const sharesEst = bal.commonStockSharesOutstanding || null;
-    if (sharesEst && sharesEst > 0) {
-      fcf_payout = +(annual_div * sharesEst / fcfRaw).toFixed(4);
-    }
-  }
-
-  const debt_ebitda = (totalDebt != null && ebitda && ebitda > 0)
-    ? +(totalDebt / ebitda).toFixed(2)
-    : null;
-
-  const interest_cov = (ebit != null && interestExp && interestExp > 0)
-    ? +(ebit / interestExp).toFixed(2)
-    : null;
-
   return {
     name:         p.companyName || null,
     sector:       p.sector      || null,
     beta:         p.beta        || null,
     market_cap:   p.marketCap   || null,
     annual_div,
-    pe_cur,
-    payout_ratio,
-    fcf_payout,
-    debt_ebitda,
-    interest_cov,
+    pe_cur:       null,
+    payout_ratio: null,
+    fcf_payout:   null,
+    debt_ebitda:  null,
+    interest_cov: null,
     pay_months:   extractPayMonths(divsArr),
     streak:       computeStreak(divsArr),
     div_cagr_5y:  computeDivCAGR5y(divsArr),
@@ -855,25 +781,16 @@ async function fmpProxy(req, env) {
       try { return JSON.parse(text); } catch(_) { throw new Error('FMP réponse non-JSON'); }
     };
     const tryJson = r => r.ok ? r.json() : null;
-    const [profileRes, metricsRes, divsRes, incRes, balRes, cfRes, earnRes] = await Promise.allSettled([
+    // Seulement les 2 endpoints FMP gratuits fiables — voir normalizeFunda pour le détail
+    const [profileRes, divsRes] = await Promise.allSettled([
       fetch(`${base}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(safeJson),
-      fetch(`${base}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(tryJson),
       fetch(`${base}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(tryJson),
-      fetch(`${base}/income-statement?symbol=${symbol}&period=annual&limit=5&apikey=${env.FMP_KEY}`).then(tryJson),
-      fetch(`${base}/balance-sheet-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`).then(tryJson),
-      fetch(`${base}/cash-flow-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`).then(tryJson),
-      fetch(`${base}/earnings?symbol=${symbol}&limit=8&apikey=${env.FMP_KEY}`).then(tryJson),
     ]);
     if (profileRes.status === 'rejected') throw new Error(profileRes.reason?.message || 'profile failed');
-    const rawProfile  = profileRes.value;
-    const rawMetrics  = metricsRes.status === 'fulfilled' ? metricsRes.value  : null;
-    const rawDivs     = divsRes.status    === 'fulfilled' ? divsRes.value     : null;
-    const rawIncome   = incRes.status     === 'fulfilled' ? incRes.value      : null;
-    const rawBalance  = balRes.status     === 'fulfilled' ? balRes.value      : null;
-    const rawCashflow = cfRes.status      === 'fulfilled' ? cfRes.value       : null;
-    const rawEarnings = earnRes.status    === 'fulfilled' ? earnRes.value     : null;
-    const result = normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow, rawEarnings);
-    // Complément Finnhub puis Alpha Vantage si les métriques financières sont manquantes (402 FMP plan gratuit)
+    const rawProfile = profileRes.value;
+    const rawDivs    = divsRes.status === 'fulfilled' ? divsRes.value : null;
+    const result = normalizeFunda(rawProfile, rawDivs);
+    // Complément Finnhub (principal) puis Alpha Vantage (secours) pour eps/payout/beta
     const _profileForPrice = Array.isArray(rawProfile) ? rawProfile[0] : rawProfile;
     await fillFundaFallback(result, symbol, env, _profileForPrice?.price);
     // Cache 6h si toujours pas de métriques (quotas épuisés ou clés absentes), sinon TTL long
@@ -1182,17 +1099,13 @@ async function handleScheduled(env) {
   async function refreshFunda(symbol, reason) {
     try {
       const tryJson = r => r.ok ? r.json() : null;
-      const [profileData, metricsData, divsData, incData, balData, cfData, earnData] = await Promise.all([
+      // Seulement les 2 endpoints FMP gratuits fiables — voir normalizeFunda pour le détail
+      const [profileData, divsData] = await Promise.all([
         fetch(`${FMP_BASE}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
-        fetch(`${FMP_BASE}/key-metrics-ttm?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
         fetch(`${FMP_BASE}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
-        fetch(`${FMP_BASE}/income-statement?symbol=${symbol}&period=annual&limit=5&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
-        fetch(`${FMP_BASE}/balance-sheet-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
-        fetch(`${FMP_BASE}/cash-flow-statement?symbol=${symbol}&period=annual&limit=1&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
-        fetch(`${FMP_BASE}/earnings?symbol=${symbol}&limit=8&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
       ]);
-      const normalized = normalizeFunda(profileData, metricsData, divsData, incData, balData, cfData, earnData);
-      // Complément Finnhub puis Alpha Vantage si P/E manquant (402 sur plan FMP gratuit)
+      const normalized = normalizeFunda(profileData, divsData);
+      // Complément Finnhub (principal) puis Alpha Vantage (secours) pour eps/payout/beta
       const _profileForPrice = Array.isArray(profileData) ? profileData[0] : profileData;
       await fillFundaFallback(normalized, symbol, env, _profileForPrice?.price);
       const stillIncomplete = normalized.pe_cur == null && normalized.payout_ratio == null;
@@ -1537,7 +1450,10 @@ async function deleteAccount(env, userId) {
 
 // ── Debug fondamentaux : montre le cache KV + test live income/earnings ──
 // GET /api/debug/funda?symbol=APD             → cache KV uniquement (inclut statut AV_KEY)
-// GET /api/debug/funda?symbol=APD&live=1      → cache + tests FMP en direct
+// GET /api/debug/funda?symbol=APD&live=1      → teste EN PLUS income-statement/earnings/balance/cash-flow
+//                                                (diagnostic seulement — plus utilisés par le pipeline
+//                                                réel depuis qu'on a confirmé leur 402 quasi systématique ;
+//                                                utile pour vérifier si un ticker fait exception)
 // GET /api/debug/funda?symbol=APD&avlive=1    → cache + test Alpha Vantage en direct (consomme 1 appel/jour du quota AV)
 async function debugFunda(req, env) {
   if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
