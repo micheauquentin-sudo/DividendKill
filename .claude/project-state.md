@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 08:32] feat: add boot skeleton, portfolio screener, and dividend history chart -- .claude/project-state.md .claude/roadmap.md src/panels/dividendes.js src/panels/valorisation.js src/style.css src/ui-shared.js src/ui.js -->
+<!-- last-commit: [2026-07-03 08:32] chore: session-stop snapshot [2026-07-03 08:32] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 08:32] context: Poussé et déployé (GitHub Actions ~1-2 min). Voici les 3 chantiers livrés et vérifiés en conditions réelles (build + tes -->
 <!-- resume-from: files: .claude/project-state.md, .claude/roadmap.md -->
 
