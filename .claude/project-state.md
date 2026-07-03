@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 22:54] chore: update claude memory — streak-based cut detection + version sync fix -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 22:54] chore: session-stop snapshot [2026-07-03 22:54] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 22:54] context: Poussé (`7eb3078` + mémoire). Dernier ajout : le "streak" réel (années sans baisse, quand FMP arrive à donner l'historiq -->
 <!-- resume-from: files: .claude/project-state.md, src/fmpData.js, worker/src/index.js -->
 
