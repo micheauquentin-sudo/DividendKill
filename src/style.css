@@ -22,6 +22,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none}
 .status-dot.warn{background:var(--orange)}
 .status-dot.load{background:var(--orange);animation:pulse 1s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.dk-skel{background:var(--surface2);animation:pulse 1.3s ease-in-out infinite}
 .sync-btn{padding:6px 13px;border-radius:20px;border:1px solid rgba(0,200,160,.3);background:rgba(0,200,160,.07);color:var(--teal);font-size:11px;font-weight:600;white-space:nowrap;flex-shrink:0}
 /* ── KPI BAR ───────────────────────────────────────────── */
 .kpi-bar{display:none;background:#0c0c18;border-bottom:1px solid var(--border)}

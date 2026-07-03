@@ -9,7 +9,7 @@ import { Storage, loadImportedTx, saveImportedTx, clearImportedTx } from './stor
 import { D1Client } from './d1client.js';
 import { BrokerImport, processCsv, applyImportedToPortfolio } from './brokerImport.js';
 import { getDivBadge } from './dividendTiers.js';
-import { _esc, _emptyState, buildSVG, _logo } from './ui-shared.js';
+import { _esc, _emptyState, buildSVG, _logo, _loadingSkeleton } from './ui-shared.js';
 
 // Expose Calc.raw as a live window getter so render functions can access 'raw' as bare variable
 Object.defineProperty(window, 'raw', { get: () => Calc.raw, configurable: true });
@@ -177,7 +177,15 @@ function goTo(idx) {
 }
 
 const _panelMods = {};
+// Actif uniquement au tout premier boot sans aucun cache prix/fondamentaux persisté —
+// évite d'afficher des 0$/N/A trompeurs le temps que Sync + FMP répondent.
+let _bootSkeletonActive = false;
+const _skeletonPids = new Set(['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation']);
 async function renderPanel(pid, el) {
+  if (_bootSkeletonActive && _skeletonPids.has(pid)) {
+    el.innerHTML = _loadingSkeleton(pid === 'accueil' ? 1 : 3);
+    return;
+  }
   try {
     switch (pid) {
       case 'accueil':      renderAccueil(el);      return;
@@ -1086,6 +1094,10 @@ const App = (() => {
     Calc.recompute();
     buildKPI();
 
+    // Skeleton uniquement si aucun prix n'a jamais été mis en cache (1er visite / cache vidé)
+    // ET qu'il y a des positions à afficher — sinon l'état vide normal du panel suffit.
+    _bootSkeletonActive = Calc.getPositions().length > 0 && MarketData.getCacheInfo().total === 0;
+
     /* Register service worker for offline caching */
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -1161,6 +1173,7 @@ const App = (() => {
     const tickers = Calc.getPositions().map(p => p.ticker).filter((t,i,a) => a.indexOf(t) === i);
 
     const bootPricePromise = MarketData.refreshAll(tickers, (ticker, quote) => {
+      _bootSkeletonActive = false; // premier prix reçu — fin du skeleton de boot
       if (!Data.assets[ticker]) Data.assets[ticker] = {};
       const a = Data.assets[ticker];
       if (quote.annual_div != null) { a.d = quote.annual_div; }
@@ -1193,6 +1206,7 @@ const App = (() => {
     }).catch(e => console.warn('[App] FmpData boot:', e.message));
 
     Promise.all([bootPricePromise, bootFmpPromise]).then(() => {
+      _bootSkeletonActive = false; // filet de sécurité si aucun onUpdate n'a jamais fireé (tout en erreur)
       Storage.saveFundamentals(Data.assets);
       _rendered = {};
       buildKPI();

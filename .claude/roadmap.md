@@ -12,9 +12,10 @@
 - [x] PWA + push notifications
 - [x] Pull-to-refresh
 - [x] Benchmark selector
-- [ ] **Fix fundamentals pipeline** ← IN PROGRESS (funda5 deploy pending verify)
+- [x] **Fix fundamentals pipeline** — FMP 402 for most tickers on free plan,
+      Alpha Vantage OVERVIEW added as fallback (`av9:SYMBOL` KV cache)
 - [ ] Error handling cleanup (empty states, API failures)
-- [ ] P/E display verified working end-to-end
+- [x] P/E display verified working end-to-end (root cause: AV quota, not a bug)
 
 ## Phase 2 — Infrastructure
 - [ ] Better auth (session token rotation)
@@ -24,7 +25,7 @@
 - [ ] Cron job monitoring / alerting
 
 ## Phase 3 — UX
-- [ ] Skeleton loading states (currently blank during boot)
+- [x] Skeleton loading states (first-boot only, cleared on first price tick)
 - [ ] Better mobile keyboard handling in transaction form
 - [ ] Faster boot (prefetch critical tickers first)
 - [ ] Dark/light theme toggle
@@ -34,5 +35,5 @@
 - [ ] Premium tier (watchlist alerts, advanced analytics)
 - [ ] Watchlist with target price alerts
 - [ ] Multi-portfolio support
-- [ ] Historical dividend tracking chart
-- [ ] Screener (filter by yield, sector, safety score)
+- [x] Historical dividend tracking chart (real yearly totals, Dividendes panel)
+- [x] Screener (filter by yield, sector, safety score — in Valorisation panel)

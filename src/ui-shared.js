@@ -12,6 +12,30 @@ export function _emptyState(icon, title, subtitle) {
     + '</div>';
 }
 
+/* Placeholder shimmer affiché tant que les prix/fondamentaux n'ont jamais été
+   chargés (premier boot, cache vide) — évite les 0$/N/A trompeurs. */
+export function _loadingSkeleton(rows) {
+  rows = rows || 3;
+  var card = '<div style="background:var(--surface);border-radius:14px;padding:14px;margin-bottom:10px">'
+    + '<div style="display:flex;align-items:center;gap:9px;margin-bottom:14px">'
+    + '<div class="dk-skel" style="width:34px;height:34px;border-radius:50%;flex-shrink:0"></div>'
+    + '<div style="flex:1;min-width:0">'
+    + '<div class="dk-skel" style="width:55%;height:14px;border-radius:5px;margin-bottom:6px"></div>'
+    + '<div class="dk-skel" style="width:35%;height:10px;border-radius:4px"></div>'
+    + '</div>'
+    + '<div class="dk-skel" style="width:64px;height:22px;border-radius:7px"></div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">'
+    + '<div class="dk-skel" style="height:54px;border-radius:9px"></div>'
+    + '<div class="dk-skel" style="height:54px;border-radius:9px"></div>'
+    + '<div class="dk-skel" style="height:54px;border-radius:9px"></div>'
+    + '<div class="dk-skel" style="height:54px;border-radius:9px"></div>'
+    + '</div></div>';
+  var out = '';
+  for (var i = 0; i < rows; i++) out += card;
+  return out;
+}
+
 export function buildSVG(pts, col, H) {
   if (!pts || pts.length < 2) return '';
   H = H || 110;

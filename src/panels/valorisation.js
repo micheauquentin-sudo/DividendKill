@@ -29,6 +29,20 @@ export function renderValorisation(el) {
     return {label: label, exp: exp, fair_pe: fair_pe, pe_cur: pe_cur};
   }
 
+  /* ── Screener : yield + safety score par position (indépendants du signal P/E) ── */
+  function _computeYield(d) {
+    var m = meta[d.ticker] || {};
+    var ma = assets[d.ticker] || {};
+    var div = ma.d || m.d || 0;
+    return d.price > 0 ? div/d.price*100 : 0;
+  }
+  function _computeSafety(d) {
+    var m = meta[d.ticker] || {};
+    var ma = assets[d.ticker] || {};
+    var dseInput = Object.assign({}, ma, { d: ma.d || m.d });
+    return calculateDividendSafety(dseInput).safetyScore;
+  }
+
   /* ── Mini-jauge horizontale (remplace mini-courbe SVG) ──── */
   function miniGauge(fillPct, col, lbl) {
     var fp = Math.min(100, Math.max(0, fillPct));
@@ -59,16 +73,31 @@ export function renderValorisation(el) {
   }
 
   /* ── État ────────────────────────────────────────────────── */
-  if (!el._valState) el._valState = {filter:'all'};
+  if (!el._valState) el._valState = {filter:'all', sec:'all', minYield:0, minSafety:0};
   var VS = el._valState;
+  if (VS.sec       === undefined) VS.sec       = 'all';
+  if (VS.minYield  === undefined) VS.minYield  = 0;
+  if (VS.minSafety === undefined) VS.minSafety = 0;
 
   /* ── DRAW ──────────────────────────────────────────────── */
   function draw() {
     var cnt = count();
 
-    /* Liste filtrée + triée */
+    /* Secteurs distincts présents dans le portefeuille (pour le filtre) */
+    var sectors = [];
+    for (var szi=0; szi<raw.length; szi++) {
+      var szv = raw[szi].sec || 'Autre';
+      if (sectors.indexOf(szv) === -1) sectors.push(szv);
+    }
+    sectors.sort();
+
+    /* Liste filtrée (screener) + triée */
     var list = raw.slice().filter(function(d) {
-      return VS.filter==='all' || _computeVal(d).label===VS.filter;
+      if (VS.filter!=='all' && _computeVal(d).label!==VS.filter) return false;
+      if (VS.sec!=='all' && (d.sec||'Autre')!==VS.sec) return false;
+      if (_computeYield(d) < VS.minYield) return false;
+      if (_computeSafety(d) < VS.minSafety) return false;
+      return true;
     }).sort(function(a,b) {
       var order = {under:0, fair:1, over:2};
       var va = _computeVal(a); var vb = _computeVal(b);
@@ -193,6 +222,40 @@ export function renderValorisation(el) {
       + (VS.filter==='all'?'rgba(124,109,255,.15)':'transparent')+';color:'
       + (VS.filter==='all'?'var(--violet)':'var(--muted)')+'">Voir tout le portefeuille</button>'
       + '</div>';
+
+    /* ── Screener : secteur + yield min + safety min ─────────── */
+    var hasScreenerFilter = VS.sec!=='all' || VS.minYield>0 || VS.minSafety>0;
+    html += '<div style="background:var(--surface);border-radius:12px;padding:12px 13px;margin-bottom:14px;border:1px solid var(--border)">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:'+(hasScreenerFilter?'10px':'0')+'">'
+      + '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">🔎 Screener</div>'
+      + (hasScreenerFilter ? '<button id="screenerReset" style="font-size:10.5px;font-weight:600;color:var(--violet);cursor:pointer;background:none;border:none">Réinitialiser</button>' : '')
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
+      + '<div>'
+      + '<div style="font-size:9px;color:var(--muted);margin-bottom:4px">Secteur</div>'
+      + '<select id="screenerSec" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 8px;color:var(--text);font-size:11.5px;font-family:inherit">'
+      + '<option value="all"'+(VS.sec==='all'?' selected':'')+'>Tous</option>'
+      + sectors.map(function(s){ return '<option value="'+_esc(s)+'"'+(VS.sec===s?' selected':'')+'>'+_esc(s)+'</option>'; }).join('')
+      + '</select>'
+      + '</div>'
+      + '<div>'
+      + '<div style="font-size:9px;color:var(--muted);margin-bottom:4px">Safety min : <strong style="color:var(--text)">'+VS.minSafety+'</strong></div>'
+      + '<input type="range" id="screenerSafety" min="0" max="90" step="5" value="'+VS.minSafety+'" style="width:100%">'
+      + '</div>'
+      + '</div>'
+      + '<div>'
+      + '<div style="font-size:9px;color:var(--muted);margin-bottom:4px">Yield min : <strong style="color:var(--text)">'+VS.minYield.toFixed(1)+'%</strong></div>'
+      + '<input type="range" id="screenerYield" min="0" max="8" step="0.5" value="'+VS.minYield+'" style="width:100%">'
+      + '</div>'
+      + '<div style="font-size:10px;color:var(--muted);margin-top:10px;text-align:right">'+list.length+' / '+raw.length+' positions</div>'
+      + '</div>';
+
+    if (list.length === 0) {
+      html += '<div style="text-align:center;padding:30px 16px;color:var(--muted);font-size:12px">Aucune position ne correspond à ces critères.</div>';
+      el.innerHTML = html;
+      _bindValFilters();
+      return;
+    }
 
     /* ── Cards ──────────────────────────────────────────────── */
     for (var i=0; i<list.length; i++) {
@@ -320,37 +383,49 @@ export function renderValorisation(el) {
       + '</div>';
 
     el.innerHTML = html;
+    _bindValFilters();
 
-    /* ── Bind clics ──────────────────────────────────────────── */
-    var btns = el.querySelectorAll('[data-vf]');
-    for (var fi=0; fi<btns.length; fi++) {
-      (function(b){ b.addEventListener('click',function(){ VS.filter=b.dataset.vf; draw(); }); })(btns[fi]);
-    }
+    /* ── Bind clics + contrôles screener (aussi utilisé par l'état "0 résultat") ── */
+    function _bindValFilters() {
+      var btns = el.querySelectorAll('[data-vf]');
+      for (var fi=0; fi<btns.length; fi++) {
+        (function(b){ b.addEventListener('click',function(){ VS.filter=b.dataset.vf; draw(); }); })(btns[fi]);
+      }
 
-    /* Simulator toggle */
-    var simCk = document.getElementById('simToggleCk');
-    var simBody = document.getElementById('simBody');
-    if (simCk) {
-      simCk.addEventListener('change', function() {
-        SIM.open = this.checked;
-        if (simBody) simBody.style.display = SIM.open ? 'block' : 'none';
-        if (SIM.open) {
+      var secSel = document.getElementById('screenerSec');
+      if (secSel) secSel.addEventListener('change', function(){ VS.sec = this.value; draw(); });
+      var yldRange = document.getElementById('screenerYield');
+      if (yldRange) yldRange.addEventListener('input', function(){ VS.minYield = +this.value; draw(); });
+      var safRange = document.getElementById('screenerSafety');
+      if (safRange) safRange.addEventListener('input', function(){ VS.minSafety = +this.value; draw(); });
+      var resetBtn = document.getElementById('screenerReset');
+      if (resetBtn) resetBtn.addEventListener('click', function(){ VS.sec='all'; VS.minYield=0; VS.minSafety=0; draw(); });
+
+      /* Simulator toggle */
+      var simCk = document.getElementById('simToggleCk');
+      var simBody = document.getElementById('simBody');
+      if (simCk) {
+        simCk.addEventListener('change', function() {
+          SIM.open = this.checked;
+          if (simBody) simBody.style.display = SIM.open ? 'block' : 'none';
+          if (SIM.open) {
+            var sr = document.getElementById('simResults');
+            if (sr) sr.innerHTML = renderSimResults(SIM.budget);
+          }
+        });
+      }
+      var simBudgetInput = document.getElementById('simBudget');
+      if (simBudgetInput) {
+        simBudgetInput.addEventListener('input', function() {
+          SIM.budget = +this.value || 1000;
           var sr = document.getElementById('simResults');
           if (sr) sr.innerHTML = renderSimResults(SIM.budget);
-        }
-      });
-    }
-    var simBudgetInput = document.getElementById('simBudget');
-    if (simBudgetInput) {
-      simBudgetInput.addEventListener('input', function() {
-        SIM.budget = +this.value || 1000;
-        var sr = document.getElementById('simResults');
-        if (sr) sr.innerHTML = renderSimResults(SIM.budget);
-      });
-    }
-    if (SIM.open) {
-      var sr2 = document.getElementById('simResults');
-      if (sr2) sr2.innerHTML = renderSimResults(SIM.budget);
+        });
+      }
+      if (SIM.open) {
+        var sr2 = document.getElementById('simResults');
+        if (sr2) sr2.innerHTML = renderSimResults(SIM.budget);
+      }
     }
   }
 

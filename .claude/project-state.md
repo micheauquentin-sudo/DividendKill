@@ -1,64 +1,65 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 08:04] chore: session-stop snapshot [2026-07-03 08:04] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 08:04] context: D'après le roadmap (`.claude/roadmap.md`), je recommande **les états de chargement (skeleton)** : actuellement l'app aff -->
-<!-- resume-from: files: .claude/bugs.md, .claude/roadmap.md, worker/src/index.js -->
 
 ## Current mission
-Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
-display correctly for all portfolio stocks.
+Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
+fundamentals pipeline was confirmed fixed (P/E, payout, safety all display
+correctly end-to-end via AV fallback for FMP-402'd tickers).
 
 ---
 
-## Last completed
-- Fixed `normalizeProfile`: wrong FMP field names (`lastDiv`→`lastDividend`, `mktCap`→`marketCap`, `volAvg`→`averageVolume`, removed non-existent `dividendYield`/`pe`)
-- Fixed `normalizeFunda`: removed `dividendYield` fallback, fixed `lastDiv*4`→`+lastDividend` (already annual)
-- Bumped KV key `funda4:`→`funda5:` and client cache `v4`→`v5` to purge stale null data
-- Fixed `normalizeFunda`: `dividends` wrapped format `{ historical: [] }` handled correctly
-- Fixed calendar NaN: `(a.d||0)` guard in calendar.js line 22
-- Fixed search: `_fabOfflineSearch` shows typed ticker as "Saisie manuelle" when not in portfolio
-- Added FMP search v3 fallback in `searchProxy`
+## Last completed (this session)
+- **P/E N/A root cause**: confirmed via `/api/debug/funda?avlive=1` — AV_KEY is
+  correctly bound, free-tier AV quota (25/day) was exhausted from testing.
+  Not a bug; resets daily. Also fixed a real leak: AV's rate-limit error echoes
+  the API key in plaintext, and the public debug endpoint relayed it — redacted.
+- **Skeleton loading states** (roadmap Phase 3 + bugs.md medium item): added
+  `_loadingSkeleton()` in `ui-shared.js` + `.dk-skel` shimmer class in
+  `style.css`. `ui.js` shows it only on a true first-boot (positions exist but
+  `MarketData.getCacheInfo().total === 0`), cleared on first price tick.
+- **Screener** (roadmap Phase 4): added sector/yield-min/safety-min filter bar
+  directly into the existing Valorisation panel (`src/panels/valorisation.js`)
+  — reuses its card list rather than a new nav tab.
+- **Dividend history chart** (roadmap Phase 4): new "📊 Historique" mode in
+  `src/panels/dividendes.js` (`renderHistory`) — real yearly totals from
+  `Data.transactions` (type `dividend`), bar chart + per-year top contributors.
+- All 3 verified end-to-end with Playwright against the built app (mocked
+  auth/API routes), not unit tests — screenshots confirmed correct rendering,
+  filtering, and skeleton→real-data transition.
 
 ---
 
 ## Current task
-Verify that dividends/P/E now display correctly after the funda5 deploy
-
-Status:
-[ ] Not started
-[x] In progress (waiting for CI deploy ~2 min after last push)
-[ ] Testing
-[ ] Done
-
-Current file:
-worker/src/index.js (normalizeProfile + normalizeFunda)
+None in progress — awaiting next user request.
 
 ---
 
-## Next actions
-1. User opens app → confirm YIELD, P/E, DIV./AN show real values (not 0)
-2. If still 0: check `/api/debug/price?symbol=APD&live=1` for `fmp_profile_lastDividend` value
-3. If confirmed working: mark this mission done, pick up roadmap Phase 2
+## Files touched (this session)
+- `worker/src/index.js` — `/api/debug/av-seed` (+ `action=clear`), `av_key_set`/
+  `av_key_len`, `?avlive=1` live AV test (key redacted from response)
+- `src/fmpData.js` — CACHE_KEY bumped v9→v11 (mock-data purge + tightened
+  incomplete check to `pe_cur == null` only, matching server logic)
+- `src/ui.js` — boot skeleton flag/dispatch, `_loadingSkeleton` import
+- `src/ui-shared.js` — `_loadingSkeleton()` helper
+- `src/style.css` — `.dk-skel` shimmer class
+- `src/panels/valorisation.js` — screener filter bar + state
+- `src/panels/dividendes.js` — `renderHistory()` + 3rd mode switcher button
 
 ---
 
-## Files touched (this mission)
-- `worker/src/index.js` — normalizeProfile, normalizeFunda, KV key funda4→funda5
-- `src/fmpData.js` — CACHE_KEY v4→v5
-- `src/panels/calendar.js` — NaN guard line 22
-- `src/ui.js` — re-render after FmpData load, bootFmpPromise callback
-
----
-
-## Known blockers
-- FMP free plan has no `dividendYield` or `pe` in `/stable/profile` — both must be derived
-- P/E comes from `/stable/key-metrics-ttm` (`peRatioTTM` field) — already wired
-- Pay months for some tickers hardcoded in `calendar.js` PAY_MONTHS map (fallback)
+## Known blockers / notes
+- FMP free plan still 402s financial statements for all but a handful of
+  popular tickers — Alpha Vantage OVERVIEW is the permanent fallback
+  (`av9:SYMBOL` KV cache, 7-day TTL, 25 calls/day quota).
+- Mock AV seed endpoint (`/api/debug/av-seed`) exists for testing without
+  burning AV quota — remember to `?action=clear` before relying on live data.
+- Pay months for some tickers still hardcoded in `calendar.js` PAY_MONTHS map.
 
 ---
 
 ## Resume instruction
 When restarting:
-1. Read architecture.md → understand the FMP→KV→client pipeline
-2. Read this file → pick up current task
-3. Check git log for last commit message to know where code stands
-4. Do NOT re-analyse fmpData.js or ui.js unless a new bug is reported
+1. Read `architecture.md` → understand the FMP→AV→KV→client pipeline
+2. Read this file → pick up current task (none pending as of last session)
+3. Check git log for the latest commit to confirm deploy state
+4. Roadmap Phase 3/4 remaining items: mobile keyboard handling, faster boot
+   prefetch, dark/light theme, PDF/CSV export, watchlist alerts

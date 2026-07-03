@@ -1,5 +1,6 @@
 import { _emptyState, buildSVG } from '../ui-shared.js';
 import { getDivA, getMV, getCost, toE, eu } from '../calc.js';
+import { Data } from '../data.js';
 
 export function renderDividendes(el) {
   /* ── État vide ── */
@@ -26,9 +27,13 @@ export function renderDividendes(el) {
   /* -- mode switcher (Snowball / Simulation) -------------- */
   if (el._divMode === undefined) el._divMode = 'snowball';
 
-  /* -- si mode simulation, déléguer ----------------------- */
+  /* -- si mode simulation/historique, déléguer ------------- */
   if (el._divMode === 'simulation') {
     renderSimulation(el);
+    return;
+  }
+  if (el._divMode === 'history') {
+    renderHistory(el);
     return;
   }
 
@@ -152,6 +157,10 @@ export function renderDividendes(el) {
       +'style="padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;transition:all .15s;cursor:pointer;border:none;min-height:44px;'
       +(el._divMode==='simulation'?'background:var(--violet);color:#fff;':'background:transparent;color:var(--muted);')
       +'">🧮 Simulation</button>'
+      +'<button id="btnModeHistory" onclick="(function(){var p=document.getElementById(\'panel-dividendes\');if(p){p._divMode=\'history\';renderDividendes(p);}})()" '
+      +'style="padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;transition:all .15s;cursor:pointer;border:none;min-height:44px;'
+      +(el._divMode==='history'?'background:var(--violet);color:#fff;':'background:transparent;color:var(--muted);')
+      +'">📊 Historique</button>'
       +'</div>'
 
       /* Titre */
@@ -401,6 +410,8 @@ export function renderSimulation(el) {
       +'<button onclick="(function(){var p=document.getElementById(\'panel-dividendes\');if(p){p._divMode=\'snowball\';renderDividendes(p);}})()" '
       +'style="padding:7px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);">📈 Snowball</button>'
       +'<button style="padding:7px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:var(--violet);color:#fff;">🧮 Simulation</button>'
+      +'<button onclick="(function(){var p=document.getElementById(\'panel-dividendes\');if(p){p._divMode=\'history\';renderDividendes(p);}})()" '
+      +'style="padding:7px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);">📊 Historique</button>'
       +'</div>'
 
       /* Header */
@@ -539,6 +550,125 @@ export function renderSimulation(el) {
       + '<div style="font-weight:700;margin-bottom:6px">⚠️ Erreur Simulation</div>'
       + e.message + '</div>';
   }
+}
+
+/* ── Historique réel des dividendes perçus (depuis les transactions) ── */
+export function renderHistory(el) {
+  /* Mode switcher (réutilisé identique aux 2 autres vues) */
+  function modeSwitcher() {
+    return '<div style="display:flex;gap:0;background:var(--surface);border-radius:10px;padding:3px;margin-bottom:14px;width:fit-content">'
+      + '<button onclick="(function(){var p=document.getElementById(\'panel-dividendes\');if(p){p._divMode=\'snowball\';renderDividendes(p);}})()" '
+      + 'style="padding:7px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);">📈 Snowball</button>'
+      + '<button onclick="(function(){var p=document.getElementById(\'panel-dividendes\');if(p){p._divMode=\'simulation\';renderDividendes(p);}})()" '
+      + 'style="padding:7px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);">🧮 Simulation</button>'
+      + '<button style="padding:7px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:var(--violet);color:#fff;">📊 Historique</button>'
+      + '</div>';
+  }
+
+  /* Agrège les transactions dividend réellement perçues, par année (USD, comme tx.price) */
+  function yearlyDividends() {
+    var byYear = {};
+    var txs = Data.transactions || [];
+    for (var i = 0; i < txs.length; i++) {
+      var tx = txs[i];
+      if (tx.type !== 'dividend' || !tx.date) continue;
+      var yr = tx.date.slice(0, 4);
+      if (!byYear[yr]) byYear[yr] = { gross: 0, tax: 0, byTicker: {} };
+      var amt = tx.quantity * tx.price;
+      byYear[yr].gross += amt;
+      byYear[yr].tax   += (tx.tax_withheld || 0);
+      byYear[yr].byTicker[tx.ticker] = (byYear[yr].byTicker[tx.ticker] || 0) + amt;
+    }
+    var years = Object.keys(byYear).sort();
+    return years.map(function(y) {
+      var yd = byYear[y];
+      var top = Object.keys(yd.byTicker).map(function(t){ return [t, yd.byTicker[t]]; })
+        .sort(function(a,b){ return b[1]-a[1]; }).slice(0, 3);
+      return { year: y, gross: yd.gross, net: yd.gross - yd.tax, tax: yd.tax, top: top };
+    });
+  }
+
+  function barsSVG(rows) {
+    var W = 340, H = 170, padB = 26, padT = 22;
+    var vals = rows.map(function(r){ return toE(r.gross); });
+    var mx = Math.max.apply(null, vals) || 1;
+    var n = rows.length;
+    var gap = 10;
+    var barW = Math.min(50, (W - gap * (n + 1)) / n);
+    var usedW = barW * n + gap * (n + 1);
+    var offset = (W - usedW) / 2;
+    var bars = '';
+    for (var i = 0; i < n; i++) {
+      var x = offset + gap + i * (barW + gap);
+      var h = Math.max(3, (vals[i] / mx) * (H - padB - padT));
+      var y = H - padB - h;
+      var isLast = i === n - 1;
+      bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1)
+        + '" rx="5" fill="' + (isLast ? '#22d47a' : '#7c6dff') + '" opacity="' + (isLast ? '1' : '0.65') + '"/>';
+      bars += '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (H - 8) + '" fill="#9ca3af" font-size="10" text-anchor="middle">' + rows[i].year + '</text>';
+      bars += '<text x="' + (x + barW / 2).toFixed(1) + '" y="' + (y - 6).toFixed(1) + '" fill="#e2e2ec" font-size="10" font-weight="700" text-anchor="middle">' + Math.round(vals[i]).toLocaleString('fr-FR') + '€</text>';
+    }
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:' + H + 'px;display:block">' + bars + '</svg>';
+  }
+
+  var rows = yearlyDividends();
+
+  if (rows.length === 0) {
+    el.innerHTML = modeSwitcher()
+      + _emptyState('📊', 'Aucun historique', 'Les dividendes perçus (transactions importées ou saisies manuellement) apparaîtront ici année par année, une fois enregistrés.');
+    return;
+  }
+
+  var lastYear = rows[rows.length - 1];
+  var prevYear = rows.length >= 2 ? rows[rows.length - 2] : null;
+  var yoy = prevYear && prevYear.gross > 0 ? (lastYear.gross - prevYear.gross) / prevYear.gross * 100 : null;
+  var totalGross = rows.reduce(function(s, r){ return s + r.gross; }, 0);
+
+  function topList(top) {
+    if (!top.length) return '';
+    return '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'
+      + top.map(function(t) {
+        return '<span style="font-size:10px;background:var(--surface2);border-radius:20px;padding:4px 10px;color:var(--muted)">'
+          + '<strong style="color:var(--text)">' + t[0] + '</strong> $' + Math.round(t[1]).toLocaleString('fr-FR') + '</span>';
+      }).join('')
+      + '</div>';
+  }
+
+  var html = modeSwitcher()
+    + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'
+    + '<span style="font-size:22px">📊</span>'
+    + '<div><div class="section-title" style="margin:0">Historique des dividendes</div>'
+    + '<div class="mu" style="font-size:11px">Montants réellement perçus · ' + rows.length + ' année' + (rows.length > 1 ? 's' : '') + '</div>'
+    + '</div></div>'
+
+    + '<div class="row2" style="margin-bottom:10px">'
+    + '<div class="card"><div class="mini-k-l">DERNIÈRE ANNÉE (' + lastYear.year + ')</div>'
+    + '<div class="mini-k-v up" style="font-size:22px;margin:4px 0">$' + Math.round(lastYear.gross).toLocaleString('fr-FR') + '</div>'
+    + '<div class="mu" style="font-size:11px">' + (yoy != null ? (yoy >= 0 ? '+' : '') + yoy.toFixed(1) + '% vs ' + prevYear.year : 'Brut perçu') + '</div></div>'
+    + '<div class="card"><div class="mini-k-l">TOTAL CUMULÉ</div>'
+    + '<div class="mini-k-v" style="font-size:22px;margin:4px 0;color:#86efad">$' + Math.round(totalGross).toLocaleString('fr-FR') + '</div>'
+    + '<div class="mu" style="font-size:11px">Depuis ' + rows[0].year + '</div></div>'
+    + '</div>'
+
+    + '<div class="card" style="padding:14px 12px 10px;margin-bottom:10px">'
+    + '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px">DIVIDENDES BRUTS PAR AN (€)</div>'
+    + barsSVG(rows)
+    + '</div>'
+
+    + '<div class="twrap"><table>'
+    + '<thead><tr><th>ANNÉE</th><th style="text-align:right">BRUT</th><th style="text-align:right">RETENUE</th><th style="text-align:right">NET</th></tr></thead>'
+    + '<tbody>' + rows.slice().reverse().map(function(r) {
+        return '<tr>'
+          + '<td class="fw7 mono">' + r.year + '</td>'
+          + '<td class="mono up" style="text-align:right">$' + Math.round(r.gross).toLocaleString('fr-FR') + '</td>'
+          + '<td class="mono" style="text-align:right;color:var(--muted)">$' + Math.round(r.tax).toLocaleString('fr-FR') + '</td>'
+          + '<td class="mono" style="text-align:right;color:#86efad">$' + Math.round(r.net).toLocaleString('fr-FR') + '</td>'
+          + '</tr>'
+          + '<tr><td colspan="4" style="padding-top:0">' + topList(r.top) + '</td></tr>';
+      }).join('')
+    + '</tbody></table></div>';
+
+  el.innerHTML = html;
 }
 
 window.renderDividendes = renderDividendes;
