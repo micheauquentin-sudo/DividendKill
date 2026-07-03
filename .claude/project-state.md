@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 07:39] chore: session-stop snapshot [2026-07-03 07:39] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 07:44] chore: session-stop snapshot [2026-07-03 07:44] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 07:44] context: C'est en fait possible que ce soit cohérent : mes données mock avaient été estimées à partir de P/E réalistes connus, do -->
 <!-- resume-from: files: src/fmpData.js -->
 
