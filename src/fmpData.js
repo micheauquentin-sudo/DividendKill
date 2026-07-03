@@ -1,7 +1,7 @@
 import { Config } from './config.js';
 
 export const FmpData = (() => {
-  const CACHE_KEY = 'astra_fmp_cache_v16';
+  const CACHE_KEY = 'astra_fmp_cache_v17';
   const TTL       = 24 * 3600 * 1000; // 24 h
   const _cache    = {};
 
@@ -19,8 +19,24 @@ export const FmpData = (() => {
       }
     } catch(e) {}
   }
+  // Centralise la définition de "réponse incomplète" — utilisée à la fois pour décider
+  // si une entrée FRAÎCHEMENT reçue mérite d'être mise en cache, ET pour décider si une
+  // entrée DÉJÀ en cache (mais encore dans le TTL) doit quand même être re-demandée.
+  // Avant ce garde-fou, une entrée incomplète mise en cache une seule fois restait
+  // "fraîche" (donc jamais re-fetchée) pendant tout le TTL de 24h, même après un Sync
+  // manuel ou un rechargement complet de l'appli — seul un bump de CACHE_KEY la
+  // débloquait. Désormais, tant qu'un champ manque, chaque Sync retente automatiquement.
+  function _isIncomplete(d) {
+    return !d || (
+      d.pe_cur == null ||
+      (d.annual_div > 0 && d.fair_value == null && !d._fv_tried) ||
+      d._dse2_ver == null
+    );
+  }
   function _isFresh(ticker) {
-    return _cache[ticker] && (Date.now() - _cache[ticker].ts < TTL);
+    const c = _cache[ticker];
+    if (!c || (Date.now() - c.ts >= TTL)) return false;
+    return !_isIncomplete(c.data);
   }
 
   async function _fetchOne(ticker) {
@@ -43,19 +59,7 @@ export const FmpData = (() => {
     toFetch.forEach((t, i) => {
       if (results[i].status === 'fulfilled') {
         const d = results[i].value;
-        // Ne pas mettre en cache localStorage si pe_cur est manquant (données
-        // incomplètes suite à 429/402), OU si le serveur n'a pas encore fini de
-        // tenter la valorisation par réversion (annonce un dividende mais pas de
-        // fair_value ET pas de _fv_tried), OU si le Dividend Safety Score V2 n'a
-        // jamais été tenté (_dse2_ver absent) — sinon ce ticker resterait bloqué sur
-        // une réponse partielle pendant tout le TTL local (24h), même après un
-        // Sync manuel, tant que le serveur n'a pas conclu son propre essai.
-        const incomplete = d && (
-          d.pe_cur == null ||
-          (d.annual_div > 0 && d.fair_value == null && !d._fv_tried) ||
-          d._dse2_ver == null
-        );
-        if (!incomplete) _cache[t] = { data: d, ts: now };
+        if (!_isIncomplete(d)) _cache[t] = { data: d, ts: now };
       } else {
         console.warn('[FmpData] échec', t, results[i].reason?.message);
       }
