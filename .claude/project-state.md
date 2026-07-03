@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 22:54] chore: update claude memory — streak-based cut detection + version sync fix -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 22:46] context: Poussé (`ef67e7c`). Cette fois le correctif compare la version exacte de `dse2` (pas juste sa présence) — devrait empêch -->
-<!-- resume-from: files: src/fmpData.js -->
+<!-- interrupted: [2026-07-03 22:54] context: Poussé (`7eb3078` + mémoire). Dernier ajout : le "streak" réel (années sans baisse, quand FMP arrive à donner l'historiq -->
+<!-- resume-from: files: .claude/project-state.md, src/fmpData.js, worker/src/index.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
