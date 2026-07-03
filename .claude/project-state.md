@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:15] fix: Finnhub dividend history fallback for yield-reversion valuation -- src/fmpData.js worker/src/index.js -->
+<!-- last-commit: [2026-07-03 12:16] chore: update claude memory -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 11:55] context: Tout est poussé et déployé. Voici ce que j'ai reconstitué et corrigé. -->
 <!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
