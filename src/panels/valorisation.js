@@ -10,22 +10,36 @@ export function renderValorisation(el) {
   /* ── P/E de référence sectoriel ─────────────────────────── */
   var SECTOR_FAIR_PE = {'Tech':28,'Santé':22,'Finance':15,'Utilities':18,'Conso.':20,'Industrie':20,'Mat.':17,'Immo.':18,'Énergie':12,'Médias':16};
 
-  /* ── Signal de valorisation : pe_cur vs fair PE sectoriel, ajusté qualité ──
-     Une moyenne sectorielle brute pénalise systématiquement les compounders de
-     qualité (ex. ADP, longue série de hausses, faible bêta) qui méritent
-     historiquement un multiple plus élevé que la moyenne de leur secteur, et
-     inversement pour les actions plus fragiles. On ajuste donc le P/E de
-     référence avec le score de sécurité dividende déjà calculé (DSE=50 neutre
-     → aucun ajustement), et on élargit la bande "raisonnable" à ±15% (au lieu
-     de ±10%) pour éviter de sur-déclencher sur des écarts marginaux. */
+  /* ── Signal de valorisation ────────────────────────────────
+     MÉTHODE PRINCIPALE — réversion du rendement (façon Simply Safe Dividends) :
+     le worker calcule fair_value = dividende_annuel / rendement_médian_5ans DE
+     L'ACTION. On compare le prix actuel à cette fair value. C'est bien plus juste
+     qu'une moyenne sectorielle : un assureur comme UNM au rendement compressé
+     (2.2% vs ~3.8% hist.) ressort "surévalué" même avec un P/E absolu bas, et un
+     compounder comme ACN au rendement gonflé ressort "sous-évalué".
+     Bandes calées sur les données SSD réelles : <0.88 sous-évalué, >1.20 surévalué.
+
+     FALLBACK — si le worker n'a pas encore de fair_value (pas de dividende, ou
+     historique de prix indisponible) : ancien P/E sectoriel ajusté qualité. */
   function _computeVal(d) {
     var a = assets[d.ticker] || {};
+    var pe_cur = a.pe_cur || 0;
+
+    // 1) Réversion du rendement (méthode privilégiée)
+    if (a.fair_value && a.fair_value > 0 && d.price > 0) {
+      var ratio = d.price / a.fair_value;
+      // Bandes asymétriques calées sur SSD : "may be undervalued" est un signal souple
+      // (dès ~5% sous la fair value), "overvalued" plus exigeant (>20% au-dessus).
+      var label1 = ratio < 0.95 ? 'under' : ratio > 1.20 ? 'over' : 'fair';
+      return {label: label1, exp: Math.round(a.fair_value), fair_pe: 0, pe_cur: pe_cur, method: 'yield', avg_yield_5y: a.avg_yield_5y || null};
+    }
+
+    // 2) Fallback P/E sectoriel ajusté qualité
     var sec = d.sec || a.sector || (meta[d.ticker] || {}).sector || '';
     var baseFairPe = SECTOR_FAIR_PE[sec] || 20;
     var dseScore = _computeSafety(d);
     var qualityAdj = 1 + (dseScore - 50) / 75;
     var fair_pe = +(baseFairPe * qualityAdj).toFixed(1);
-    var pe_cur = a.pe_cur || 0;
     var label;
     if (pe_cur > 0) {
       var disc = (fair_pe - pe_cur) / fair_pe;
@@ -36,7 +50,7 @@ export function renderValorisation(el) {
       label = 'fair';
     }
     var exp = (pe_cur > 0 && d.price > 0) ? Math.round(d.price / pe_cur * fair_pe) : 0;
-    return {label: label, exp: exp, fair_pe: fair_pe, pe_cur: pe_cur};
+    return {label: label, exp: exp, fair_pe: fair_pe, pe_cur: pe_cur, method: 'pe'};
   }
 
   /* ── Screener : yield + safety score par position (indépendants du signal P/E) ── */
@@ -294,7 +308,19 @@ export function renderValorisation(el) {
 
       /* jauges : vert si sous-évalué / yield élevé, orange/rouge sinon */
       var yldDot = yd >= 3 ? '#22d47a' : yd >= 1.5 ? '#f5a623' : '#f43f5e';
-      var peDot  = (v.fair_pe > 0 && pe > 0) ? (pe <= v.fair_pe ? '#22d47a' : '#f5a623') : '#9ca3af';
+      /* Cellule P/E — en mode réversion du rendement, la jauge compare le rendement
+         actuel à la moyenne 5 ans (rdt > moy = action moins chère = vert), et le
+         sous-titre affiche cette moyenne. En mode fallback P/E, on garde vs fair PE. */
+      var peDot, peFill, peLbl;
+      if (v.method === 'yield' && v.avg_yield_5y > 0) {
+        peDot  = yd >= v.avg_yield_5y ? '#22d47a' : '#f5a623';
+        peFill = Math.min(100, yd / v.avg_yield_5y * 50);
+        peLbl  = 'rdt vs moy 5a ' + v.avg_yield_5y.toFixed(1) + '%';
+      } else {
+        peDot  = (v.fair_pe > 0 && pe > 0) ? (pe <= v.fair_pe ? '#22d47a' : '#f5a623') : '#9ca3af';
+        peFill = (v.fair_pe > 0 && pe > 0) ? Math.min(100, pe / v.fair_pe * 100) : 0;
+        peLbl  = 'vs fair PE ' + v.fair_pe + 'x';
+      }
 
       html += '<div style="background:var(--surface);border-radius:14px;border-left:3px solid '+lc.col+';padding:14px;margin-bottom:10px">'
 
@@ -351,7 +377,7 @@ export function renderValorisation(el) {
         /* P/E */
         + '<div style="background:var(--surface2);border-radius:9px;padding:8px;text-align:center">'
         + '<div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px">P/E</div>'
-        + miniGauge(v.fair_pe > 0 && pe > 0 ? Math.min(100, pe/v.fair_pe*100) : 0, peDot, 'vs fair PE '+v.fair_pe+'x')
+        + miniGauge(peFill, peDot, peLbl)
         + '<div style="font-size:12px;font-weight:700;font-family:DM Mono,monospace;color:var(--text);margin-top:3px">'+(pe > 0 ? pe.toFixed(1)+'x' : 'N/A')+'</div>'
         + '</div>'
 
@@ -388,8 +414,9 @@ export function renderValorisation(el) {
       + '<span style="font-size:18px;font-weight:700;font-family:DM Mono,monospace;color:#22d47a">$'+Math.round(totalInc).toLocaleString('fr-FR')+'</span>'
       + '</div>'
       + '<div style="margin-top:10px;padding:10px 12px;background:rgba(124,109,255,.05);border:1px solid rgba(124,109,255,.12);border-radius:8px;font-size:9.5px;color:var(--muted);line-height:1.6">'
-      + '<strong style="color:var(--violet)">M\u00e9thode :</strong> Signal calcul\u00e9 depuis P/E TTM (FMP Live) vs P/E de r\u00e9f\u00e9rence sectoriel. '
-      + 'Barre yield = niveau actuel / 6%\u00a0\u00b7 Barre P/E = ratio vs fair PE sectoriel. Donn\u00e9es en temps r\u00e9el.'
+      + '<strong style="color:var(--violet)">M\u00e9thode :</strong> Fair value = dividende annuel \u00f7 rendement m\u00e9dian 5\u00a0ans de l\'action '
+      + '(r\u00e9version du rendement, fa\u00e7on Simply Safe Dividends). Sous-\u00e9valu\u00e9e si le prix est \u2264 88% de la fair value, '
+      + 'survalu\u00e9e si \u2265 120%. Repli sur P/E sectoriel ajust\u00e9 qualit\u00e9 si l\'historique de rendement est indisponible.'
       + '</div>';
 
     el.innerHTML = html;

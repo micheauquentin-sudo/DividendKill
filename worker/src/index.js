@@ -676,6 +676,8 @@ function normalizeFunda(rawProfile, rawDivs) {
     debt_ebitda:  null,
     debt_equity:  null,
     interest_cov: null,
+    fair_value:   null,   // valorisation par réversion du rendement (rempli après)
+    avg_yield_5y: null,
     pay_months:   extractPayMonths(divsArr),
     streak:       computeStreak(divsArr),
     div_cagr_5y:  computeDivCAGR5y(divsArr),
@@ -849,6 +851,11 @@ async function fmpProxy(req, env) {
       price = cachedPrice?.regularMarketPrice || null;
     }
     await fillFundaFallback(result, symbol, env, price);
+    // Valorisation par réversion du rendement (fair value vs prix courant) — Simply Safe Dividends
+    if (price > 0 && result.annual_div > 0) {
+      const yr = await fetchYieldReversion(symbol, price, result.annual_div, rawDivs, env);
+      if (yr) { result.fair_value = yr.fair_value; result.avg_yield_5y = yr.avg_yield_5y; }
+    }
     // Cache 6h si toujours pas de métriques (quotas épuisés ou clés absentes), sinon TTL long
     const stillIncomplete = result.pe_cur == null && result.payout_ratio == null;
     const ttl = stillIncomplete ? 21600 : ttlFunda();
@@ -1167,6 +1174,77 @@ async function fillFundaFallback(result, symbol, env, price) {
 // ── Cron: prix + fondamentaux automatiques à la clôture marché ─
 const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
 
+// ── Valorisation par réversion du rendement (méthode Simply Safe Dividends) ──
+// Au lieu de comparer le P/E à une moyenne sectorielle rigide (qui juge à tort
+// les compounders de qualité surévalués et les assureurs sous-évalués), on
+// compare le rendement du dividende ACTUEL au rendement MOYEN 5 ans DE L'ACTION
+// elle-même. Une action est "chère" quand son rendement est bien SOUS sa moyenne
+// (le cours a trop monté), "bon marché" quand il est bien AU-DESSUS.
+//   fair_value = dividende_annuel / rendement_médian_5ans
+// Vérifié sur les chiffres SSD : UNM (rdt 2.2% vs ~3.8% hist) → fair ~53$ = "surévalué",
+// ACN (rdt 3.9% vs ~2% hist) → fair ~325$ = "sous-évalué". Correspond à leur "Expected".
+// Ne nécessite que l'historique des dividendes (déjà fetché) + l'historique des prix
+// FMP (1 appel /historical-price-eod, plan gratuit). Caché séparément (yr9:SYMBOL)
+// avec TTL long pour ne pas refaire cet appel à chaque refresh funda.
+async function fetchYieldReversion(symbol, price, annualDiv, rawDivs, env) {
+  if (!price || price <= 0 || !annualDiv || annualDiv <= 0) return null;
+  const cacheKey = `yr9:${symbol}`;
+  if (env.PRICES_KV) {
+    try {
+      const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+      if (cached) {
+        // Le fair_value dépend du dividende annuel courant — on recalcule à partir
+        // du rendement moyen mémorisé (stable) sans refetch l'historique des prix.
+        if (cached.avg_yield_5y > 0) {
+          return { fair_value: +(annualDiv / (cached.avg_yield_5y / 100)).toFixed(2), avg_yield_5y: cached.avg_yield_5y };
+        }
+        return cached;
+      }
+    } catch(_) {}
+  }
+  // Normalise l'historique des dividendes (adjDividend = ajusté splits, cohérent avec adjClose)
+  const divsArr = Array.isArray(rawDivs) ? rawDivs
+                : Array.isArray(rawDivs?.historical) ? rawDivs.historical : [];
+  const divs = divsArr
+    .map(d => ({ date: (d.paymentDate || d.date || ''), amt: (d.adjDividend || d.dividend || 0) }))
+    .filter(d => d.date && d.amt > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (divs.length < 4) return null; // pas assez d'historique de dividendes
+  try {
+    const from = new Date(Date.now() - 5 * 365 * 86400000).toISOString().slice(0, 10);
+    const url = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&from=${from}&apikey=${env.FMP_KEY}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!r.ok) { console.warn('[YieldRev] histo HTTP', r.status, symbol); return null; }
+    const data = await r.json();
+    const hist = Array.isArray(data) ? data : (data.historical || []);
+    // Un point par mois (le plus récent du mois) pour lisser
+    const monthly = {};
+    for (const h of hist) {
+      if (!h.date || h.close == null) continue;
+      const ym = h.date.slice(0, 7);
+      const close = +(h.adjClose ?? h.close);
+      if (close > 0 && !monthly[ym]) monthly[ym] = { date: h.date, close };
+    }
+    // Rendement à chaque point = dividende TTM à cette date / prix à cette date
+    const yields = [];
+    for (const s of Object.values(monthly)) {
+      const yearAgo = new Date(new Date(s.date).getTime() - 365 * 86400000).toISOString().slice(0, 10);
+      let ttm = 0;
+      for (const d of divs) { if (d.date > yearAgo && d.date <= s.date) ttm += d.amt; }
+      if (ttm > 0) yields.push(ttm / s.close);
+    }
+    if (yields.length < 12) return null; // < 1 an de points valides → pas fiable
+    yields.sort((a, b) => a - b);
+    const median = yields[Math.floor(yields.length / 2)];
+    if (!median || median <= 0) return null;
+    const avg_yield_5y = +(median * 100).toFixed(3);
+    const fair_value   = +(annualDiv / median).toFixed(2);
+    if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify({ avg_yield_5y }), { expirationTtl: ttlFunda() });
+    console.log(`[YieldRev] ${symbol} rdt_médian_5a=${avg_yield_5y}% fair=${fair_value}`);
+    return { fair_value, avg_yield_5y };
+  } catch(e) { console.warn('[YieldRev] erreur', symbol, e.message); return null; }
+}
+
 async function handleScheduled(env) {
   if (!env.FMP_KEY || !env.PRICES_KV || !env.DB) return;
   const TTL_PRICE = 86400;
@@ -1194,6 +1272,11 @@ async function handleScheduled(env) {
         price = cachedPrice?.regularMarketPrice || null;
       }
       await fillFundaFallback(normalized, symbol, env, price);
+      // Valorisation par réversion du rendement (fair value) — Simply Safe Dividends
+      if (price > 0 && normalized.annual_div > 0) {
+        const yr = await fetchYieldReversion(symbol, price, normalized.annual_div, divsData, env);
+        if (yr) { normalized.fair_value = yr.fair_value; normalized.avg_yield_5y = yr.avg_yield_5y; }
+      }
       const stillIncomplete = normalized.pe_cur == null && normalized.payout_ratio == null;
       const ttl = stillIncomplete ? 21600 : ttlFunda();
       await env.PRICES_KV.put(`funda9:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttl });
@@ -1566,6 +1649,8 @@ async function debugFunda(req, env) {
     out.kv_interest   = cached?.interest_cov ?? null;
     out.kv_annual_div = cached?.annual_div ?? null;
     out.kv_streak     = cached?.streak     ?? null;
+    out.kv_fair_value = cached?.fair_value   ?? null;
+    out.kv_avg_yield_5y = cached?.avg_yield_5y ?? null;
     out.kv_data       = cached;
 
     // Vérifier le cache Finnhub (fh9:SYMBOL) — fallback principal

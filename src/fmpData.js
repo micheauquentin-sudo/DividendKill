@@ -105,6 +105,8 @@ export const FmpData = (() => {
     if (f.debt_ebitda  != null) set('debt_ebitda',   f.debt_ebitda);
     if (f.debt_equity  != null) set('debt_equity',   f.debt_equity);
     if (f.interest_cov != null) set('interest_cov',  f.interest_cov);
+    if (f.fair_value   != null) set('fair_value',    f.fair_value);
+    if (f.avg_yield_5y != null) set('avg_yield_5y',  f.avg_yield_5y);
     set('d', f.annual_div); // funda annual div (sum of last 12 months) always wins when non-null
     if (f.name && !a.name) set('name', f.name);
 
