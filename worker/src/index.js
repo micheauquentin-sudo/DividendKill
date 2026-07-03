@@ -1524,11 +1524,25 @@ const AV_MOCK = {
 };
 const AV_MOCK_TTL = 7 * 24 * 3600; // 7 jours (même TTL que le vrai cache AV)
 
+// GET /api/debug/av-seed?action=clear            → supprime av9+funda9 mock pour tous les tickers connus
+// GET /api/debug/av-seed?action=clear&symbol=APD  → supprime pour un seul ticker
 async function debugAvSeed(req, env) {
   if (!env.PRICES_KV) return err('PRICES_KV not bound', 500);
   const url    = new URL(req.url);
   const only   = (url.searchParams.get('symbol') || '').toUpperCase() || null;
+  const clear  = url.searchParams.get('action') === 'clear';
   const tickers = only ? [only] : Object.keys(AV_MOCK);
+
+  if (clear) {
+    const results = {};
+    for (const t of tickers) {
+      await env.PRICES_KV.delete(`av9:${t}`);
+      await env.PRICES_KV.delete(`funda9:${t}`);
+      results[t] = 'cleared';
+    }
+    return json({ cleared: results, count: tickers.length });
+  }
+
   const results = {};
   for (const t of tickers) {
     const d = AV_MOCK[t];
