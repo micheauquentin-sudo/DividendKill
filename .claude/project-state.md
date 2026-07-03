@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 07:17] chore: session-stop snapshot [2026-07-03 07:17] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 07:17] context: Poussé. Une fois que tu as ta clé Alpha Vantage : -->
+<!-- interrupted: [2026-07-03 07:23] context: Le cache mock est nettoyé (18/18). Il ne reste plus qu'à confirmer que la clé `AV_KEY` est bien configurée sur Cloudflar -->
 <!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
