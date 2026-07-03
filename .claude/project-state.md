@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 07:45] chore: session-stop snapshot [2026-07-03 07:45] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 07:45] context: Le serveur est confirmé propre (aucune donnée en KV). Le problème vient donc du **cache navigateur/PWA** qui sert encore -->
+<!-- interrupted: [2026-07-03 07:51] context: L'agent de debug travaille en arrière-plan sur l'audit de `fetchAlphaVantageOverview()` — je reviens vers toi dès qu'il  -->
 <!-- resume-from: files: (unknown) -->
 
 ## Current mission
