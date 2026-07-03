@@ -28,6 +28,11 @@ correctly end-to-end via AV fallback for FMP-402'd tickers).
 - All 3 verified end-to-end with Playwright against the built app (mocked
   auth/API routes), not unit tests — screenshots confirmed correct rendering,
   filtering, and skeleton→real-data transition.
+- **Finnhub added as primary fundamentals fallback**: confirmed live via
+  `/api/debug/finnhub?symbol=APD` that Finnhub's free tier (60 req/min) returns
+  P/E, EPS, payout, beta for tickers FMP 402s — no per-ticker blocking like FMP.
+  `fillFundaFallback()` now tries Finnhub before Alpha Vantage (25/day, kept as
+  backup only). Requires `FINNHUB_KEY` secret. KV cache key `fh9:SYMBOL`, 7d TTL.
 
 ---
 
@@ -38,7 +43,9 @@ None in progress — awaiting next user request.
 
 ## Files touched (this session)
 - `worker/src/index.js` — `/api/debug/av-seed` (+ `action=clear`), `av_key_set`/
-  `av_key_len`, `?avlive=1` live AV test (key redacted from response)
+  `av_key_len`, `?avlive=1` live AV test (key redacted from response),
+  `/api/debug/finnhub`, `fetchFinnhubMetrics()`, `fillFundaFallback()`
+- `worker/wrangler.toml` — documented `FINNHUB_KEY`/`AV_KEY` secrets
 - `src/fmpData.js` — CACHE_KEY bumped v9→v11 (mock-data purge + tightened
   incomplete check to `pe_cur == null` only, matching server logic)
 - `src/ui.js` — boot skeleton flag/dispatch, `_loadingSkeleton` import
@@ -51,8 +58,12 @@ None in progress — awaiting next user request.
 
 ## Known blockers / notes
 - FMP free plan still 402s financial statements for all but a handful of
-  popular tickers — Alpha Vantage OVERVIEW is the permanent fallback
-  (`av9:SYMBOL` KV cache, 7-day TTL, 25 calls/day quota).
+  popular tickers — Finnhub (primary) → Alpha Vantage (backup) cover the gap.
+- **Important**: tickers whose `funda9:SYMBOL` KV entry already has a non-null
+  `pe_cur` (e.g. from earlier AV-mock testing) are cached for ~120 days and
+  won't automatically switch to Finnhub data. If a ticker still shows old/mock
+  values, clear it: `/api/debug/av-seed?action=clear` (covers the 18 tickers
+  used for mock testing) or delete `funda9:SYMBOL` for a specific ticker.
 - Mock AV seed endpoint (`/api/debug/av-seed`) exists for testing without
   burning AV quota — remember to `?action=clear` before relying on live data.
 - Pay months for some tickers still hardcoded in `calendar.js` PAY_MONTHS map.
