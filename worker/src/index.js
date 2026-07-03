@@ -1586,6 +1586,73 @@ async function debugAvSeed(req, env) {
   return json({ seeded: results, count: tickers.length, ttl_days: 7 });
 }
 
+// ── Debug Finnhub : teste en direct /quote + /stock/metric?metric=all + /stock/profile2 ──
+// GET /api/debug/finnhub?symbol=APD
+// Nécessite le secret FINNHUB_KEY (wrangler secret put FINNHUB_KEY) — clé gratuite sur
+// finnhub.io/register (60 appels/minute sur le plan gratuit, contre 25/JOUR pour AV).
+// Endpoint volontairement "brut" (raw + toutes les clés) tant que la disponibilité réelle
+// des champs EPS/P/E/payout sur le plan gratuit n'est pas confirmée pour ces tickers.
+async function debugFinnhub(req, env) {
+  const url    = new URL(req.url);
+  const symbol = (url.searchParams.get('symbol') || 'JNJ').toUpperCase();
+  const out    = { symbol, finnhub_key_set: !!env.FINNHUB_KEY, finnhub_key_len: env.FINNHUB_KEY ? env.FINNHUB_KEY.length : 0 };
+
+  if (!env.FINNHUB_KEY) return json(out);
+
+  const base = 'https://finnhub.io/api/v1';
+  const H    = { Accept: 'application/json' };
+
+  // /quote — prix courant (gratuit chez la plupart des fournisseurs)
+  try {
+    const r = await fetch(`${base}/quote?symbol=${symbol}&token=${env.FINNHUB_KEY}`, { headers: H });
+    out.quote_status = r.status;
+    const t = await r.text();
+    out.quote_raw = t.slice(0, 400);
+    if (r.ok) {
+      const d = JSON.parse(t);
+      out.quote_price  = d.c ?? null;   // current price
+      out.quote_change = d.d ?? null;
+      out.quote_pct    = d.dp ?? null;
+    }
+  } catch(e) { out.quote_error = e.message; }
+
+  // /stock/metric?metric=all — P/E, EPS, payout, beta, etc. (le champ qu'on veut valider)
+  try {
+    const r = await fetch(`${base}/stock/metric?symbol=${symbol}&metric=all&token=${env.FINNHUB_KEY}`, { headers: H });
+    out.metric_status = r.status;
+    const t = await r.text();
+    out.metric_raw = t.slice(0, 500);
+    if (r.ok) {
+      const d = JSON.parse(t);
+      const m = d.metric || {};
+      out.metric_keys_count = Object.keys(m).length;
+      out.metric_pe_ttm         = m.peBasicExclExtraTTM ?? m.peExclExtraTTM ?? m.peInclExtraTTM ?? null;
+      out.metric_eps_ttm        = m.epsBasicExclExtraItemsTTM ?? m.epsExclExtraItemsTTM ?? m.epsInclExtraItemsTTM ?? null;
+      out.metric_payout_ratio   = m.payoutRatioTTM ?? m.payoutRatioAnnual ?? null;
+      out.metric_dividend_yield = m.currentDividendYieldTTM ?? m.dividendYieldIndicatedAnnual ?? null;
+      out.metric_beta           = m.beta ?? null;
+      // Toutes les clés contenant "pe", "eps" ou "payout" — pour repérer le vrai nom si les guess ci-dessus ratent
+      out.metric_matching_keys = Object.keys(m).filter(k => /pe|eps|payout/i.test(k));
+    }
+  } catch(e) { out.metric_error = e.message; }
+
+  // /stock/profile2 — profil société (nom, secteur, market cap)
+  try {
+    const r = await fetch(`${base}/stock/profile2?symbol=${symbol}&token=${env.FINNHUB_KEY}`, { headers: H });
+    out.profile_status = r.status;
+    const t = await r.text();
+    out.profile_raw = t.slice(0, 300);
+    if (r.ok) {
+      const d = JSON.parse(t);
+      out.profile_name       = d.name ?? null;
+      out.profile_sector     = d.finnhubIndustry ?? null;
+      out.profile_market_cap = d.marketCapitalization ?? null;
+    }
+  } catch(e) { out.profile_error = e.message; }
+
+  return json(out);
+}
+
 // ── Debug prix (diagnostic mobile) ───────────────────────────
 // Par défaut: vérifie KV uniquement (pas d'appel FMP — économise les crédits)
 // Avec ?live=1 : teste aussi les endpoints FMP en direct
@@ -1893,6 +1960,7 @@ export default {
     if (path === '/api/debug/price')     return debugPrice(req, env);
     if (path === '/api/debug/funda')     return debugFunda(req, env);
     if (path === '/api/debug/av-seed')   return debugAvSeed(req, env);
+    if (path === '/api/debug/finnhub')   return debugFinnhub(req, env);
 
     // Routes auth
     if (path === '/auth/login')       return handleAuthLogin(req, env);
