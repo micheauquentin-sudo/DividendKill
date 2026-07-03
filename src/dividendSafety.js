@@ -208,7 +208,33 @@ export const DividendSafety = (() => {
   const color = sc => sc>=80?'#22d47a':sc>=65?'#86efad':sc>=50?'#f5a623':sc>=35?'#fb923c':'#f43f5e';
   const label = rl => ({SAFE:'Sûr',MODERATE:'Modéré',CAUTION:'Prudence',RISKY:'Risqué',DANGER:'Danger'}[rl]||rl);
 
-  const getStockDSE = m => calculate(m).score;
+  const RATING_COLORS = {
+    'Very Safe':'#22d47a', 'Safe':'#86efad', 'Borderline':'#f5a623',
+    'Risky':'#fb923c', 'Unsafe':'#f43f5e',
+  };
+  const RATING_LABELS_FR = {
+    'Very Safe':'Très sûr', 'Safe':'Sûr', 'Borderline':'Prudence',
+    'Risky':'Risqué', 'Unsafe':'Danger',
+  };
+
+  /* Score affiché : privilégie le moteur serveur V2 (worker/src/dividendScore.js —
+     états financiers FMP + Finnhub + volatilité prix, reconstruction + confiance) quand
+     dispo, sinon retombe sur l'ancien calcul client (moins riche mais toujours dispo). */
+  const getDisplayDSE = stock => {
+    const d2 = stock && stock.dse2;
+    if (d2 && typeof d2.score === 'number') {
+      return {
+        score: d2.score, label: RATING_LABELS_FR[d2.rating] || d2.rating,
+        color: RATING_COLORS[d2.rating] || color(d2.score), method: 'v2',
+        confidence: d2.confidence, breakdown: d2.breakdown, metrics: d2.metrics,
+        reconstructed: d2.reconstructed, explanation: d2.explanation || [],
+      };
+    }
+    const r = calculate(stock || {});
+    return { score: r.score, label: label(r.riskLevel), color: color(r.score), method: 'v1', raw: r };
+  };
+
+  const getStockDSE = m => getDisplayDSE(m).score;
 
   const getPortfolioDSE = () => {
     let totalMV = 0, weightedDSE = 0;
@@ -220,10 +246,11 @@ export const DividendSafety = (() => {
     return totalMV > 0 ? Math.round(weightedDSE / totalMV) : 0;
   };
 
-  return { calculate, color, label, getPortfolioDSE };
+  return { calculate, color, label, getPortfolioDSE, getDisplayDSE };
 })();
 
 export const calculateDividendSafety = DividendSafety.calculate;
 export const dseColor  = DividendSafety.color;
 export const dseLabel  = DividendSafety.label;
+export const getDisplayDSE = DividendSafety.getDisplayDSE;
 export const DSE_WEIGHTS = {payout_ratio:.25,fcf_payout:.20,debt_ebitda:.15,interest_cov:.10,div_streak:.10,div_cagr_5y:.10,earn_stability:.05,recession_res:.05};

@@ -1,7 +1,7 @@
 import { _emptyState, _logo } from '../ui-shared.js';
 import { getMV, getDivA, eu } from '../calc.js';
 import { Data, meta } from '../data.js';
-import { calculateDividendSafety, dseColor } from '../dividendSafety.js';
+import { getDisplayDSE } from '../dividendSafety.js';
 
 /* -- DEAL FINDER ------------------------------------------ */
 export function calculatePriorityRanking(portfolio) {
@@ -14,8 +14,7 @@ export function calculatePriorityRanking(portfolio) {
   for (var i = 0; i < portfolio.length; i++) {
     var d = portfolio[i];
     var a = Data.assets[d.ticker] || {};
-    var dseResult = calculateDividendSafety(a);
-    var safetyScore = dseResult.safetyScore;
+    var safetyScore = getDisplayDSE(a).score;
     var streak  = a.streak || 0;
     var pe_cur  = a.pe_cur || 0;
     var div     = meta[d.ticker] && meta[d.ticker].d || 0;
@@ -168,7 +167,7 @@ export function renderDeal(el) {
           + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">'
           + '<div style="background:var(--surface2);border-radius:8px;padding:10px"><div style="font-size:9.5px;color:var(--muted)">P/E actuel</div><div class="mono fw7" style="font-size:14px;color:' + (r._pe_disc > 15 ? '#22d47a' : r._pe_disc > 0 ? '#f5a623' : '#f43f5e') + '">' + (r._pe_cur > 0 ? r._pe_cur.toFixed(1) + 'x' : '—') + '</div></div>'
           + '<div style="background:var(--surface2);border-radius:8px;padding:10px"><div style="font-size:9.5px;color:var(--muted)">Poids actuel</div><div class="mono fw7" style="font-size:14px">' + r._cur_w.toFixed(1) + '%</div></div>'
-          + '<div style="background:var(--surface2);border-radius:8px;padding:10px;cursor:pointer" onclick="showDSESheet(\'' + r.ticker + '\')"><div style="font-size:9.5px;color:var(--muted)">Safety DSE</div><div class="mono fw7" style="font-size:14px;color:' + dseColor(calculateDividendSafety(Data.assets[r.ticker] || {}).safetyScore) + '">' + calculateDividendSafety(Data.assets[r.ticker] || {}).safetyScore + '/100</div><div style="font-size:8px;color:var(--muted)">\u2197 d\u00e9tail</div></div>'
+          + (function() { var dd = getDisplayDSE(Data.assets[r.ticker] || {}); return '<div style="background:var(--surface2);border-radius:8px;padding:10px;cursor:pointer" onclick="showDSESheet(\'' + r.ticker + '\')"><div style="font-size:9.5px;color:var(--muted)">Safety DSE</div><div class="mono fw7" style="font-size:14px;color:' + dd.color + '">' + dd.score + '/100</div><div style="font-size:8px;color:var(--muted)">\u2197 d\u00e9tail</div></div>'; })()
           + '</div>'
           // Pourquoi
           // Raisons / risques

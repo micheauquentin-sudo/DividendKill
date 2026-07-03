@@ -1,6 +1,6 @@
 import { meta } from '../data.js';
 import { toE, getMV } from '../calc.js';
-import { calculateDividendSafety, dseColor } from '../dividendSafety.js';
+import { getDisplayDSE } from '../dividendSafety.js';
 import { _emptyState, _logo } from '../ui-shared.js';
 import { getDivBadge } from '../dividendTiers.js';
 
@@ -65,9 +65,9 @@ export function renderRendement(el) {
     var pnlC = d.pnl >= 0 ? '#22d47a' : '#f43f5e';
     var div2 = meta[d.ticker] && meta[d.ticker].d || 0;
     var rndMeta = meta[d.ticker] || {};
-    var rndDSEResult = rndMeta.payout_ratio != null ? calculateDividendSafety(rndMeta) : null;
-    var rndDseScore = rndDSEResult ? rndDSEResult.safetyScore : (rndMeta.safe || calculateDividendSafety(rndMeta).safetyScore);
-    var rndDseCol = dseColor(rndDseScore);
+    var rndDseDisp = getDisplayDSE(rndMeta);
+    var rndDseScore = rndDseDisp.score;
+    var rndDseCol = rndDseDisp.color;
     var dpnlDay = d.dpnl ? ((d.dpnl>=0?'+':'')+Math.round(toE(d.dpnl))+'€ auj.') : '';
     rows += '<div class="rnd-card" style="border-left:3px solid '+(d.pnl>=0?'#22d47a':'#f43f5e')+'">'
       +'<div class="rnd-head" onclick="toggleRndCard(\''+d.ticker+'\')" style="gap:10px">'

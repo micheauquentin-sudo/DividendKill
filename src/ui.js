@@ -4,7 +4,7 @@ import { FmpData } from './fmpData.js';
 import { Data, assets, meta } from './data.js';
 import { Calc, toE, fE, fPct, eu, getMV, getCost, getPNL, getDivA,
          getTotalDividends, getTotalTaxes, getRealizedGains, getPositions } from './calc.js';
-import { DividendSafety, calculateDividendSafety, dseColor, dseLabel, DSE_WEIGHTS } from './dividendSafety.js';
+import { DividendSafety, dseColor, getDisplayDSE } from './dividendSafety.js';
 import { Storage, loadImportedTx, saveImportedTx, clearImportedTx } from './storage.js';
 import { D1Client } from './d1client.js';
 import { BrokerImport, processCsv, applyImportedToPortfolio } from './brokerImport.js';
@@ -1225,26 +1225,90 @@ const App = (() => {
    ════════════════════════════════════════════════════════════════ */
 function showDSESheet(ticker) {
   const stock = Data.assets[ticker] || {};
-  const r = DividendSafety.calculate(stock);
-  const displayScore = stock.payout_ratio != null ? r.score : (stock.safe || r.score);
-  const col = dseColor(displayScore);
-  const CRIT_MAP = [
-    {k:'payout_ratio',lbl:'Payout',w:'25%'},{k:'fcf_payout',lbl:'FCF Payout',w:'20%'},
-    {k:'debt_ebitda',lbl:'Dette/EBITDA',w:'15%'},{k:'interest_cov',lbl:'Int. Coverage',w:'10%'},
-    {k:'div_streak',lbl:'Streak',w:'10%'},{k:'div_cagr_5y',lbl:'CAGR 5Y',w:'10%'},
-    {k:'earn_stability',lbl:'Stabilité',w:'5%'},{k:'recession_res',lbl:'Récession',w:'5%'}
-  ];
-  let breakHtml = '<div style="display:flex;flex-direction:column;gap:6px;margin:14px 0">';
-  for (const cm of CRIT_MAP) {
-    const sc = r.breakdown[cm.k]||0, cc = dseColor(sc);
-    breakHtml += `<div style="display:flex;align-items:center;gap:8px"><div style="font-size:10px;color:#52527a;width:80px;flex-shrink:0">${cm.lbl}</div><div style="flex:1;height:4px;background:#1a1a2e;border-radius:2px;overflow:hidden"><div style="height:100%;width:${sc}%;background:${cc};border-radius:2px"></div></div><div style="font-size:10px;font-family:DM Mono,monospace;font-weight:700;color:${cc};width:24px;text-align:right">${sc}</div><div style="font-size:9px;color:#52527a;width:22px;text-align:right">${cm.w}</div></div>`;
+  const disp = getDisplayDSE(stock);
+  const displayScore = disp.score;
+  const col = disp.color;
+
+  const headHtml = `<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px"><div><div style="font-size:20px;font-weight:700">${ticker}</div>${disp.method==='v2' && disp.confidence!=null ? `<div style="font-size:9.5px;color:${disp.confidence<0.4?'#f5a623':'#52527a'};margin-top:3px">Confiance : ${Math.round(disp.confidence*100)}%</div>` : ''}</div><div style="text-align:right"><div style="font-size:32px;font-weight:700;font-family:DM Mono,monospace;color:${col}">${displayScore}</div><div style="font-size:11px;font-weight:700;color:${col}">${disp.label}</div></div></div><div style="height:5px;background:#1a1a2e;border-radius:3px;overflow:hidden"><div style="height:100%;width:${displayScore}%;background:${col};border-radius:3px;transition:width .6s ease"></div></div>`;
+
+  let bodyHtml;
+  if (disp.method === 'v2') {
+    // ── Nouveau moteur serveur (dividendScore.js) : catégories pondérées + métriques + explication ──
+    const CAT_MAP = [
+      {k:'coverage',  lbl:'Couverture dividende', w:'35%'},
+      {k:'balance',   lbl:'Santé du bilan',       w:'25%'},
+      {k:'stability', lbl:'Stabilité dividende',  w:'20%'},
+      {k:'growth',    lbl:'Croissance',           w:'10%'},
+      {k:'market',    lbl:'Stabilité marché',     w:'10%'},
+    ];
+    let breakHtml = '<div style="display:flex;flex-direction:column;gap:6px;margin:14px 0">';
+    for (const cm of CAT_MAP) {
+      const sc = disp.breakdown ? disp.breakdown[cm.k] : null;
+      if (sc == null) {
+        breakHtml += `<div style="display:flex;align-items:center;gap:8px"><div style="font-size:10px;color:#52527a;width:110px;flex-shrink:0">${cm.lbl}</div><div style="flex:1;font-size:10px;color:#52527a;font-style:italic">données insuffisantes</div><div style="font-size:9px;color:#52527a;width:26px;text-align:right">${cm.w}</div></div>`;
+      } else {
+        const cc = dseColor(sc);
+        breakHtml += `<div style="display:flex;align-items:center;gap:8px"><div style="font-size:10px;color:#52527a;width:110px;flex-shrink:0">${cm.lbl}</div><div style="flex:1;height:4px;background:#1a1a2e;border-radius:2px;overflow:hidden"><div style="height:100%;width:${sc}%;background:${cc};border-radius:2px"></div></div><div style="font-size:10px;font-family:DM Mono,monospace;font-weight:700;color:${cc};width:24px;text-align:right">${sc}</div><div style="font-size:9px;color:#52527a;width:26px;text-align:right">${cm.w}</div></div>`;
+      }
+    }
+    if (disp.breakdown && disp.breakdown.penalties > 0) {
+      breakHtml += `<div style="display:flex;align-items:center;gap:8px;margin-top:2px"><div style="font-size:10px;color:#f43f5e;width:110px;flex-shrink:0">Pénalités risque</div><div style="flex:1"></div><div style="font-size:10px;font-family:DM Mono,monospace;font-weight:700;color:#f43f5e">-${disp.breakdown.penalties}</div></div>`;
+    }
+    breakHtml += '</div>';
+
+    const m = disp.metrics || {};
+    const pct = v => v == null ? '—' : Math.round(v * 1000) / 10 + '%';
+    const METRIC_MAP = [
+      {k:'epsPayout',    lbl:'Payout / EPS'},
+      {k:'fcfPayout',    lbl:'Payout / FCF'},
+      {k:'debtToFCF',    lbl:'Dette / FCF', fmt: v => v==null?'—':v.toFixed(1)+'x'},
+      {k:'dividendCAGR', lbl:'CAGR dividende'},
+      {k:'epsCAGR',      lbl:'CAGR EPS'},
+      {k:'revenueCAGR',  lbl:'CAGR revenu'},
+      {k:'volatility',   lbl:'Volatilité (1a)'},
+      {k:'drawdown',     lbl:'Drawdown max'},
+    ];
+    let metricsHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">';
+    for (const mm of METRIC_MAP) {
+      const v = m[mm.k];
+      const txt = mm.fmt ? mm.fmt(v) : pct(v);
+      metricsHtml += `<div style="background:#1a1a2e;border-radius:7px;padding:6px 9px"><div style="font-size:8.5px;color:#52527a">${mm.lbl}</div><div style="font-size:11.5px;font-weight:700;font-family:DM Mono,monospace;color:${v==null?'#52527a':'#e2e2ec'}">${txt}</div></div>`;
+    }
+    metricsHtml += '</div>';
+
+    let reconHtml = '';
+    if (disp.reconstructed && disp.reconstructed.used) {
+      reconHtml = `<div style="font-size:10px;color:#f5a623;background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.2);border-radius:8px;padding:8px 10px;margin-bottom:10px">⚠ Historique de dividendes reconstitué (estimé depuis EPS/FCF × payout ratio) — aucune source gratuite ne fournit l'historique réel pour ce titre.</div>`;
+    }
+
+    let explHtml = '';
+    if (disp.explanation && disp.explanation.length) {
+      explHtml = '<div>' + disp.explanation.map(e => `<div style="font-size:11px;color:#e2e2ec;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">· ${e}</div>`).join('') + '</div>';
+    }
+
+    bodyHtml = breakHtml + metricsHtml + reconHtml + explHtml;
+  } else {
+    // ── Fallback : ancien calcul client (dse2 pas encore disponible pour ce titre) ──
+    const r = disp.raw;
+    const CRIT_MAP = [
+      {k:'payout_ratio',lbl:'Payout',w:'25%'},{k:'fcf_payout',lbl:'FCF Payout',w:'20%'},
+      {k:'debt_ebitda',lbl:'Dette/EBITDA',w:'15%'},{k:'interest_cov',lbl:'Int. Coverage',w:'10%'},
+      {k:'div_streak',lbl:'Streak',w:'10%'},{k:'div_cagr_5y',lbl:'CAGR 5Y',w:'10%'},
+      {k:'earn_stability',lbl:'Stabilité',w:'5%'},{k:'recession_res',lbl:'Récession',w:'5%'}
+    ];
+    let breakHtml = '<div style="display:flex;flex-direction:column;gap:6px;margin:14px 0">';
+    for (const cm of CRIT_MAP) {
+      const sc = r.breakdown[cm.k]||0, cc = dseColor(sc);
+      breakHtml += `<div style="display:flex;align-items:center;gap:8px"><div style="font-size:10px;color:#52527a;width:80px;flex-shrink:0">${cm.lbl}</div><div style="flex:1;height:4px;background:#1a1a2e;border-radius:2px;overflow:hidden"><div style="height:100%;width:${sc}%;background:${cc};border-radius:2px"></div></div><div style="font-size:10px;font-family:DM Mono,monospace;font-weight:700;color:${cc};width:24px;text-align:right">${sc}</div><div style="font-size:9px;color:#52527a;width:22px;text-align:right">${cm.w}</div></div>`;
+    }
+    breakHtml += '</div>';
+    let wpHtml='', stHtml='';
+    if (r.weakPoints.length) { wpHtml='<div style="margin-bottom:12px"><div style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#f43f5e;margin-bottom:6px">⚠ Points faibles</div>'+r.weakPoints.map(w=>`<div style="font-size:11px;color:#e2e2ec;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">· ${w.label} <span style="color:#52527a">(${w.weight})</span></div>`).join('')+'</div>'; }
+    if (r.strengths.length)  { stHtml='<div><div style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#22d47a;margin-bottom:6px">✓ Points forts</div>'+r.strengths.map(s=>`<div style="font-size:11px;color:#e2e2ec;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">· ${s.label} <span style="color:#52527a">(${s.weight})</span></div>`).join('')+'</div>'; }
+    bodyHtml = breakHtml + wpHtml + stHtml;
   }
-  breakHtml += '</div>';
-  let wpHtml='', stHtml='';
-  if (r.weakPoints.length) { wpHtml='<div style="margin-bottom:12px"><div style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#f43f5e;margin-bottom:6px">⚠ Points faibles</div>'+r.weakPoints.map(w=>`<div style="font-size:11px;color:#e2e2ec;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">· ${w.label} <span style="color:#52527a">(${w.weight})</span></div>`).join('')+'</div>'; }
-  if (r.strengths.length)  { stHtml='<div><div style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#22d47a;margin-bottom:6px">✓ Points forts</div>'+r.strengths.map(s=>`<div style="font-size:11px;color:#e2e2ec;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">· ${s.label} <span style="color:#52527a">(${s.weight})</span></div>`).join('')+'</div>'; }
-  document.getElementById('dse-sheet-inner').innerHTML =
-    `<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px"><div><div style="font-size:20px;font-weight:700">${ticker}</div>${r.sectorNote?`<div style="font-size:9.5px;color:#f5a623;margin-top:3px">${r.sectorNote}</div>`:''}</div><div style="text-align:right"><div style="font-size:32px;font-weight:700;font-family:DM Mono,monospace;color:${col}">${displayScore}</div><div style="font-size:11px;font-weight:700;color:${col}">${dseLabel(displayScore>=80?'SAFE':displayScore>=65?'MODERATE':displayScore>=50?'CAUTION':displayScore>=35?'RISKY':'DANGER')}</div></div></div><div style="height:5px;background:#1a1a2e;border-radius:3px;overflow:hidden"><div style="height:100%;width:${displayScore}%;background:${col};border-radius:3px;transition:width .6s ease"></div></div>${breakHtml}${wpHtml}${stHtml}`;
+
+  document.getElementById('dse-sheet-inner').innerHTML = headHtml + bodyHtml;
   const sheet = document.getElementById('dse-sheet');
   sheet.style.display = 'flex';
   requestAnimationFrame(() => sheet.classList.add('dse-open'));

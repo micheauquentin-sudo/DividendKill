@@ -1,7 +1,7 @@
 import { _emptyState, _logo, _esc } from '../ui-shared.js';
 import { getMV, toE, eu } from '../calc.js';
 import { assets, meta } from '../data.js';
-import { calculateDividendSafety, dseColor, dseLabel } from '../dividendSafety.js';
+import { getDisplayDSE } from '../dividendSafety.js';
 import { getDivBadge } from '../dividendTiers.js';
 
 export function renderValorisation(el) {
@@ -64,7 +64,7 @@ export function renderValorisation(el) {
     var m = meta[d.ticker] || {};
     var ma = assets[d.ticker] || {};
     var dseInput = Object.assign({}, ma, { d: ma.d || m.d });
-    return calculateDividendSafety(dseInput).safetyScore;
+    return getDisplayDSE(dseInput).score;
   }
 
   /* ── Mini-jauge horizontale (remplace mini-courbe SVG) ──── */
@@ -288,12 +288,12 @@ export function renderValorisation(el) {
       var m  = meta[d.ticker]   || {};
       var ma = assets[d.ticker] || {};
       var lc = labelCfg(v.label);
-      /* ── DSE calculé depuis assets[] (fondamentaux FMP) ── */
+      /* ── DSE : moteur serveur V2 (dse2) si dispo, sinon calcul client (fallback) ── */
       var dseInput  = Object.assign({}, ma, { d: ma.d || m.d });
-      var dseResult = calculateDividendSafety(dseInput);
-      var dseScore  = dseResult.safetyScore;
-      var dseCol    = dseColor(dseScore);
-      var dseLbl    = dseLabel(dseResult.riskLevel);
+      var dseDisp   = getDisplayDSE(dseInput);
+      var dseScore  = dseDisp.score;
+      var dseCol    = dseDisp.color;
+      var dseLbl    = dseDisp.label;
       var sb        = { lbl: dseLbl, col: dseCol };
       var div = ma.d || m.d || 0;
       var yd  = d.price > 0 ? div/d.price*100 : 0;
@@ -388,7 +388,9 @@ export function renderValorisation(el) {
         + '<span style="font-size:13px;font-weight:700;color:'+dseCol+'">'+dseScore+'</span>'
         + '</div>'
         + '<div style="font-size:8px;color:'+dseCol+';font-weight:600">'+dseLbl+'</div>'
-        + '<div style="font-size:7px;color:var(--muted);margin-top:1px">↗ détail</div>'
+        + (dseDisp.method === 'v2' && dseDisp.confidence < 0.4
+          ? '<div style="font-size:6.5px;color:#f5a623;margin-top:1px">confiance faible</div>'
+          : '<div style="font-size:7px;color:var(--muted);margin-top:1px">↗ détail</div>')
         + '</div>'
 
         /* Div Growth + Annual Income */

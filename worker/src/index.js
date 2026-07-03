@@ -35,6 +35,8 @@
  *   ASSETS     — Static assets (build Vite)
  */
 
+import { computeDividendSafetyV2 } from './dividendScore.js';
+
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
@@ -863,6 +865,15 @@ async function fmpProxy(req, env) {
       result._fv_tried = true; // marqueur : évite de re-fetcher en boucle si la réversion échoue
       result._fv_ver = FV_VER;
     }
+    // Dividend Safety Score V2 — remplace l'ancien calcul client (src/dividendSafety.js)
+    // par un moteur serveur plus riche (états financiers FMP + Finnhub + volatilité prix
+    // Twelve Data), avec reconstruction d'historique et score de confiance. Voir
+    // buildDividendScoreV2 ci-dessus pour l'orchestration complète.
+    try {
+      result.dse2 = await buildDividendScoreV2(symbol, env, result, price);
+    } catch(e) {
+      console.warn('[DivScore] échec orchestration', symbol, e.message);
+    }
     // Cache 6h si toujours pas de métriques (quotas épuisés ou clés absentes), 24h si le
     // payeur de dividende n'a toujours pas de fair_value (source d'historique en échec —
     // souvent juste un quota AV/Finnhub épuisé pour AUJOURD'HUI, pas une absence
@@ -1158,6 +1169,207 @@ async function fetchTwelveDataFundamentals(symbol, env) {
   } catch(e) { console.warn('[TwelveData] erreur statistics', symbol, e.message); return null; }
 }
 
+// ── FMP états financiers (Ratios TTM, Key Metrics TTM, Income/CashFlow/Balance 5 ans) ──
+// Utilisés par le moteur de scoring dividendSafety.js (computeDividendSafetyV2). Ces 5
+// endpoints ont été confirmés 402 (plan payant) pour la quasi-totalité des tickers hors
+// mega-cap sur ce compte — mais on les retente quand même ici (le moteur de score est
+// conçu pour fonctionner avec des entrées null/vides) car FMP peut avoir changé son
+// tiering, et certains gros tickers (JNJ...) y ont accès. Cache 3 jours en cas d'échec
+// (402/429) pour protéger le quota FMP sans bloquer un ré-essai pendant ~120 jours comme
+// le funda9 principal — ces endpoints coûtent cher à tester à chaque requête.
+const FMP_STMT_FAIL_TTL = 3 * 24 * 3600;
+
+async function fetchFmpRatiosTTM(symbol, env) {
+  const cacheKey = `fmprat9:${symbol}`;
+  if (env.PRICES_KV) {
+    try {
+      const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+      if (cached) return cached.blocked ? null : cached;
+    } catch(_) {}
+  }
+  try {
+    const url = `https://financialmodelingprep.com/stable/ratios-ttm?symbol=${encodeURIComponent(symbol)}&apikey=${env.FMP_KEY}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!r.ok) {
+      console.warn('[FMP] ratios-ttm HTTP', r.status, symbol);
+      if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify({ blocked: true }), { expirationTtl: FMP_STMT_FAIL_TTL });
+      return null;
+    }
+    const d  = await r.json();
+    const r0 = Array.isArray(d) ? d[0] : d;
+    if (!r0) return null;
+    const num = v => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+    const parsed = {
+      payoutRatio:        num(r0.dividendPayoutRatioTTM ?? r0.payoutRatioTTM),
+      dividendYield:      num(r0.dividendYieldTTM),
+      currentRatio:       num(r0.currentRatioTTM),
+      debtEquityRatio:    num(r0.debtToEquityRatioTTM ?? r0.debtEquityRatioTTM),
+      interestCoverage:   num(r0.interestCoverageRatioTTM ?? r0.interestCoverageTTM),
+      fcfOperatingCFRatio: num(r0.freeCashFlowOperatingCashFlowRatioTTM),
+    };
+    if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(parsed), { expirationTtl: ttlFunda() });
+    return parsed;
+  } catch(e) { console.warn('[FMP] erreur ratios-ttm', symbol, e.message); return null; }
+}
+
+async function fetchFmpKeyMetricsTTM(symbol, env) {
+  const cacheKey = `fmpkm9:${symbol}`;
+  if (env.PRICES_KV) {
+    try {
+      const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+      if (cached) return cached.blocked ? null : cached;
+    } catch(_) {}
+  }
+  try {
+    const url = `https://financialmodelingprep.com/stable/key-metrics-ttm?symbol=${encodeURIComponent(symbol)}&apikey=${env.FMP_KEY}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!r.ok) {
+      console.warn('[FMP] key-metrics-ttm HTTP', r.status, symbol);
+      if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify({ blocked: true }), { expirationTtl: FMP_STMT_FAIL_TTL });
+      return null;
+    }
+    const d  = await r.json();
+    const m0 = Array.isArray(d) ? d[0] : d;
+    if (!m0) return null;
+    const num = v => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+    const parsed = {
+      dividendPerShareTTM:   num(m0.dividendPerShareTTM),
+      freeCashFlowPerShareTTM: num(m0.freeCashFlowPerShareTTM),
+      netIncomePerShareTTM:  num(m0.netIncomePerShareTTM),
+      revenuePerShareTTM:    num(m0.revenuePerShareTTM),
+      payoutRatioTTM:        num(m0.payoutRatioTTM),
+    };
+    if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(parsed), { expirationTtl: ttlFunda() });
+    return parsed;
+  } catch(e) { console.warn('[FMP] erreur key-metrics-ttm', symbol, e.message); return null; }
+}
+
+// Retourne un tableau croissant par année [{year, revenue, netIncome, eps, ebit, shares}]
+async function fetchFmpIncomeStatement5Y(symbol, env) {
+  const cacheKey = `fmpinc9:${symbol}`;
+  if (env.PRICES_KV) {
+    try {
+      const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+      if (cached) return cached.blocked ? [] : cached;
+    } catch(_) {}
+  }
+  try {
+    const url = `https://financialmodelingprep.com/stable/income-statement?symbol=${encodeURIComponent(symbol)}&period=annual&limit=5&apikey=${env.FMP_KEY}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!r.ok) {
+      console.warn('[FMP] income-statement HTTP', r.status, symbol);
+      if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify({ blocked: true }), { expirationTtl: FMP_STMT_FAIL_TTL });
+      return [];
+    }
+    const d   = await r.json();
+    const arr = Array.isArray(d) ? d : [];
+    const num = v => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+    // FMP renvoie le plus récent en premier — on inverse pour un ordre croissant par année
+    const years = arr.map(y => ({
+      year:      +(y.date || '').slice(0, 4) || null,
+      revenue:   num(y.revenue),
+      netIncome: num(y.netIncome),
+      eps:       num(y.epsDiluted ?? y.eps),
+      ebit:      num(y.operatingIncome),
+      interestExpense: num(y.interestExpense),
+      shares:    num(y.weightedAverageShsOutDil ?? y.weightedAverageShsOut),
+    })).filter(y => y.year != null).sort((a, b) => a.year - b.year);
+    if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(years), { expirationTtl: ttlFunda() });
+    return years;
+  } catch(e) { console.warn('[FMP] erreur income-statement', symbol, e.message); return []; }
+}
+
+// Retourne un tableau croissant par année [{year, operatingCashFlow, capitalExpenditure, freeCashFlow}]
+async function fetchFmpCashFlow5Y(symbol, env) {
+  const cacheKey = `fmpcf9:${symbol}`;
+  if (env.PRICES_KV) {
+    try {
+      const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+      if (cached) return cached.blocked ? [] : cached;
+    } catch(_) {}
+  }
+  try {
+    const url = `https://financialmodelingprep.com/stable/cash-flow-statement?symbol=${encodeURIComponent(symbol)}&period=annual&limit=5&apikey=${env.FMP_KEY}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!r.ok) {
+      console.warn('[FMP] cash-flow-statement HTTP', r.status, symbol);
+      if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify({ blocked: true }), { expirationTtl: FMP_STMT_FAIL_TTL });
+      return [];
+    }
+    const d   = await r.json();
+    const arr = Array.isArray(d) ? d : [];
+    const num = v => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+    const years = arr.map(y => ({
+      year:               +(y.date || '').slice(0, 4) || null,
+      operatingCashFlow:  num(y.operatingCashFlow),
+      capitalExpenditure: num(y.capitalExpenditure),
+      freeCashFlow:       num(y.freeCashFlow),
+    })).filter(y => y.year != null).sort((a, b) => a.year - b.year);
+    if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(years), { expirationTtl: ttlFunda() });
+    return years;
+  } catch(e) { console.warn('[FMP] erreur cash-flow-statement', symbol, e.message); return []; }
+}
+
+// Retourne le dernier bilan connu {totalDebt, cashAndShortTermInvestments} ou null
+async function fetchFmpBalanceSheetLatest(symbol, env) {
+  const cacheKey = `fmpbal9:${symbol}`;
+  if (env.PRICES_KV) {
+    try {
+      const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+      if (cached) return cached.blocked ? null : cached;
+    } catch(_) {}
+  }
+  try {
+    const url = `https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=${encodeURIComponent(symbol)}&period=annual&limit=1&apikey=${env.FMP_KEY}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!r.ok) {
+      console.warn('[FMP] balance-sheet-statement HTTP', r.status, symbol);
+      if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify({ blocked: true }), { expirationTtl: FMP_STMT_FAIL_TTL });
+      return null;
+    }
+    const d  = await r.json();
+    const b0 = Array.isArray(d) ? d[0] : d;
+    if (!b0) return null;
+    const num = v => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+    const parsed = {
+      totalDebt:                 num(b0.totalDebt),
+      cashAndShortTermInvestments: num(b0.cashAndShortTermInvestments),
+    };
+    if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(parsed), { expirationTtl: ttlFunda() });
+    return parsed;
+  } catch(e) { console.warn('[FMP] erreur balance-sheet-statement', symbol, e.message); return null; }
+}
+
+// ── Twelve Data /time_series (historique de prix) — pour le score de stabilité marché ──
+// Endpoint "Core Data", confirmé gratuit sur le plan de base (contrairement à /statistics
+// et /dividends, tous deux "Fundamentals" et 403 sur ce compte). Cache 24h : suffisant
+// pour un indicateur de volatilité/drawdown qui ne bouge pas d'un jour à l'autre.
+async function fetchTwelveDataTimeSeries(symbol, env) {
+  const cacheKey = `tdts9:${symbol}`;
+  if (env.PRICES_KV) {
+    try {
+      const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+      if (cached) return cached;
+    } catch(_) {}
+  }
+  if (!env.TWELVEDATA_KEY) return [];
+  try {
+    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1week&outputsize=260&apikey=${env.TWELVEDATA_KEY}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!r.ok) { console.warn('[TwelveData] time_series HTTP', r.status, symbol); return []; }
+    const d = await r.json();
+    if (d.status === 'error' || d.code) { console.warn('[TwelveData] time_series erreur', symbol, d.message || d.code); return []; }
+    const arr = Array.isArray(d.values) ? d.values : [];
+    const series = arr
+      .map(v => ({ date: v.datetime, close: +v.close }))
+      .filter(v => v.date && v.close > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (series.length > 0 && env.PRICES_KV)
+      await env.PRICES_KV.put(cacheKey, JSON.stringify(series), { expirationTtl: 86400 });
+    return series;
+  } catch(e) { console.warn('[TwelveData] erreur time_series', symbol, e.message); return []; }
+}
+
 // ── Complète un résultat normalizeFunda incomplet (402 FMP plan gratuit) ──
 // Ordre : Finnhub (60/min, principal) → Twelve Data (secours final).
 // Mute le `result` en place et pose un flag `_source` pour traçabilité/debug.
@@ -1183,6 +1395,10 @@ async function fillFundaFallback(result, symbol, env, price) {
     // être un signal de sécurité fiable — ça faisait chuter le DSE au lieu de le corriger.
     // Reste neutre (50) plutôt qu'un faux signal bruyant. fh.pfcf_share n'est donc pas
     // utilisé pour l'instant (gardé côté fetchFinnhubMetrics si on retente plus tard).
+    // _eps/_finnhub_eps/_finnhub_interest_cov : champs internes (non exposés au client),
+    // repris par computeDividendSafetyV2 (dividendScore.js) pour la couverture/confiance.
+    if (fh.eps          != null) { result._eps = fh.eps; result._finnhub_eps = fh.eps; }
+    if (fh.interest_cov  != null) result._finnhub_interest_cov = fh.interest_cov;
     result._finnhub_source = true;
   }
   // Alpha Vantage retiré (25 appels/jour — trop juste dès qu'un portefeuille dépasse
@@ -1197,9 +1413,65 @@ async function fillFundaFallback(result, symbol, env, price) {
       if (td.payout_ratio != null) result.payout_ratio = td.payout_ratio;
       if (td.beta         != null && result.beta       == null) result.beta       = td.beta;
       if (td.annual_div   != null && result.annual_div == null) result.annual_div = td.annual_div;
+      if (td.eps          != null && result._eps == null) result._eps = td.eps;
       result._twelvedata_source = true;
     }
   }
+}
+
+// ── Dividend Safety Score V2 (worker/src/dividendScore.js) — orchestration ──
+// Rassemble les 5 endpoints FMP "états financiers" + l'historique de prix Twelve Data
+// (tous gracieusement dégradés — voir chaque fetcher) et appelle le moteur de scoring
+// pur. Chaque source est cachée indépendamment (fmprat9/fmpkm9/fmpinc9/fmpcf9/fmpbal9/
+// tdts9) avec son propre TTL, donc cette fonction ne fait de vrais appels réseau que
+// lorsque ces caches sont froids — appelée à chaque (re)calcul de funda9, son coût réel
+// est amorti par le TTL long de funda9 lui-même (~120 jours une fois complet).
+async function buildDividendScoreV2(symbol, env, result, price) {
+  const [ratiosTTM, keyMetricsTTM, incomeStatements, cashFlowStatementsRaw, balanceSheet, priceHistory] = await Promise.all([
+    fetchFmpRatiosTTM(symbol, env),
+    fetchFmpKeyMetricsTTM(symbol, env),
+    fetchFmpIncomeStatement5Y(symbol, env),
+    fetchFmpCashFlow5Y(symbol, env),
+    fetchFmpBalanceSheetLatest(symbol, env),
+    fetchTwelveDataTimeSeries(symbol, env),
+  ]);
+
+  // FCF/action par année = FCF de l'année / actions en circulation de la MÊME année
+  // (weightedAverageShsOutDil, capté par fetchFmpIncomeStatement5Y) — ni ratios-ttm ni
+  // cash-flow-statement ne donnent directement ce ratio par année historique.
+  const sharesByYear = new Map();
+  for (const y of incomeStatements) if (y.year != null && y.shares > 0) sharesByYear.set(y.year, y.shares);
+  const cashFlowStatements = cashFlowStatementsRaw.map(y => {
+    const shares = sharesByYear.get(y.year);
+    const freeCashFlowPerShare = (y.freeCashFlow != null && shares > 0) ? y.freeCashFlow / shares : null;
+    return { ...y, freeCashFlowPerShare };
+  });
+
+  const latestIncome = incomeStatements[incomeStatements.length - 1] || null;
+  const fmpEpsTTM = keyMetricsTTM?.netIncomePerShareTTM ?? latestIncome?.eps ?? null;
+  const fmpInterestCoverage = ratiosTTM?.interestCoverage ??
+    ((latestIncome?.ebit != null && latestIncome?.interestExpense > 0) ? latestIncome.ebit / latestIncome.interestExpense : null);
+
+  const input = {
+    symbol,
+    price,
+    annualDividend:   result.annual_div ?? null,
+    payoutRatio:      ratiosTTM?.payoutRatio ?? keyMetricsTTM?.payoutRatioTTM ?? result.payout_ratio ?? null,
+    epsTTM:           fmpEpsTTM ?? result._eps ?? null,
+    fcfPerShareTTM:   keyMetricsTTM?.freeCashFlowPerShareTTM ?? null,
+    totalDebt:        balanceSheet?.totalDebt ?? null,
+    interestCoverageDirect:  fmpInterestCoverage,
+    finnhubInterestCoverage: result._finnhub_interest_cov ?? null,
+    // Cross-validation uniquement si les DEUX sources FMP et Finnhub existent
+    // indépendamment — sinon epsTTM vient déjà de Finnhub et comparer les deux
+    // donnerait un "accord parfait" artificiel (même valeur des deux côtés).
+    finnhubEps:       (fmpEpsTTM != null) ? (result._finnhub_eps ?? null) : null,
+    incomeStatements,
+    cashFlowStatements,
+    priceHistory,
+  };
+
+  return computeDividendSafetyV2(input);
 }
 
 // ── Cron: prix + fondamentaux automatiques à la clôture marché ─
@@ -1321,6 +1593,11 @@ async function handleScheduled(env) {
         if (yr) { normalized.fair_value = yr.fair_value; normalized.avg_yield_5y = yr.avg_yield_5y; }
         normalized._fv_tried = true;
         normalized._fv_ver = FV_VER;
+      }
+      try {
+        normalized.dse2 = await buildDividendScoreV2(symbol, env, normalized, price);
+      } catch(e) {
+        console.warn('[DivScore] échec orchestration (cron)', symbol, e.message);
       }
       const stillIncomplete = normalized.pe_cur == null && normalized.payout_ratio == null;
       const fvPending = normalized.annual_div > 0 && normalized.fair_value == null;
@@ -1703,6 +1980,7 @@ async function debugFunda(req, env) {
     out.kv_avg_yield_5y = cached?.avg_yield_5y ?? null;
     out.kv_fv_tried   = cached?._fv_tried ?? false;
     out.kv_fv_ver     = cached?._fv_ver ?? null;
+    out.kv_dse2       = cached?.dse2 ?? null;
     out.kv_data       = cached;
 
     // Vérifier le cache dividendes Finnhub (fhdiv9:SYMBOL) — secours de fetchYieldReversion
