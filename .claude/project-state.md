@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 10:15] feat: expose raw values of debt/interest-coverage/FCF candidate fields -- worker/src/index.js -->
-<!-- interrupted: [2026-07-03 10:12] context: Poussé et déployé (~1-2 min). Teste : -->
+<!-- interrupted: [2026-07-03 10:15] context: Poussé et déployé (~1-2 min). Reteste la même URL : -->
 <!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
