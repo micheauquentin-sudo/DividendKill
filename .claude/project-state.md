@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 09:09] chore: session-stop snapshot [2026-07-03 09:09] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 09:21] refactor: cut FMP calls from 7 to 2 per ticker, Finnhub as primary fundamentals source -- worker/src/index.js -->
 <!-- interrupted: [2026-07-03 09:09] context: Poussé et déployé. Bilan final de la chaîne de données : -->
 <!-- resume-from: files: .claude/project-state.md, worker/src/index.js -->
 
