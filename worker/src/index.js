@@ -1446,11 +1446,14 @@ async function debugFunda(req, env) {
         const r = await fetch(avUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
         out.av_live_status = r.status;
         const t = await r.text();
-        out.av_live_raw = t.slice(0, 800);
+        // Alpha Vantage échoue parfois sa clé API en clair dans le message d'erreur
+        // (ex: "We have detected your API key as XXXX...") — endpoint public, on la masque.
+        const redact = s => env.AV_KEY ? s.split(env.AV_KEY).join('[REDACTED]') : s;
+        out.av_live_raw = redact(t.slice(0, 800));
         try {
           const d = JSON.parse(t);
           out.av_live_has_symbol = !!d.Symbol;
-          out.av_live_note       = d.Information || d.Note || null;
+          out.av_live_note       = redact(d.Information || d.Note || '') || null;
         } catch(_) { out.av_live_parse_error = true; }
       } catch(e) { out.av_live_error = e.message; }
     }
