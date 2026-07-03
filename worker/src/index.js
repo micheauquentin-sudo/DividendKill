@@ -1774,6 +1774,15 @@ async function debugFinnhub(req, env) {
       out.metric_beta           = m.beta ?? null;
       // Toutes les clés contenant "pe", "eps" ou "payout" — pour repérer le vrai nom si les guess ci-dessus ratent
       out.metric_matching_keys = Object.keys(m).filter(k => /pe|eps|payout/i.test(k));
+      // Idem pour dette/EBITDA/FCF/couverture d'intérêts — pour savoir si on peut les
+      // récupérer via Finnhub au lieu des états financiers FMP (payants, 402 en gratuit)
+      out.metric_debt_keys     = Object.keys(m).filter(k => /debt|leverage/i.test(k));
+      out.metric_ebitda_keys   = Object.keys(m).filter(k => /ebitda/i.test(k));
+      out.metric_cashflow_keys = Object.keys(m).filter(k => /cashflow|freeCashFlow|fcf/i.test(k));
+      out.metric_interest_keys = Object.keys(m).filter(k => /interest|coverage/i.test(k));
+      out.metric_equity_keys   = Object.keys(m).filter(k => /equity|assets|liabilit/i.test(k));
+      // Toutes les clés, triées — pour un balayage visuel complet si les regex ci-dessus ratent
+      out.metric_all_keys = Object.keys(m).sort();
     }
   } catch(e) { out.metric_error = e.message; }
 
