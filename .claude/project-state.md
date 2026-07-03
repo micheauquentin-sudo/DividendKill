@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 07:44] chore: session-stop snapshot [2026-07-03 07:44] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 07:45] chore: session-stop snapshot [2026-07-03 07:45] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 07:45] context: Le serveur est confirmé propre (aucune donnée en KV). Le problème vient donc du **cache navigateur/PWA** qui sert encore -->
 <!-- resume-from: files: (unknown) -->
 
