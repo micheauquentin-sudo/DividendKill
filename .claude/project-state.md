@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 07:39] fix: bump client cache key to v11 to purge mock data cached before server cleanup -- src/fmpData.js -->
+<!-- last-commit: [2026-07-03 07:39] chore: session-stop snapshot [2026-07-03 07:39] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 07:39] context: Poussé (déploiement ~1-2 min). Attends que le déploiement se termine, puis appuie sur **Sync** à nouveau — cette fois le -->
 <!-- resume-from: files: src/fmpData.js -->
 
