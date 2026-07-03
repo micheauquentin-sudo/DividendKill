@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 09:04] chore: update claude memory — Twelve Data fallback + self-computed P/E -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 08:57] context: Poussé et déployé (~1-2 min). Le P/E est maintenant **toujours calculé par nous** (`prix FMP / EPS`), que l'EPS vienne d -->
-<!-- resume-from: files: worker/src/index.js -->
+<!-- interrupted: [2026-07-03 09:04] context: Poussé et déployé (~1-2 min). Résumé de l'intégration : -->
+<!-- resume-from: files: .claude/project-state.md, worker/src/index.js, worker/wrangler.toml -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
