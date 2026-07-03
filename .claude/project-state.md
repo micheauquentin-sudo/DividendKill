@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 22:06] chore: session-stop snapshot [2026-07-03 22:06] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 22:06] context: **Ça fonctionne end-to-end !** `dse2` s'est calculé correctement pour UNM : -->
+<!-- interrupted: [2026-07-03 22:09] context: Le "72 Modéré" que tu vois vient encore de l'**ancien calcul côté client** (v1) — pas du nouveau `dse2`. Deux indices le -->
 <!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
