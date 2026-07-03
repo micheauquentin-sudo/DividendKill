@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 09:54] chore: session-stop snapshot [2026-07-03 09:54] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 09:55] chore: session-stop snapshot [2026-07-03 09:55] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 09:55] context: Le déploiement est bien passé il y a 10 minutes (confirmé côté GitHub Actions), donc ce n'est pas un problème de délai.  -->
 <!-- resume-from: files: (unknown) -->
 
