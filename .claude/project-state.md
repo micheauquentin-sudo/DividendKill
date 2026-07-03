@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 07:39] fix: bump client cache key to v11 to purge mock data cached before server cleanup -- src/fmpData.js -->
-<!-- interrupted: [2026-07-03 07:25] context: Parfait. Le code lit la variable sous le nom exact `AV_KEY` (`env.AV_KEY`) — vérifie que c'est bien ce nom dans le dashb -->
-<!-- resume-from: files: worker/src/index.js -->
+<!-- interrupted: [2026-07-03 07:39] context: Poussé (déploiement ~1-2 min). Attends que le déploiement se termine, puis appuie sur **Sync** à nouveau — cette fois le -->
+<!-- resume-from: files: src/fmpData.js -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
