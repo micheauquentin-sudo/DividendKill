@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 08:57] chore: session-stop snapshot [2026-07-03 08:57] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 09:04] feat: add Twelve Data as final fallback for both price and fundamentals -- worker/src/index.js worker/wrangler.toml -->
 <!-- interrupted: [2026-07-03 08:57] context: Poussé et déployé (~1-2 min). Le P/E est maintenant **toujours calculé par nous** (`prix FMP / EPS`), que l'EPS vienne d -->
 <!-- resume-from: files: worker/src/index.js -->
 
