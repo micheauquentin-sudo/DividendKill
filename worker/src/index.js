@@ -813,13 +813,24 @@ async function fmpProxy(req, env) {
       fetch(`${base}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(safeJson),
       fetch(`${base}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`).then(tryJson),
     ]);
-    if (profileRes.status === 'rejected') throw new Error(profileRes.reason?.message || 'profile failed');
-    const rawProfile = profileRes.value;
-    const rawDivs    = divsRes.status === 'fulfilled' ? divsRes.value : null;
+    // Si le profil FMP échoue (429 quota épuisé, 402, timeout…), on continue quand même :
+    // Finnhub/AV n'en dépendent pas pour eps/payout/beta, et le prix est déjà en cache
+    // séparément via priceProxy (/api/prices). Avant, cet échec faisait tout capoter et
+    // n'écrivait rien en cache — ticker bloqué à N/A jusqu'au prochain Sync.
+    const rawProfile = profileRes.status === 'fulfilled' ? profileRes.value : {};
+    const rawDivs    = divsRes.status    === 'fulfilled' ? divsRes.value    : null;
+    if (profileRes.status === 'rejected') {
+      console.warn(`[fmpProxy] profile FMP échoué pour ${symbol} (${profileRes.reason?.message}) — fallback Finnhub/AV + prix en cache`);
+    }
     const result = normalizeFunda(rawProfile, rawDivs);
     // Complément Finnhub (principal) puis Alpha Vantage (secours) pour eps/payout/beta
     const _profileForPrice = Array.isArray(rawProfile) ? rawProfile[0] : rawProfile;
-    await fillFundaFallback(result, symbol, env, _profileForPrice?.price);
+    let price = _profileForPrice?.price;
+    if (!price && env.PRICES_KV) {
+      const cachedPrice = await env.PRICES_KV.get(`p:${symbol.toUpperCase()}`, { type: 'json' });
+      price = cachedPrice?.regularMarketPrice || null;
+    }
+    await fillFundaFallback(result, symbol, env, price);
     // Cache 6h si toujours pas de métriques (quotas épuisés ou clés absentes), sinon TTL long
     const stillIncomplete = result.pe_cur == null && result.payout_ratio == null;
     const ttl = stillIncomplete ? 21600 : ttlFunda();
@@ -1128,13 +1139,20 @@ async function handleScheduled(env) {
       const tryJson = r => r.ok ? r.json() : null;
       // Seulement les 2 endpoints FMP gratuits fiables — voir normalizeFunda pour le détail
       const [profileData, divsData] = await Promise.all([
-        fetch(`${FMP_BASE}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()),
+        fetch(`${FMP_BASE}/profile?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(r => r.json()).catch(() => ({})),
         fetch(`${FMP_BASE}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
       ]);
       const normalized = normalizeFunda(profileData, divsData);
-      // Complément Finnhub (principal) puis Alpha Vantage (secours) pour eps/payout/beta
+      // Complément Finnhub (principal) puis Alpha Vantage (secours) pour eps/payout/beta.
+      // Si le profil FMP a échoué (429 quota, 402…), pas de prix dedans — on retombe sur
+      // le prix déjà en cache via priceProxy (/api/prices) pour pouvoir quand même calculer pe_cur.
       const _profileForPrice = Array.isArray(profileData) ? profileData[0] : profileData;
-      await fillFundaFallback(normalized, symbol, env, _profileForPrice?.price);
+      let price = _profileForPrice?.price;
+      if (!price) {
+        const cachedPrice = await env.PRICES_KV.get(`p:${symbol}`, { type: 'json' });
+        price = cachedPrice?.regularMarketPrice || null;
+      }
+      await fillFundaFallback(normalized, symbol, env, price);
       const stillIncomplete = normalized.pe_cur == null && normalized.payout_ratio == null;
       const ttl = stillIncomplete ? 21600 : ttlFunda();
       await env.PRICES_KV.put(`funda9:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttl });
