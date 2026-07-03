@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 09:32] feat: rate-limit and coalesce /api/funda's external-fetch path for scale -- worker/src/index.js -->
+<!-- last-commit: [2026-07-03 09:32] chore: session-stop snapshot [2026-07-03 09:32] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 09:32] context: Poussé et déployé (~1-2 min). Ce qui change concrètement : -->
 <!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
