@@ -1388,14 +1388,22 @@ async function deleteAccount(env, userId) {
 }
 
 // ── Debug fondamentaux : montre le cache KV + test live income/earnings ──
-// GET /api/debug/funda?symbol=APD          → cache KV uniquement
-// GET /api/debug/funda?symbol=APD&live=1   → cache + tests FMP en direct
+// GET /api/debug/funda?symbol=APD             → cache KV uniquement (inclut statut AV_KEY)
+// GET /api/debug/funda?symbol=APD&live=1      → cache + tests FMP en direct
+// GET /api/debug/funda?symbol=APD&avlive=1    → cache + test Alpha Vantage en direct (consomme 1 appel/jour du quota AV)
 async function debugFunda(req, env) {
   if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
   const url    = new URL(req.url);
   const symbol = (url.searchParams.get('symbol') || 'JNJ').toUpperCase();
   const live   = url.searchParams.get('live') === '1';
+  const avlive = url.searchParams.get('avlive') === '1';
   const out    = { symbol, kv_key: `funda9:${symbol}`, ts: new Date().toISOString() };
+
+  // Statut de la clé secrète AV_KEY — jamais la valeur elle-même, juste présence/longueur.
+  // Permet de vérifier si le secret ajouté via le dashboard Cloudflare est bien visible
+  // par CE Worker (mauvais environnement, typo dans le nom, ou secret non propagé).
+  out.av_key_set = !!env.AV_KEY;
+  out.av_key_len = env.AV_KEY ? env.AV_KEY.length : 0;
 
   // Lecture cache KV
   if (env.PRICES_KV) {
@@ -1424,6 +1432,28 @@ async function debugFunda(req, env) {
     const oldCached = await env.PRICES_KV.get(`funda8:${symbol}`, { type: 'json' });
     out.funda8_hit    = !!oldCached;
     out.funda8_pe_cur = oldCached?.pe_cur ?? null;
+  }
+
+  // Test Alpha Vantage en direct (bypass le cache KV) — capture le statut HTTP et le
+  // corps brut renvoyé par alphavantage.co pour voir exactement pourquoi PERatio manque
+  // (clé invalide, quota "Note"/"Information" dépassé, symbole non supporté, etc.)
+  if (avlive) {
+    if (!env.AV_KEY) {
+      out.av_live_error = 'AV_KEY not set on this Worker (env.AV_KEY is falsy)';
+    } else {
+      try {
+        const avUrl = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${encodeURIComponent(symbol)}&apikey=${env.AV_KEY}`;
+        const r = await fetch(avUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+        out.av_live_status = r.status;
+        const t = await r.text();
+        out.av_live_raw = t.slice(0, 800);
+        try {
+          const d = JSON.parse(t);
+          out.av_live_has_symbol = !!d.Symbol;
+          out.av_live_note       = d.Information || d.Note || null;
+        } catch(_) { out.av_live_parse_error = true; }
+      } catch(e) { out.av_live_error = e.message; }
+    }
   }
 
   if (!live) return json(out);

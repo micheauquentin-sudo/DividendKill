@@ -37,7 +37,17 @@
 - [x] Deal cards regression after large refactor
 - [x] News panel duplicate header
 
+## Medium (new)
+- **P/E still N/A for ADP/UNM/MMM/ACN/HRL/APD after AV_KEY secret added** (status: diagnostics added, awaiting live test)
+  → Code path (fetchAlphaVantageOverview, fmpProxy, cron refreshFunda) is correct; KV confirmed clean (no stale data)
+  → Root cause is one of: AV_KEY not actually bound to the deployed Worker (wrong dashboard env/typo), AV 25/day quota exhausted from earlier testing, or AV OVERVIEW returning Note/Information (rate limit) for these symbols
+  → Added diagnostics in `debugFunda` (worker/src/index.js ~1394-1457): `av_key_set`/`av_key_len` always returned; new `?avlive=1` param does a live AV OVERVIEW call and returns raw HTTP status + body (bypasses KV cache, costs 1 AV quota call)
+  → Next: hit `/api/debug/funda?symbol=APD&avlive=1` to get definitive answer
+
 ## Debug endpoint
 `GET /api/debug/price?symbol=APD&live=1`
 → Shows raw FMP profile keys, `lastDividend`, `marketCap`, `averageVolume` values
+
+`GET /api/debug/funda?symbol=APD` → `av_key_set`/`av_key_len` (is AV_KEY bound?) + KV state
+`GET /api/debug/funda?symbol=APD&avlive=1` → live Alpha Vantage OVERVIEW call, raw status+body
 → Use this first when diagnosing any fundamentals issue
