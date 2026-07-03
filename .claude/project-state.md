@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 08:56] refactor: always compute P/E ourselves (price / EPS), never trust provider P/E -- worker/src/index.js -->
+<!-- last-commit: [2026-07-03 08:57] chore: session-stop snapshot [2026-07-03 08:57] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 08:57] context: Poussé et déployé (~1-2 min). Le P/E est maintenant **toujours calculé par nous** (`prix FMP / EPS`), que l'EPS vienne d -->
 <!-- resume-from: files: worker/src/index.js -->
 
