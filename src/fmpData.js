@@ -1,7 +1,7 @@
 import { Config } from './config.js';
 
 export const FmpData = (() => {
-  const CACHE_KEY = 'astra_fmp_cache_v9';
+  const CACHE_KEY = 'astra_fmp_cache_v10';
   const TTL       = 24 * 3600 * 1000; // 24 h
   const _cache    = {};
 
@@ -43,9 +43,9 @@ export const FmpData = (() => {
     toFetch.forEach((t, i) => {
       if (results[i].status === 'fulfilled') {
         const d = results[i].value;
-        // Ne pas mettre en cache localStorage si les métriques financières sont toutes nulles
+        // Ne pas mettre en cache localStorage si pe_cur est manquant
         // (données incomplètes suite à 429/402) — prochain Sync re-fetche
-        const incomplete = d && d.pe_cur == null && d.payout_ratio == null && d.fcf_payout == null;
+        const incomplete = d && d.pe_cur == null;
         if (!incomplete) _cache[t] = { data: d, ts: now };
       } else {
         console.warn('[FmpData] échec', t, results[i].reason?.message);
