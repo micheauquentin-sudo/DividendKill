@@ -99,6 +99,25 @@ significant accuracy upgrade found by inspecting Finnhub's full
   hints (UNM: score 68→71, confidence 0.45→0.66, balance/stability/growth
   all populated instead of null) — NOT yet confirmed live in prod (no
   network access from this sandbox to verify).
+- After deploy, UNM stayed at 68 client-side: found the client's
+  incomplete-check only verified `_dse2_ver` was PRESENT, not that it
+  matched the latest version — an already-cached v2 score looked
+  "complete" and was never re-requested. Fixed (`ef67e7c`) by adding
+  `EXPECTED_DSE2_VER` in `src/fmpData.js` (must be kept in sync with the
+  worker's `DSE2_VER` from now on) and comparing exact equality —
+  future engine bumps now self-heal on the next Sync without needing a
+  `CACHE_KEY` wipe. Bumped `CACHE_KEY` v17→v18 as the one-time fix for
+  entries already stuck under the old presence-only check.
+- User's last-remaining-gap question ("stability still missing history
+  data") led to one more real improvement (`7eb3078`): the pipeline
+  already computes a genuine `streak` (years without a decrease) when
+  FMP's `/stable/dividends` succeeds (mega-caps), but it was never fed
+  into the V2 engine. A streak of N years is direct proof of 0 cuts —
+  stronger evidence than the reconstructed history's own cut-detection.
+  Wired through as `streakHint`, used in `computeStability` only when
+  the reconstructed series can't produce its own cut count. `DSE2_VER`
+  bumped to 4 (+ `EXPECTED_DSE2_VER` mirror) — this one should self-heal
+  without a `CACHE_KEY` bump thanks to the exact-version-check above.
 
 Also shipped (`c18ea99`, root cause confirmed but NOT yet verified live
 whether it flips the label): ADP showed "Could be overvalued" via the
