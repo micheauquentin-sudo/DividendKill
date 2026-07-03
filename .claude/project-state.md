@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 09:22] chore: session-stop snapshot [2026-07-03 09:22] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 09:22] context: Poussé et déployé (~1-2 min). Architecture finale, répartie au plus simple et au moins d'appels : -->
-<!-- resume-from: files: .claude/project-state.md, worker/src/index.js -->
+<!-- interrupted: [2026-07-03 09:28] context: Bonne nouvelle : le cache (`fh9:SYMBOL`, `funda9:SYMBOL`) est partagé **par ticker**, pas par utilisateur. Donc la conso -->
+<!-- resume-from: files: .claude/project-state.md -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
