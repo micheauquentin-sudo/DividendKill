@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 09:59] fix: make rate limiter and coalescing lock fail-open on KV errors -- worker/src/index.js -->
-<!-- interrupted: [2026-07-03 09:55] context: Le déploiement est bien passé il y a 10 minutes (confirmé côté GitHub Actions), donc ce n'est pas un problème de délai.  -->
-<!-- resume-from: files: (unknown) -->
+<!-- interrupted: [2026-07-03 09:59] context: Poussé et déployé (~1-2 min). Bug trouvé : mon limiteur de débit et le verrou anti-doublon n'avaient aucune protection s -->
+<!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
