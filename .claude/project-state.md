@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 12:26] fix: Alpha Vantage DIVIDENDS as 2nd fallback for yield-reversion history -- worker/src/index.js -->
-<!-- interrupted: [2026-07-03 12:23] context: Le correctif tourne bien (`kv_fv_ver:2` confirme que le nouvel essai a eu lieu), mais `fhdiv9_hit:false` avec `streak:0` -->
+<!-- interrupted: [2026-07-03 12:26] context: J'ai poussé un correctif (`333dd7b`). Une fois déployé, refais un **Sync** pour UNM puis revérifie : -->
 <!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
