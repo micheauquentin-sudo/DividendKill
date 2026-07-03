@@ -641,7 +641,7 @@ function extractPayMonths(divs) {
 // (confirmé en direct sur APD/ADP/UNM/MMM/ACN/HRL) — abandonnés pour éviter de
 // gaspiller le quota FMP sur des appels qui échouent systématiquement.
 // eps/pe_cur/payout_ratio/fcf_payout/debt_ebitda/interest_cov viennent donc
-// toujours de fillFundaFallback (Finnhub en priorité, Alpha Vantage en secours).
+// toujours de fillFundaFallback (Finnhub en priorité, Twelve Data en secours).
 function normalizeFunda(rawProfile, rawDivs) {
   const p = (Array.isArray(rawProfile) ? rawProfile[0] : rawProfile) || {};
 
@@ -848,7 +848,7 @@ async function fmpProxy(req, env) {
       console.warn(`[fmpProxy] profile FMP échoué pour ${symbol} (${profileRes.reason?.message}) — fallback Finnhub/AV + prix en cache`);
     }
     const result = normalizeFunda(rawProfile, rawDivs);
-    // Complément Finnhub (principal) puis Alpha Vantage (secours) pour eps/payout/beta
+    // Complément Finnhub (principal) puis Twelve Data (secours) pour eps/payout/beta
     const _profileForPrice = Array.isArray(rawProfile) ? rawProfile[0] : rawProfile;
     let price = _profileForPrice?.price;
     if (!price && env.PRICES_KV) {
@@ -1004,44 +1004,6 @@ async function benchmarkProxy(req, env) {
   }
 }
 
-// ── Alpha Vantage OVERVIEW (P/E, payout, EPS, beta) ──────────
-// Plan gratuit : 25 appels/jour — cachés 7 jours en KV (< 1 appel/ticker/semaine)
-async function fetchAlphaVantageOverview(symbol, env) {
-  const cacheKey = `av9:${symbol}`;
-  // Toujours vérifier le cache KV d'abord (peut être pré-rempli par /api/debug/av-seed)
-  if (env.PRICES_KV) {
-    const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
-    if (cached) return cached;
-  }
-  if (!env.AV_KEY) return null;
-  try {
-    const url = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${encodeURIComponent(symbol)}&apikey=${env.AV_KEY}`;
-    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-    if (!r.ok) { console.warn('[AV] HTTP', r.status, symbol); return null; }
-    const d = await r.json();
-    // AV renvoie {"Information":"..."} si rate-limited, {"Note":"..."} si quota dépassé
-    if (!d.Symbol || d.Information || d.Note) {
-      console.warn('[AV] no data', symbol, d.Information || d.Note || 'empty');
-      return null;
-    }
-    const num = v => { const n = parseFloat(v); return isNaN(n) || n <= 0 ? null : n; };
-    // PayoutRatio AV = décimal (0.559 = 55.9%), même format que notre payout_ratio
-    // N.B. : pas de pe_cur ici — le P/E est toujours recalculé nous-mêmes (prix FMP / EPS)
-    // dans fillFundaFallback, jamais depuis le PERatio fourni par Alpha Vantage.
-    const parsed = {
-      payout_ratio: num(d.PayoutRatio),
-      beta:         num(d.Beta),
-      market_cap:   num(d.MarketCapitalization),
-      eps:          num(d.EPS),
-      annual_div:   num(d.DividendPerShare),
-    };
-    if (env.PRICES_KV)
-      await env.PRICES_KV.put(cacheKey, JSON.stringify(parsed), { expirationTtl: 7 * 24 * 3600 });
-    console.log(`[AV] ${symbol} EPS=${parsed.eps} payout=${parsed.payout_ratio}`);
-    return parsed;
-  } catch(e) { console.warn('[AV] erreur', symbol, e.message); return null; }
-}
-
 // ── Finnhub /stock/metric?metric=all (EPS, payout, beta) ─────────────────
 // Plan gratuit : 60 appels/minute (bien plus généreux que les 25/JOUR d'AV) —
 // fallback PRINCIPAL avant AV. Cache 7 jours en KV (confirmé libre pour APD/ADP
@@ -1097,8 +1059,8 @@ async function fetchFinnhubMetrics(symbol, env) {
 // mega-cap). Cache 30j (l'historique de versements passés ne change jamais).
 // CONFIRMÉ 403 "You don't have access to this resource" sur ce compte gratuit (testé
 // en direct sur UNM via /api/debug/funda?fhdivlive=1) — laissé en premier essai (échoue
-// vite, sans frais) au cas où le plan Finnhub change, mais Alpha Vantage (ci-dessous)
-// est la source qui fonctionne réellement en pratique.
+// vite, sans frais) au cas où le plan Finnhub change, mais Twelve Data (ci-dessous)
+// est la source qui prend le relai en pratique.
 async function fetchFinnhubDividends(symbol, env) {
   const cacheKey = `fhdiv9:${symbol}`;
   if (env.PRICES_KV) {
@@ -1127,41 +1089,42 @@ async function fetchFinnhubDividends(symbol, env) {
   } catch(e) { console.warn('[Finnhub] erreur dividend', symbol, e.message); return []; }
 }
 
-// ── Alpha Vantage function=DIVIDENDS (historique de versements) — 2e secours pour la
-// réversion du rendement, après l'échec de FMP et de Finnhub (403 sur ce compte).
-// Fait partie des fonctions "core" gratuites d'AV (même statut que OVERVIEW, déjà
-// utilisé), contrairement aux limites qu'on a sur les fondamentaux ailleurs. Cache 30j
-// et seulement si on a un historique exploitable (≥4 versements) — pour ne jamais
-// figer un échec de quota AV (25/jour) comme un "pas d'historique" permanent.
-async function fetchAlphaVantageDividends(symbol, env) {
-  const cacheKey = `avdiv9:${symbol}`;
+// ── Twelve Data /dividends (historique de versements) — 2e secours pour la réversion
+// du rendement, après l'échec de FMP (402) et de Finnhub (403 sur ce compte). Comme
+// /statistics, c'est un endpoint "Fundamentals" qui peut être limité au plan payant —
+// on tente quand même (échoue vite, sans frais) et on log le statut HTTP réel pour
+// confirmer via /api/debug/funda?tddivlive=1. Cache 30j, seulement si exploitable
+// (≥4 versements) pour ne jamais figer un échec de quota comme "pas d'historique".
+async function fetchTwelveDataDividends(symbol, env) {
+  const cacheKey = `tddiv9:${symbol}`;
   if (env.PRICES_KV) {
     try {
       const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
       if (cached) return cached;
     } catch(_) {}
   }
-  if (!env.AV_KEY) return [];
+  if (!env.TWELVEDATA_KEY) return [];
   try {
-    const url = `https://www.alphavantage.co/query?function=DIVIDENDS&symbol=${encodeURIComponent(symbol)}&apikey=${env.AV_KEY}`;
+    const from = new Date(Date.now() - 5 * 365 * 86400000).toISOString().slice(0, 10);
+    const to   = new Date().toISOString().slice(0, 10);
+    const url  = `https://api.twelvedata.com/dividends?symbol=${encodeURIComponent(symbol)}&range=5y&start_date=${from}&end_date=${to}&apikey=${env.TWELVEDATA_KEY}`;
     const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-    if (!r.ok) { console.warn('[AV] dividend HTTP', r.status, symbol); return []; }
+    if (!r.ok) { console.warn('[TwelveData] dividends HTTP', r.status, symbol); return []; }
     const d = await r.json();
-    const arr = Array.isArray(d.data) ? d.data : [];
+    if (d.status === 'error' || d.code) { console.warn('[TwelveData] dividends erreur', symbol, d.message || d.code); return []; }
+    const arr = Array.isArray(d.dividends) ? d.dividends : [];
     const divs = arr
-      .map(x => ({ date: x.payment_date || x.pay_date || x.ex_dividend_date || '', amt: +(x.amount || 0) }))
-      .filter(x => x.date && x.date !== 'None' && x.amt > 0)
+      .map(x => ({ date: x.payment_date || x.ex_date || '', amt: +(x.amount || 0) }))
+      .filter(x => x.date && x.amt > 0)
       .sort((a, b) => a.date.localeCompare(b.date));
-    // Ne cache que les résultats exploitables — un échec de quota AV ("Information"/"Note"
-    // au lieu de "data") renverrait un tableau vide qu'on ne veut PAS figer 30 jours.
     if (divs.length >= 4 && env.PRICES_KV)
       await env.PRICES_KV.put(cacheKey, JSON.stringify(divs), { expirationTtl: 30 * 24 * 3600 });
-    console.log(`[AV] ${symbol} dividendes historiques: ${divs.length} versements`);
+    console.log(`[TwelveData] ${symbol} dividendes historiques: ${divs.length} versements`);
     return divs;
-  } catch(e) { console.warn('[AV] erreur dividend', symbol, e.message); return []; }
+  } catch(e) { console.warn('[TwelveData] erreur dividends', symbol, e.message); return []; }
 }
 
-// ── Twelve Data /statistics (EPS, payout, beta) — secours FINAL (après Finnhub + AV) ──
+// ── Twelve Data /statistics (EPS, payout, beta) — secours après Finnhub ──
 // Cache 7 jours en KV. N.B. : pas de pe_cur ici non plus — même règle que les autres
 // fallbacks, le P/E est toujours recalculé nous-mêmes (prix FMP / EPS).
 async function fetchTwelveDataFundamentals(symbol, env) {
@@ -1196,12 +1159,12 @@ async function fetchTwelveDataFundamentals(symbol, env) {
 }
 
 // ── Complète un résultat normalizeFunda incomplet (402 FMP plan gratuit) ──
-// Ordre : Finnhub (60/min, principal) → Alpha Vantage (25/jour) → Twelve Data (secours final).
+// Ordre : Finnhub (60/min, principal) → Twelve Data (secours final).
 // Mute le `result` en place et pose un flag `_source` pour traçabilité/debug.
 // `price` = prix courant FMP (/stable/profile, plan gratuit) — seule source de prix utilisée.
 // Le P/E n'est JAMAIS pris tel quel chez un fournisseur : toujours recalculé ici
 // (prix / EPS), pour rester indépendant des méthodologies (TTM/forward/dilué…)
-// qui diffèrent entre FMP, Finnhub, Alpha Vantage et Twelve Data.
+// qui diffèrent entre FMP, Finnhub et Twelve Data.
 async function fillFundaFallback(result, symbol, env, price) {
   if (result.pe_cur != null) return;
   const fh = await fetchFinnhubMetrics(symbol, env);
@@ -1222,44 +1185,32 @@ async function fillFundaFallback(result, symbol, env, price) {
     // utilisé pour l'instant (gardé côté fetchFinnhubMetrics si on retente plus tard).
     result._finnhub_source = true;
   }
+  // Alpha Vantage retiré (25 appels/jour — trop juste dès qu'un portefeuille dépasse
+  // quelques tickers non couverts par Finnhub, voir le cas UNM). Twelve Data /statistics
+  // avait été confirmé 403 sur le plan gratuit ("pro/ultra/venture/enterprise only") lors
+  // du premier test, mais on le retente ici quand même (échoue vite, sans frais) : le
+  // plan Twelve Data peut avoir changé, et c'est la seule source restante après Finnhub.
   if (result.pe_cur == null) {
-    const av = await fetchAlphaVantageOverview(symbol, env);
-    if (av) {
-      if (av.eps != null && price > 0) result.pe_cur = +(price / av.eps).toFixed(2);
-      if (av.payout_ratio != null) result.payout_ratio = av.payout_ratio;
-      if (av.beta         != null && result.beta       == null) result.beta       = av.beta;
-      if (av.market_cap   != null && result.market_cap == null) result.market_cap = av.market_cap;
-      if (av.annual_div   != null && result.annual_div == null) result.annual_div = av.annual_div;
-      result._av_source = true;
+    const td = await fetchTwelveDataFundamentals(symbol, env);
+    if (td) {
+      if (td.eps != null && price > 0) result.pe_cur = +(price / td.eps).toFixed(2);
+      if (td.payout_ratio != null) result.payout_ratio = td.payout_ratio;
+      if (td.beta         != null && result.beta       == null) result.beta       = td.beta;
+      if (td.annual_div   != null && result.annual_div == null) result.annual_div = td.annual_div;
+      result._twelvedata_source = true;
     }
   }
-  // Twelve Data /statistics désactivé ici : confirmé via /api/debug/twelvedata que
-  // cet endpoint renvoie 403 "available exclusively with pro or ultra or venture or
-  // enterprise plans" sur le plan gratuit (contrairement à /quote, qui lui fonctionne
-  // — voir fetchTwelveDataQuote dans priceProxy). fetchTwelveDataFundamentals() reste
-  // disponible si le plan Twelve Data est upgradé un jour ; il suffit de redécommenter
-  // l'appel ci-dessous.
-  // if (result.pe_cur == null) {
-  //   const td = await fetchTwelveDataFundamentals(symbol, env);
-  //   if (td) {
-  //     if (td.eps != null && price > 0) result.pe_cur = +(price / td.eps).toFixed(2);
-  //     if (td.payout_ratio != null) result.payout_ratio = td.payout_ratio;
-  //     if (td.beta         != null && result.beta       == null) result.beta       = td.beta;
-  //     if (td.annual_div   != null && result.annual_div == null) result.annual_div = td.annual_div;
-  //     result._twelvedata_source = true;
-  //   }
-  // }
 }
 
 // ── Cron: prix + fondamentaux automatiques à la clôture marché ─
 const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
 
 // Incrémenté quand fetchYieldReversion gagne une nouvelle source de données
-// (ex. secours Finnhub puis Alpha Vantage ajoutés ici) — force UN nouveau essai
-// pour les tickers déjà marqués _fv_tried avec fair_value toujours null sous
-// l'ancienne logique, sans re-boucler indéfiniment une fois ce nouvel essai fait
-// (succès ou échec).
-const FV_VER = 3;
+// (Finnhub, puis Twelve Data ici à la place d'Alpha Vantage retiré) — force UN
+// nouveau essai pour les tickers déjà marqués _fv_tried avec fair_value toujours
+// null sous l'ancienne logique, sans re-boucler indéfiniment une fois ce nouvel
+// essai fait (succès ou échec).
+const FV_VER = 4;
 
 // ── Valorisation par réversion du rendement (méthode Simply Safe Dividends) ──
 // Au lieu de comparer le P/E à une moyenne sectorielle rigide (qui juge à tort
@@ -1297,10 +1248,10 @@ async function fetchYieldReversion(symbol, price, annualDiv, rawDivs, env) {
     .filter(d => d.date && d.amt > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
   // FMP /stable/dividends 402 pour la plupart des tickers hors mega-cap — bascule sur
-  // l'historique de dividendes Finnhub, puis Alpha Vantage (Finnhub confirmé 403 sur ce
-  // compte — voir fetchFinnhubDividends — mais laissé au cas où le plan change).
+  // l'historique de dividendes Finnhub (403 confirmé sur ce compte, mais laissé au cas
+  // où le plan change) puis Twelve Data.
   if (divs.length < 4) divs = await fetchFinnhubDividends(symbol, env);
-  if (divs.length < 4) divs = await fetchAlphaVantageDividends(symbol, env);
+  if (divs.length < 4) divs = await fetchTwelveDataDividends(symbol, env);
   if (divs.length < 4) return null; // pas assez d'historique de dividendes, aucune source dispo
   try {
     const from = new Date(Date.now() - 5 * 365 * 86400000).toISOString().slice(0, 10);
@@ -1354,7 +1305,7 @@ async function handleScheduled(env) {
         fetch(`${FMP_BASE}/dividends?symbol=${symbol}&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
       ]);
       const normalized = normalizeFunda(profileData, divsData);
-      // Complément Finnhub (principal) puis Alpha Vantage (secours) pour eps/payout/beta.
+      // Complément Finnhub (principal) puis Twelve Data (secours) pour eps/payout/beta.
       // Si le profil FMP a échoué (429 quota, 402…), pas de prix dedans — on retombe sur
       // le prix déjà en cache via priceProxy (/api/prices) pour pouvoir quand même calculer pe_cur.
       const _profileForPrice = Array.isArray(profileData) ? profileData[0] : profileData;
@@ -1375,7 +1326,7 @@ async function handleScheduled(env) {
       const fvPending = normalized.annual_div > 0 && normalized.fair_value == null;
       const ttl = stillIncomplete ? 21600 : fvPending ? 86400 : ttlFunda();
       await env.PRICES_KV.put(`funda9:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttl });
-      console.log(`[Cron] funda9:${symbol} mis à jour — ${reason}${stillIncomplete ? ' [incomplet]' : normalized._finnhub_source ? ' [Finnhub]' : normalized._av_source ? ' [AV]' : ''}`);
+      console.log(`[Cron] funda9:${symbol} mis à jour — ${reason}${stillIncomplete ? ' [incomplet]' : normalized._finnhub_source ? ' [Finnhub]' : normalized._twelvedata_source ? ' [TwelveData]' : ''}`);
       return true;
     } catch(e) { console.warn(`[Cron] funda ${symbol}:`, e.message); return false; }
   }
@@ -1713,27 +1664,29 @@ async function deleteAccount(env, userId) {
 }
 
 // ── Debug fondamentaux : montre le cache KV + test live income/earnings ──
-// GET /api/debug/funda?symbol=APD             → cache KV uniquement (inclut statut AV_KEY)
+// GET /api/debug/funda?symbol=APD             → cache KV uniquement (inclut statut TWELVEDATA_KEY)
 // GET /api/debug/funda?symbol=APD&live=1      → teste EN PLUS income-statement/earnings/balance/cash-flow
 //                                                (diagnostic seulement — plus utilisés par le pipeline
 //                                                réel depuis qu'on a confirmé leur 402 quasi systématique ;
 //                                                utile pour vérifier si un ticker fait exception)
-// GET /api/debug/funda?symbol=APD&avlive=1    → cache + test Alpha Vantage en direct (consomme 1 appel/jour du quota AV)
+// GET /api/debug/funda?symbol=APD&tdlive=1    → cache + test Twelve Data /statistics en direct
+// GET /api/debug/funda?symbol=APD&tddivlive=1 → cache + test Twelve Data /dividends en direct
 async function debugFunda(req, env) {
   if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
   const url    = new URL(req.url);
   const symbol = (url.searchParams.get('symbol') || 'JNJ').toUpperCase();
   const live   = url.searchParams.get('live') === '1';
-  const avlive = url.searchParams.get('avlive') === '1';
+  const tdlive = url.searchParams.get('tdlive') === '1';
   const fhdivlive = url.searchParams.get('fhdivlive') === '1';
-  const avdivlive = url.searchParams.get('avdivlive') === '1';
+  const tddivlive = url.searchParams.get('tddivlive') === '1';
   const out    = { symbol, kv_key: `funda9:${symbol}`, ts: new Date().toISOString() };
 
-  // Statut de la clé secrète AV_KEY — jamais la valeur elle-même, juste présence/longueur.
-  // Permet de vérifier si le secret ajouté via le dashboard Cloudflare est bien visible
-  // par CE Worker (mauvais environnement, typo dans le nom, ou secret non propagé).
-  out.av_key_set = !!env.AV_KEY;
-  out.av_key_len = env.AV_KEY ? env.AV_KEY.length : 0;
+  // Statut de la clé secrète TWELVEDATA_KEY — jamais la valeur elle-même, juste
+  // présence/longueur. Permet de vérifier si le secret ajouté via le dashboard
+  // Cloudflare est bien visible par CE Worker (mauvais environnement, typo, ou
+  // secret non propagé).
+  out.twelvedata_key_set = !!env.TWELVEDATA_KEY;
+  out.twelvedata_key_len = env.TWELVEDATA_KEY ? env.TWELVEDATA_KEY.length : 0;
 
   // Lecture cache KV
   if (env.PRICES_KV) {
@@ -1758,10 +1711,10 @@ async function debugFunda(req, env) {
     out.fhdiv9_hit   = !!fhDivCached;
     out.fhdiv9_count = Array.isArray(fhDivCached) ? fhDivCached.length : 0;
 
-    // Vérifier le cache dividendes Alpha Vantage (avdiv9:SYMBOL) — 2e secours
-    const avDivCached = await env.PRICES_KV.get(`avdiv9:${symbol}`, { type: 'json' });
-    out.avdiv9_hit   = !!avDivCached;
-    out.avdiv9_count = Array.isArray(avDivCached) ? avDivCached.length : 0;
+    // Vérifier le cache dividendes Twelve Data (tddiv9:SYMBOL) — 2e secours
+    const tdDivCached = await env.PRICES_KV.get(`tddiv9:${symbol}`, { type: 'json' });
+    out.tddiv9_hit   = !!tdDivCached;
+    out.tddiv9_count = Array.isArray(tdDivCached) ? tdDivCached.length : 0;
 
     // Vérifier le cache yield-reversion (yr9:SYMBOL)
     const yrCached = await env.PRICES_KV.get(`yr9:${symbol}`, { type: 'json' });
@@ -1776,14 +1729,7 @@ async function debugFunda(req, env) {
     out.fh9_payout  = fhCached?.payout_ratio ?? null;
     out.fh9_data    = fhCached;
 
-    // Vérifier le cache AV (av9:SYMBOL) — pré-rempli par /api/debug/av-seed, fallback secondaire
-    const avCached = await env.PRICES_KV.get(`av9:${symbol}`, { type: 'json' });
-    out.av9_hit     = !!avCached;
-    out.av9_eps     = avCached?.eps ?? null;
-    out.av9_payout  = avCached?.payout_ratio ?? null;
-    out.av9_data    = avCached;
-
-    // Vérifier le cache Twelve Data (td9:SYMBOL) — fallback final
+    // Vérifier le cache Twelve Data (td9:SYMBOL) — fallback après Finnhub
     const tdCached = await env.PRICES_KV.get(`td9:${symbol}`, { type: 'json' });
     out.td9_hit     = !!tdCached;
     out.td9_eps     = tdCached?.eps ?? null;
@@ -1799,28 +1745,21 @@ async function debugFunda(req, env) {
     out.funda8_pe_cur = oldCached?.pe_cur ?? null;
   }
 
-  // Test Alpha Vantage en direct (bypass le cache KV) — capture le statut HTTP et le
-  // corps brut renvoyé par alphavantage.co pour voir exactement pourquoi PERatio manque
-  // (clé invalide, quota "Note"/"Information" dépassé, symbole non supporté, etc.)
-  if (avlive) {
-    if (!env.AV_KEY) {
-      out.av_live_error = 'AV_KEY not set on this Worker (env.AV_KEY is falsy)';
+  // Test Twelve Data /statistics en direct (bypass le cache KV) — capture le statut HTTP
+  // et le corps brut pour voir exactement pourquoi payout/EPS manquent (clé invalide,
+  // 403 plan payant requis, symbole non supporté, etc.)
+  if (tdlive) {
+    if (!env.TWELVEDATA_KEY) {
+      out.td_live_error = 'TWELVEDATA_KEY not set on this Worker (env.TWELVEDATA_KEY is falsy)';
     } else {
       try {
-        const avUrl = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${encodeURIComponent(symbol)}&apikey=${env.AV_KEY}`;
-        const r = await fetch(avUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-        out.av_live_status = r.status;
+        const tdUrl = `https://api.twelvedata.com/statistics?symbol=${encodeURIComponent(symbol)}&apikey=${env.TWELVEDATA_KEY}`;
+        const r = await fetch(tdUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+        out.td_live_status = r.status;
         const t = await r.text();
-        // Alpha Vantage échoue parfois sa clé API en clair dans le message d'erreur
-        // (ex: "We have detected your API key as XXXX...") — endpoint public, on la masque.
-        const redact = s => env.AV_KEY ? s.split(env.AV_KEY).join('[REDACTED]') : s;
-        out.av_live_raw = redact(t.slice(0, 800));
-        try {
-          const d = JSON.parse(t);
-          out.av_live_has_symbol = !!d.Symbol;
-          out.av_live_note       = redact(d.Information || d.Note || '') || null;
-        } catch(_) { out.av_live_parse_error = true; }
-      } catch(e) { out.av_live_error = e.message; }
+        const redact = s => env.TWELVEDATA_KEY ? s.split(env.TWELVEDATA_KEY).join('[REDACTED]') : s;
+        out.td_live_raw = redact(t.slice(0, 800));
+      } catch(e) { out.td_live_error = e.message; }
     }
   }
 
@@ -1843,19 +1782,21 @@ async function debugFunda(req, env) {
     }
   }
 
-  // Test Alpha Vantage DIVIDENDS en direct (bypass le cache avdiv9)
-  if (avdivlive) {
-    if (!env.AV_KEY) {
-      out.avdiv_live_error = 'AV_KEY not set on this Worker (env.AV_KEY is falsy)';
+  // Test Twelve Data /dividends en direct (bypass le cache tddiv9)
+  if (tddivlive) {
+    if (!env.TWELVEDATA_KEY) {
+      out.tddiv_live_error = 'TWELVEDATA_KEY not set on this Worker (env.TWELVEDATA_KEY is falsy)';
     } else {
       try {
-        const avUrl = `https://www.alphavantage.co/query?function=DIVIDENDS&symbol=${encodeURIComponent(symbol)}&apikey=${env.AV_KEY}`;
-        const r = await fetch(avUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-        out.avdiv_live_status = r.status;
+        const from = new Date(Date.now() - 5 * 365 * 86400000).toISOString().slice(0, 10);
+        const to   = new Date().toISOString().slice(0, 10);
+        const tdUrl = `https://api.twelvedata.com/dividends?symbol=${encodeURIComponent(symbol)}&range=5y&start_date=${from}&end_date=${to}&apikey=${env.TWELVEDATA_KEY}`;
+        const r = await fetch(tdUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+        out.tddiv_live_status = r.status;
         const t = await r.text();
-        const redact = s => env.AV_KEY ? s.split(env.AV_KEY).join('[REDACTED]') : s;
-        out.avdiv_live_raw = redact(t.slice(0, 500));
-      } catch(e) { out.avdiv_live_error = e.message; }
+        const redact = s => env.TWELVEDATA_KEY ? s.split(env.TWELVEDATA_KEY).join('[REDACTED]') : s;
+        out.tddiv_live_raw = redact(t.slice(0, 500));
+      } catch(e) { out.tddiv_live_error = e.message; }
     }
   }
 
@@ -1931,65 +1872,10 @@ async function debugFunda(req, env) {
   return json(out);
 }
 
-// ── Debug AV seed : injecte les données mock Alpha Vantage dans KV ──
-// GET /api/debug/av-seed            → seed tous les tickers
-// GET /api/debug/av-seed?symbol=APD → seed un seul ticker
-// Données mock AV OVERVIEW (juillet 2026) — utilisées pour tester sans consommer de quota AV
-const AV_MOCK = {
-  JNJ: { pe_cur:23.9,  payout_ratio:0.559, beta:0.53, market_cap:385000000000, eps:10.62, annual_div:4.96  },
-  APD: { pe_cur:22.9,  payout_ratio:0.558, beta:0.75, market_cap:69927970463,  eps:13.05, annual_div:7.28  },
-  ADP: { pe_cur:29.4,  payout_ratio:0.648, beta:0.77, market_cap:109000000000, eps:8.02,  annual_div:5.60  },
-  UNM: { pe_cur:8.7,   payout_ratio:0.213, beta:0.99, market_cap:9800000000,   eps:10.53, annual_div:1.56  },
-  MMM: { pe_cur:17.9,  payout_ratio:0.597, beta:0.84, market_cap:26000000000,  eps:8.93,  annual_div:2.80  },
-  ACN: { pe_cur:27.8,  payout_ratio:0.398, beta:1.14, market_cap:164000000000, eps:4.72,  annual_div:5.28  },
-  HRL: { pe_cur:21.6,  payout_ratio:0.702, beta:0.31, market_cap:8900000000,   eps:1.54,  annual_div:1.13  },
-  O:   { pe_cur:42.1,  payout_ratio:0.742, beta:0.82, market_cap:51000000000,  eps:1.06,  annual_div:3.19  },
-  T:   { pe_cur:18.3,  payout_ratio:0.401, beta:0.61, market_cap:127000000000, eps:0.97,  annual_div:1.11  },
-  VZ:  { pe_cur:10.2,  payout_ratio:0.541, beta:0.38, market_cap:168000000000, eps:4.59,  annual_div:2.71  },
-  PFE: { pe_cur:13.4,  payout_ratio:0.617, beta:0.61, market_cap:148000000000, eps:1.95,  annual_div:1.68  },
-  KO:  { pe_cur:26.8,  payout_ratio:0.735, beta:0.57, market_cap:266000000000, eps:2.47,  annual_div:1.94  },
-  PEP: { pe_cur:22.1,  payout_ratio:0.734, beta:0.52, market_cap:199000000000, eps:6.97,  annual_div:5.42  },
-  MCD: { pe_cur:25.3,  payout_ratio:0.589, beta:0.73, market_cap:212000000000, eps:11.39, annual_div:7.08  },
-  ABT: { pe_cur:33.1,  payout_ratio:0.533, beta:0.63, market_cap:191000000000, eps:3.32,  annual_div:2.20  },
-  D:   { pe_cur:19.4,  payout_ratio:0.809, beta:0.41, market_cap:46000000000,  eps:2.85,  annual_div:2.67  },
-  SO:  { pe_cur:20.7,  payout_ratio:0.741, beta:0.36, market_cap:88000000000,  eps:4.10,  annual_div:2.88  },
-  NEE: { pe_cur:23.4,  payout_ratio:0.600, beta:0.52, market_cap:150000000000, eps:3.32,  annual_div:2.31  },
-};
-const AV_MOCK_TTL = 7 * 24 * 3600; // 7 jours (même TTL que le vrai cache AV)
-
-// GET /api/debug/av-seed?action=clear            → supprime av9+funda9 mock pour tous les tickers connus
-// GET /api/debug/av-seed?action=clear&symbol=APD  → supprime pour un seul ticker
-async function debugAvSeed(req, env) {
-  if (!env.PRICES_KV) return err('PRICES_KV not bound', 500);
-  const url    = new URL(req.url);
-  const only   = (url.searchParams.get('symbol') || '').toUpperCase() || null;
-  const clear  = url.searchParams.get('action') === 'clear';
-  const tickers = only ? [only] : Object.keys(AV_MOCK);
-
-  if (clear) {
-    const results = {};
-    for (const t of tickers) {
-      await env.PRICES_KV.delete(`av9:${t}`);
-      await env.PRICES_KV.delete(`funda9:${t}`);
-      results[t] = 'cleared';
-    }
-    return json({ cleared: results, count: tickers.length });
-  }
-
-  const results = {};
-  for (const t of tickers) {
-    const d = AV_MOCK[t];
-    if (!d) { results[t] = 'unknown ticker'; continue; }
-    await env.PRICES_KV.put(`av9:${t}`, JSON.stringify(d), { expirationTtl: AV_MOCK_TTL });
-    results[t] = 'seeded';
-  }
-  return json({ seeded: results, count: tickers.length, ttl_days: 7 });
-}
-
 // ── Debug Finnhub : teste en direct /quote + /stock/metric?metric=all + /stock/profile2 ──
 // GET /api/debug/finnhub?symbol=APD
 // Nécessite le secret FINNHUB_KEY (wrangler secret put FINNHUB_KEY) — clé gratuite sur
-// finnhub.io/register (60 appels/minute sur le plan gratuit, contre 25/JOUR pour AV).
+// finnhub.io/register (60 appels/minute sur le plan gratuit).
 // Endpoint volontairement "brut" (raw + toutes les clés) tant que la disponibilité réelle
 // des champs EPS/P/E/payout sur le plan gratuit n'est pas confirmée pour ces tickers.
 async function debugFinnhub(req, env) {
@@ -2432,7 +2318,6 @@ export default {
     if (path === '/api/prices/history')  return priceHistoryProxy(req, env);
     if (path === '/api/debug/price')     return debugPrice(req, env);
     if (path === '/api/debug/funda')     return debugFunda(req, env);
-    if (path === '/api/debug/av-seed')   return debugAvSeed(req, env);
     if (path === '/api/debug/finnhub')   return debugFinnhub(req, env);
     if (path === '/api/debug/twelvedata') return debugTwelveData(req, env);
 

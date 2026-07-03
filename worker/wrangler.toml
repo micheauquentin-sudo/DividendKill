@@ -31,5 +31,7 @@ id      = "f991055139244638b2eeda97ef31bf46"
 #   wrangler secret put PORTFOLIO_TOKEN   ← token Bearer pour l'auth
 #   wrangler secret put FMP_KEY           ← clé API Financial Modeling Prep
 #   wrangler secret put FINNHUB_KEY       ← clé API Finnhub (fallback principal EPS/payout, 60 req/min gratuit)
-#   wrangler secret put AV_KEY            ← clé API Alpha Vantage (fallback secondaire, 25 req/jour gratuit)
-#   wrangler secret put TWELVEDATA_KEY    ← clé API Twelve Data (fallback final prix + EPS/payout)
+#   wrangler secret put TWELVEDATA_KEY    ← clé API Twelve Data (fallback secondaire prix + EPS/payout/dividendes)
+# AV_KEY (Alpha Vantage) retiré du pipeline (2026-07-03) — quota 25 req/jour trop juste
+# dès qu'un portefeuille dépasse quelques tickers non couverts par Finnhub. Le secret
+# peut être supprimé du dashboard Cloudflare (wrangler secret delete AV_KEY).
