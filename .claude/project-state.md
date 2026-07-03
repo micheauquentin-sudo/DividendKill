@@ -1,4 +1,5 @@
 # PROJECT STATE
+<!-- last-commit: [2026-07-03 08:32] feat: add boot skeleton, portfolio screener, and dividend history chart -- .claude/project-state.md .claude/roadmap.md src/panels/dividendes.js src/panels/valorisation.js src/style.css src/ui-shared.js src/ui.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
