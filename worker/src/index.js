@@ -765,12 +765,39 @@ async function fmpProxy(req, env) {
   if (!symbol)      return err('missing symbol');
   if (!env.FMP_KEY) return err('FMP_KEY not configured', 500);
 
-  const cacheKey = `funda9:${symbol.toUpperCase()}`;
+  const symbolUp = symbol.toUpperCase();
+  const cacheKey = `funda9:${symbolUp}`;
   if (env.PRICES_KV) {
     const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
     // Re-fetch si pe_cur manquant (AV peut maintenant le combler via KV cache)
     const incomplete = cached && cached.pe_cur == null;
     if (cached && !incomplete) return json(cached);
+  }
+
+  // À partir d'ici on va appeler des API externes (FMP/Finnhub/AV) — pas de limite
+  // sur les cache hits ci-dessus (sinon un gros portefeuille casserait dès le 1er Sync).
+  // 1) Limite par IP : protège contre un client qui spammerait des tickers jamais vus.
+  const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Real-IP') || 'unknown';
+  if (await isRateLimited(env, `funda:${ip}`, 30)) {
+    return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), {
+      status: 429, headers: { ...CORS, 'Content-Type': 'application/json', 'Retry-After': '60' },
+    });
+  }
+
+  // 2) Coalescence best-effort : si un autre utilisateur est probablement déjà en train
+  // de fetcher CE ticker (ex. 50 comptes qui se synchronisent au même instant), on attend
+  // un court instant puis on retente le cache principal avant de dupliquer les appels.
+  // KV n'offre pas de verrou atomique — c'est une réduction de bruit, pas une garantie.
+  const lockKey = `fundalock:${symbolUp}`;
+  if (env.PRICES_KV) {
+    const already = await env.PRICES_KV.get(lockKey);
+    if (already) {
+      await new Promise(r => setTimeout(r, 400));
+      const retryCache = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+      if (retryCache && retryCache.pe_cur != null) return json(retryCache);
+    } else {
+      await env.PRICES_KV.put(lockKey, '1', { expirationTtl: 10 });
+    }
   }
 
   const base = 'https://financialmodelingprep.com/stable';
