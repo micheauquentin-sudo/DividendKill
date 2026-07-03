@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:58] chore: update claude memory — Alpha Vantage removal, Twelve Data fallback -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 12:58] chore: session-stop snapshot [2026-07-03 12:58] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 12:58] context: **Fait — Alpha Vantage retiré, Twelve Data étendu.** Poussé en deux commits (`d0edd33` code + `cacd4ee` mémoire) : -->
 <!-- resume-from: files: .claude/project-state.md, src/fmpData.js -->
 
