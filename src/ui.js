@@ -975,8 +975,14 @@ const App = (() => {
       sy = e.touches[0].clientY;
       startTarget = e.target;
       swiping = false;
-      const ap = document.querySelector('.panel.on');
-      startScrollTop = ap ? ap.scrollTop : 0;
+      // Le panel actif (.panel.on) ne scrolle JAMAIS lui-même en pratique — body n'a
+      // qu'un min-height (pas height) donc toute la page grandit avec le contenu et
+      // c'est le DOCUMENT qui scrolle. .panel.on.scrollTop restait donc bloqué à 0 en
+      // permanence, quelle que soit la position réelle de scroll — le check "est-on en
+      // haut ?" du pull-to-refresh ne bloquait donc jamais rien (confirmé en testant le
+      // vrai DOM avec Playwright + de vrais touch events). scrollingElement est la
+      // source de vérité correcte pour le scroll de page.
+      startScrollTop = (document.scrollingElement || document.documentElement).scrollTop;
       const inn = getInner();
       if (inn) inn.style.transition = 'none';
     }, {passive:true});
