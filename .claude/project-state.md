@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 07:23] chore: session-stop snapshot [2026-07-03 07:23] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 07:25] chore: session-stop snapshot [2026-07-03 07:25] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 07:25] context: Parfait. Le code lit la variable sous le nom exact `AV_KEY` (`env.AV_KEY`) — vérifie que c'est bien ce nom dans le dashb -->
 <!-- resume-from: files: worker/src/index.js -->
 
