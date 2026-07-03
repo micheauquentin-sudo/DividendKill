@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 09:43] fix: degrade gracefully when FMP profile fails, don't abandon Finnhub/AV fallback -- worker/src/index.js -->
-<!-- interrupted: [2026-07-03 09:39] context: `kv_hit: false` — le cache `funda9:APD` est complètement vide, alors qu'un vrai Sync a dû l'appeler. Ça veut dire que la -->
-<!-- resume-from: files: src/fmpData.js -->
+<!-- interrupted: [2026-07-03 09:44] context: Trouvé et corrigé. Le vrai problème : le quota journalier FMP (250 appels/jour) est de nouveau épuisé après tous nos tes -->
+<!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
