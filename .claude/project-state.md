@@ -1,4 +1,5 @@
 # PROJECT STATE
+<!-- last-commit: [2026-07-03 12:58] chore: update claude memory — Alpha Vantage removal, Twelve Data fallback -- .claude/project-state.md -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the fundamentals/valuation
