@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 22:24] chore: update claude memory — DSE V2 live confirmation + ADP fallback fix -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 22:15] context: Poussé (`1bfaa37`). Cette fois c'est un correctif plus structurel : le cache client ne revalidait jamais une entrée déjà -->
-<!-- resume-from: files: src/fmpData.js -->
+<!-- interrupted: [2026-07-03 22:24] context: Poussé (`c18ea99`). Une fois déployé, refais un Sync et regarde la carte ADP — le score DSE reste probablement similaire -->
+<!-- resume-from: files: .claude/project-state.md, src/panels/valorisation.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
