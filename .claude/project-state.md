@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 09:09] fix: disable Twelve Data fundamentals fallback (403 on free plan) -- worker/src/index.js -->
-<!-- interrupted: [2026-07-03 09:04] context: Poussé et déployé (~1-2 min). Résumé de l'intégration : -->
-<!-- resume-from: files: .claude/project-state.md, worker/src/index.js, worker/wrangler.toml -->
+<!-- interrupted: [2026-07-03 09:09] context: Poussé et déployé. Bilan final de la chaîne de données : -->
+<!-- resume-from: files: .claude/project-state.md, worker/src/index.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
