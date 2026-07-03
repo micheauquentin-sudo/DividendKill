@@ -1150,16 +1150,22 @@ async function fillFundaFallback(result, symbol, env, price) {
       result._av_source = true;
     }
   }
-  if (result.pe_cur == null) {
-    const td = await fetchTwelveDataFundamentals(symbol, env);
-    if (td) {
-      if (td.eps != null && price > 0) result.pe_cur = +(price / td.eps).toFixed(2);
-      if (td.payout_ratio != null) result.payout_ratio = td.payout_ratio;
-      if (td.beta         != null && result.beta       == null) result.beta       = td.beta;
-      if (td.annual_div   != null && result.annual_div == null) result.annual_div = td.annual_div;
-      result._twelvedata_source = true;
-    }
-  }
+  // Twelve Data /statistics désactivé ici : confirmé via /api/debug/twelvedata que
+  // cet endpoint renvoie 403 "available exclusively with pro or ultra or venture or
+  // enterprise plans" sur le plan gratuit (contrairement à /quote, qui lui fonctionne
+  // — voir fetchTwelveDataQuote dans priceProxy). fetchTwelveDataFundamentals() reste
+  // disponible si le plan Twelve Data est upgradé un jour ; il suffit de redécommenter
+  // l'appel ci-dessous.
+  // if (result.pe_cur == null) {
+  //   const td = await fetchTwelveDataFundamentals(symbol, env);
+  //   if (td) {
+  //     if (td.eps != null && price > 0) result.pe_cur = +(price / td.eps).toFixed(2);
+  //     if (td.payout_ratio != null) result.payout_ratio = td.payout_ratio;
+  //     if (td.beta         != null && result.beta       == null) result.beta       = td.beta;
+  //     if (td.annual_div   != null && result.annual_div == null) result.annual_div = td.annual_div;
+  //     result._twelvedata_source = true;
+  //   }
+  // }
 }
 
 // ── Cron: prix + fondamentaux automatiques à la clôture marché ─
