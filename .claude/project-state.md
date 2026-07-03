@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 23:07] fix: Deal tab NaN in AI stress-test + pull-to-refresh over-triggering -- src/panels/deal.js src/ui.js -->
-<!-- interrupted: [2026-07-03 23:00] context: Les données serveur sont maintenant complètes et cohérentes — `kv_dse2_ver: 4`, toutes les catégories remplies (coverage -->
-<!-- resume-from: files: .claude/project-state.md -->
+<!-- interrupted: [2026-07-03 23:07] context: Auto-snapshot already captured it. Résumé : -->
+<!-- resume-from: files: .claude/project-state.md, src/ui.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
