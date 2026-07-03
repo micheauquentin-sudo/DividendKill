@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 22:06] fix: market-stability volatility ~2.2x too high (weekly bars fed as daily) -- worker/src/index.js -->
+<!-- last-commit: [2026-07-03 22:06] chore: session-stop snapshot [2026-07-03 22:06] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 22:06] context: **Ça fonctionne end-to-end !** `dse2` s'est calculé correctement pour UNM : -->
 <!-- resume-from: files: worker/src/index.js -->
 
