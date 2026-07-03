@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 08:01] chore: session-stop snapshot [2026-07-03 08:01] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 08:04] chore: update claude memory — P/E N/A resolved (AV quota, not a bug) -- .claude/bugs.md -->
 <!-- interrupted: [2026-07-03 08:01] context: Poussé. Résumé de la situation : -->
 <!-- resume-from: files: worker/src/index.js -->
 
