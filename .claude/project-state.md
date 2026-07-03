@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 22:29] chore: session-stop snapshot [2026-07-03 22:29] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 22:32] chore: session-stop snapshot [2026-07-03 22:32] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 22:32] context: Oui, il y a un angle plus prometteur que ce qu'on a fait jusqu'ici — et il ne nécessite aucune nouvelle API. -->
 <!-- resume-from: files: .claude/project-state.md -->
 
