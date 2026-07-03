@@ -239,14 +239,24 @@ function computeBalance(totalDebt, cashFlowStatements, interestCoverageDirect, f
 // nulle part, confirmé empiriquement). Volatilité/cuts restent indisponibles dans ce cas
 // (le hint ne donne qu'un taux composé, pas la série complète) — gérés par le
 // renormalization existant ci-dessous, qui tolère déjà des sous-parties manquantes.
-function computeStability(history, dividendCagrHint) {
+// streakHint : nombre d'années CONSÉCUTIVES sans baisse de dividende, calculé à partir
+// de VRAIES données quand FMP /stable/dividends fonctionne (mega-caps surtout). Contrairement
+// au CAGR hint, ce n'est pas une estimation tierce précalculée mais un fait historique
+// direct — un streak de N années prouve 0 coupure sur cette période, plus fiable que la
+// détection de coupures sur un historique reconstruit par estimation EPS/FCF.
+function computeStability(history, dividendCagrHint, streakHint) {
   const usingHint = (!history || history.length < 2);
   const series = usingHint ? [] : history.map(h => ({ year: h.year, value: h.dividend }));
   const cagr = usingHint ? (isNum(dividendCagrHint) ? dividendCagrHint : null) : cagrFromSeries(series);
   const changes = usingHint ? [] : yoyChanges(series);
   const cv = usingHint ? null : coefficientOfVariation(changes);
   const bucket = usingHint ? null : volatilityBucket(cv);
-  const cuts = usingHint ? null : countCuts(series);
+  let cuts = usingHint ? null : countCuts(series);
+  let cutsFromStreak = false;
+  if (cuts == null && isNum(streakHint) && streakHint >= 3) {
+    cuts = 0;
+    cutsFromStreak = true;
+  }
 
   const cagrScore = cagr != null ? scoreCAGR(cagr) : null;
   const volScore = bucket != null ? scoreVolatilityBucket(bucket) : null;
@@ -259,7 +269,7 @@ function computeStability(history, dividendCagrHint) {
   const wsum = parts.reduce((a, [, w]) => a + w, 0);
   const stabilityScore = wsum > 0 ? parts.reduce((a, [s, w]) => a + s * w, 0) / wsum : null;
 
-  return { stabilityScore, dividendCAGR: cagr, volatilityBucketName: bucket, cutCount: cuts, cagrFromHint: usingHint && cagr != null };
+  return { stabilityScore, dividendCAGR: cagr, volatilityBucketName: bucket, cutCount: cuts, cagrFromHint: usingHint && cagr != null, cutsFromStreak };
 }
 
 // ---------------------------------------------------------------------------
@@ -436,7 +446,7 @@ const CATEGORY_LABELS = {
 
 const SCORE_CATEGORY_KEYS = ['coverage', 'balance', 'stability', 'growth', 'market'];
 
-function buildExplanation({ breakdown, penalties, reconstructedFields, confidence }) {
+function buildExplanation({ breakdown, penalties, reconstructedFields, confidence, cutsFromStreak }) {
   const lines = [];
   // 'penalties' n'est pas une catégorie de score — exclue explicitement, sinon son 0 (!= null) polluait le classement.
   const available = SCORE_CATEGORY_KEYS
@@ -463,6 +473,10 @@ function buildExplanation({ breakdown, penalties, reconstructedFields, confidenc
     lines.push('Historique de dividendes reconstitué (pas de données réelles disponibles) — confiance réduite.');
   } else if (reconstructedFields.includes('dividend_cagr_from_finnhub')) {
     lines.push('Croissance du dividende basée sur une estimation Finnhub (pas d\'historique détaillé disponible).');
+  }
+
+  if (cutsFromStreak) {
+    lines.push('Aucune coupure de dividende confirmée par l\'historique réel de versements (pas une estimation).');
   }
 
   if (penalties > 0) {
@@ -505,6 +519,9 @@ export function computeDividendSafetyV2(input) {
     const epsGrowth5yHint = isNum(input.epsGrowth5yHint) ? input.epsGrowth5yHint : null;
     const revenueGrowth5yHint = isNum(input.revenueGrowth5yHint) ? input.revenueGrowth5yHint : null;
     const dividendGrowth5yHint = isNum(input.dividendGrowth5yHint) ? input.dividendGrowth5yHint : null;
+    // Streak réel (années consécutives sans baisse) quand FMP /stable/dividends a
+    // fonctionné — preuve directe de 0 coupure sur cette période, pas une estimation.
+    const streakHint = isNum(input.streakHint) ? input.streakHint : null;
 
     // --- Reconstruction historique dividende ---
     const { history, sources } = reconstructDividendHistory(annualDividend, payoutRatio, incomeStatements, cashFlowStatements);
@@ -518,7 +535,7 @@ export function computeDividendSafetyV2(input) {
     const { balanceScore, debtToFCF, interestCoverage } = computeBalance(totalDebt, cashFlowStatements, interestCoverageDirect, finnhubInterestCoverage);
 
     // --- C) Stability ---
-    const { stabilityScore, dividendCAGR, cutCount, cagrFromHint } = computeStability(history, dividendGrowth5yHint);
+    const { stabilityScore, dividendCAGR, cutCount, cagrFromHint, cutsFromStreak } = computeStability(history, dividendGrowth5yHint, streakHint);
     if (cagrFromHint) reconstructedFields.push('dividend_cagr_from_finnhub');
 
     // --- D) Growth ---
@@ -581,7 +598,7 @@ export function computeDividendSafetyV2(input) {
 
     const reconstructedUsed = reconstructedFields.length > 0;
 
-    const explanation = buildExplanation({ breakdown, penalties, reconstructedFields, confidence });
+    const explanation = buildExplanation({ breakdown, penalties, reconstructedFields, confidence, cutsFromStreak });
 
     return {
       symbol,

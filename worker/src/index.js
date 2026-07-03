@@ -1513,6 +1513,11 @@ async function buildDividendScoreV2(symbol, env, result, price) {
     epsGrowth5yHint:      result._finnhub_eps_growth_5y      ?? null,
     revenueGrowth5yHint:  result._finnhub_revenue_growth_5y  ?? null,
     dividendGrowth5yHint: result._finnhub_dividend_growth_5y ?? null,
+    // Streak réel (années consécutives sans baisse), calculé depuis normalizeFunda()
+    // quand FMP /stable/dividends fonctionne — preuve directe de 0 coupure, pas une
+    // estimation. 0 = inconnu (endpoint bloqué), transmis comme null pour ne pas être
+    // confondu avec "0 année de streak confirmée".
+    streakHint: (result.streak > 0) ? result.streak : null,
   };
 
   return computeDividendSafetyV2(input);
@@ -1539,7 +1544,9 @@ const FV_VER = 4;
 // dividendGrowthRate5Y) pour alimenter croissance/stabilité sans les 5 endpoints FMP
 // bloqués ; retiré la conversion /100 sur netInterestCoverageTTM (fausse, calée sur une
 // seule lecture anecdotique APD contredite par une lecture UNM à échelle normale).
-const DSE2_VER = 3;
+// v4 : streak réel (années sans baisse, normalizeFunda) utilisé comme preuve de 0 coupure
+// quand l'historique de dividendes reconstruit est indisponible pour la stabilité.
+const DSE2_VER = 4;
 
 // ── Valorisation par réversion du rendement (méthode Simply Safe Dividends) ──
 // Au lieu de comparer le P/E à une moyenne sectorielle rigide (qui juge à tort

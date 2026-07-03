@@ -13,7 +13,7 @@ export const FmpData = (() => {
   // reprises (DSE2_VER 2→3) : on a dû bumper CACHE_KEY à chaque fois pour forcer un
   // nouveau fetch. En comparant la version exacte ici, un simple bump de ce nombre
   // suffit désormais, sans vider tout le cache local des autres tickers/champs.
-  const EXPECTED_DSE2_VER = 3;
+  const EXPECTED_DSE2_VER = 4;
 
   function _save() {
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(_cache)); } catch(e) {}
