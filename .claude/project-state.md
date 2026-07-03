@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 09:36] chore: session-stop snapshot [2026-07-03 09:36] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 09:36] context: Je ne peux pas atteindre le serveur de prod directement (réseau bloqué côté sandbox), donc j'ai besoin que tu m'envoies  -->
-<!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
+<!-- interrupted: [2026-07-03 09:39] context: `kv_hit: false` — le cache `funda9:APD` est complètement vide, alors qu'un vrai Sync a dû l'appeler. Ça veut dire que la -->
+<!-- resume-from: files: src/fmpData.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
