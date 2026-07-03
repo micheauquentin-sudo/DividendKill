@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 22:41] chore: dedupe claude memory entry -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 22:32] context: Oui, il y a un angle plus prometteur que ce qu'on a fait jusqu'ici — et il ne nécessite aucune nouvelle API. -->
+<!-- interrupted: [2026-07-03 22:41] context: Poussé (`560fa8b` + memory updates). Résumé de ce qui a changé : -->
 <!-- resume-from: files: .claude/project-state.md -->
 
 ## Current mission
