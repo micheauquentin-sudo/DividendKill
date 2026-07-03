@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 10:09] chore: session-stop snapshot [2026-07-03 10:09] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 10:12] feat: scan Finnhub /stock/metric for debt/EBITDA/FCF/interest-coverage fields -- worker/src/index.js -->
 <!-- interrupted: [2026-07-03 10:09] context: Poussé et déployé (~1-2 min). Résumé de l'audit : -->
 <!-- resume-from: files: src/panels/deal.js, src/panels/valorisation.js -->
 
