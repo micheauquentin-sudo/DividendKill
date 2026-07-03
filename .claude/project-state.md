@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 09:05] chore: session-stop snapshot [2026-07-03 09:04] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 09:09] fix: disable Twelve Data fundamentals fallback (403 on free plan) -- worker/src/index.js -->
 <!-- interrupted: [2026-07-03 09:04] context: Poussé et déployé (~1-2 min). Résumé de l'intégration : -->
 <!-- resume-from: files: .claude/project-state.md, worker/src/index.js, worker/wrangler.toml -->
 
