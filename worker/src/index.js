@@ -783,12 +783,15 @@ async function fmpProxy(req, env) {
   if (env.PRICES_KV) {
     try {
       const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
-      // Re-fetch si pe_cur manquant (AV peut le combler via KV cache), OU si un payeur
-      // de dividende n'a pas encore de fair_value et qu'on n'a jamais tenté la réversion
-      // (_fv_tried absent = entrée mise en cache avant l'ajout de la valorisation yield).
+      // Re-fetch si pe_cur manquant (fallback peut le combler via KV cache), OU si un
+      // payeur de dividende n'a pas encore de fair_value et qu'on n'a jamais tenté la
+      // réversion sous la version courante, OU si le Dividend Safety Score V2 n'a
+      // jamais été calculé sous la version courante (_dse2_ver absent = entrée mise en
+      // cache avant l'ajout de dse2 — sans ce check elle resterait figée ~120 jours).
       const incomplete = cached && (
         cached.pe_cur == null ||
-        (cached.annual_div > 0 && cached.fair_value == null && cached._fv_ver !== FV_VER)
+        (cached.annual_div > 0 && cached.fair_value == null && cached._fv_ver !== FV_VER) ||
+        cached._dse2_ver !== DSE2_VER
       );
       if (cached && !incomplete) return json(cached);
     } catch(e) {
@@ -874,6 +877,7 @@ async function fmpProxy(req, env) {
     } catch(e) {
       console.warn('[DivScore] échec orchestration', symbol, e.message);
     }
+    result._dse2_ver = DSE2_VER; // toujours posé (succès ou échec) — voir incomplete-check ci-dessus
     // Cache 6h si toujours pas de métriques (quotas épuisés ou clés absentes), 24h si le
     // payeur de dividende n'a toujours pas de fair_value (source d'historique en échec —
     // souvent juste un quota AV/Finnhub épuisé pour AUJOURD'HUI, pas une absence
@@ -1484,6 +1488,13 @@ const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
 // essai fait (succès ou échec).
 const FV_VER = 4;
 
+// Marqueur de version pour le Dividend Safety Score V2 (dividendScore.js) — même
+// mécanisme que FV_VER : les entrées funda9 déjà en cache (créées avant l'ajout de
+// dse2) n'ont pas ce champ, et le check "incomplete" ci-dessous ne le retentera JAMAIS
+// tant qu'on ne compare pas explicitement _dse2_ver, sinon la longue TTL de funda9
+// (~120 jours) figerait dse2 absent indéfiniment pour tout le portefeuille existant.
+const DSE2_VER = 1;
+
 // ── Valorisation par réversion du rendement (méthode Simply Safe Dividends) ──
 // Au lieu de comparer le P/E à une moyenne sectorielle rigide (qui juge à tort
 // les compounders de qualité surévalués et les assureurs sous-évalués), on
@@ -1599,6 +1610,7 @@ async function handleScheduled(env) {
       } catch(e) {
         console.warn('[DivScore] échec orchestration (cron)', symbol, e.message);
       }
+      normalized._dse2_ver = DSE2_VER;
       const stillIncomplete = normalized.pe_cur == null && normalized.payout_ratio == null;
       const fvPending = normalized.annual_div > 0 && normalized.fair_value == null;
       const ttl = stillIncomplete ? 21600 : fvPending ? 86400 : ttlFunda();
@@ -1981,6 +1993,7 @@ async function debugFunda(req, env) {
     out.kv_fv_tried   = cached?._fv_tried ?? false;
     out.kv_fv_ver     = cached?._fv_ver ?? null;
     out.kv_dse2       = cached?.dse2 ?? null;
+    out.kv_dse2_ver   = cached?._dse2_ver ?? null;
     out.kv_data       = cached;
 
     // Vérifier le cache dividendes Finnhub (fhdiv9:SYMBOL) — secours de fetchYieldReversion

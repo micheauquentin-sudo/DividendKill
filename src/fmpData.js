@@ -46,12 +46,14 @@ export const FmpData = (() => {
         // Ne pas mettre en cache localStorage si pe_cur est manquant (données
         // incomplètes suite à 429/402), OU si le serveur n'a pas encore fini de
         // tenter la valorisation par réversion (annonce un dividende mais pas de
-        // fair_value ET pas de _fv_tried) — sinon ce ticker resterait bloqué sur
+        // fair_value ET pas de _fv_tried), OU si le Dividend Safety Score V2 n'a
+        // jamais été tenté (_dse2_ver absent) — sinon ce ticker resterait bloqué sur
         // une réponse partielle pendant tout le TTL local (24h), même après un
         // Sync manuel, tant que le serveur n'a pas conclu son propre essai.
         const incomplete = d && (
           d.pe_cur == null ||
-          (d.annual_div > 0 && d.fair_value == null && !d._fv_tried)
+          (d.annual_div > 0 && d.fair_value == null && !d._fv_tried) ||
+          d._dse2_ver == null
         );
         if (!incomplete) _cache[t] = { data: d, ts: now };
       } else {
