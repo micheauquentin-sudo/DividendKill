@@ -33,6 +33,16 @@ correctly end-to-end via AV fallback for FMP-402'd tickers).
   P/E, EPS, payout, beta for tickers FMP 402s — no per-ticker blocking like FMP.
   `fillFundaFallback()` now tries Finnhub before Alpha Vantage (25/day, kept as
   backup only). Requires `FINNHUB_KEY` secret. KV cache key `fh9:SYMBOL`, 7d TTL.
+- **P/E always self-computed**: removed every provider's own P/E field
+  (FMP `peRatioTTM`, Finnhub `peXxxTTM`, AV `PERatio`) from the pipeline.
+  `pe_cur` is now ALWAYS `price / eps` computed by us — providers only ever
+  supply `eps`. Avoids inconsistent numbers from differing TTM/forward/diluted
+  methodologies across sources.
+- **Twelve Data added as final fallback (price AND fundamentals)**: chain is
+  now FMP → Finnhub → Alpha Vantage → Twelve Data for fundamentals, and
+  FMP → Twelve Data for price. Requires `TWELVEDATA_KEY` secret (unverified
+  free-tier fundamentals access — test via `/api/debug/twelvedata?symbol=X`
+  before trusting, same as the other sources). KV cache `td9:SYMBOL`, 7d TTL.
 
 ---
 
