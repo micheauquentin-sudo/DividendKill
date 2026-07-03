@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 10:12] feat: scan Finnhub /stock/metric for debt/EBITDA/FCF/interest-coverage fields -- worker/src/index.js -->
+<!-- last-commit: [2026-07-03 10:12] chore: session-stop snapshot [2026-07-03 10:12] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 10:12] context: Poussé et déployé (~1-2 min). Teste : -->
 <!-- resume-from: files: worker/src/index.js -->
 
