@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 22:15] chore: session-stop snapshot [2026-07-03 22:15] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 22:23] fix: don't let a low-confidence DSE score swing the P/E fallback valuation -- src/panels/valorisation.js -->
 <!-- interrupted: [2026-07-03 22:15] context: Poussé (`1bfaa37`). Cette fois c'est un correctif plus structurel : le cache client ne revalidait jamais une entrée déjà -->
 <!-- resume-from: files: src/fmpData.js -->
 
