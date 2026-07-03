@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:20] chore: session-stop snapshot [2026-07-03 12:20] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 12:23] debug: add live test for Finnhub /stock/dividend endpoint -- worker/src/index.js -->
 <!-- interrupted: [2026-07-03 12:20] context: Ça confirme le diagnostic. Champs clés : -->
 <!-- resume-from: files: (unknown) -->
 
