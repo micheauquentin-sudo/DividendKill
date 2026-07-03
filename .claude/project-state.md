@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 21:59] fix: dse2 never computed for tickers cached before the V2 scoring deploy -- src/fmpData.js worker/src/index.js -->
+<!-- last-commit: [2026-07-03 22:00] chore: session-stop snapshot [2026-07-03 22:00] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 22:00] context: Poussé (`cbd1ff4`). Peux-tu refaire un Sync puis revérifier `/api/debug/funda?symbol=UNM` ? Tu devrais maintenant voir ` -->
 <!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
