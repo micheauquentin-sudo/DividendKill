@@ -30,3 +30,5 @@ id      = "f991055139244638b2eeda97ef31bf46"
 # Secrets — set via CLI (never commit these):
 #   wrangler secret put PORTFOLIO_TOKEN   ← token Bearer pour l'auth
 #   wrangler secret put FMP_KEY           ← clé API Financial Modeling Prep
+#   wrangler secret put FINNHUB_KEY       ← clé API Finnhub (fallback P/E/EPS/payout, 60 req/min gratuit)
+#   wrangler secret put AV_KEY            ← clé API Alpha Vantage (fallback secondaire, 25 req/jour gratuit)

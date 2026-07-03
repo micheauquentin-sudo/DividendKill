@@ -825,19 +825,9 @@ async function fmpProxy(req, env) {
     const rawCashflow = cfRes.status      === 'fulfilled' ? cfRes.value       : null;
     const rawEarnings = earnRes.status    === 'fulfilled' ? earnRes.value     : null;
     const result = normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow, rawEarnings);
-    // Complément Alpha Vantage si les métriques financières sont manquantes (402 FMP plan gratuit)
-    if (result.pe_cur == null) {
-      const av = await fetchAlphaVantageOverview(symbol, env);
-      if (av) {
-        if (av.pe_cur       != null) result.pe_cur       = av.pe_cur;
-        if (av.payout_ratio != null) result.payout_ratio = av.payout_ratio;
-        if (av.beta         != null && result.beta       == null) result.beta       = av.beta;
-        if (av.market_cap   != null && result.market_cap == null) result.market_cap = av.market_cap;
-        if (av.annual_div   != null && result.annual_div == null) result.annual_div = av.annual_div;
-        result._av_source = true;
-      }
-    }
-    // Cache 6h si toujours pas de métriques (quota AV épuisé ou clé absente), sinon TTL long
+    // Complément Finnhub puis Alpha Vantage si les métriques financières sont manquantes (402 FMP plan gratuit)
+    await fillFundaFallback(result, symbol, env);
+    // Cache 6h si toujours pas de métriques (quotas épuisés ou clés absentes), sinon TTL long
     const stillIncomplete = result.pe_cur == null && result.payout_ratio == null;
     const ttl = stillIncomplete ? 21600 : ttlFunda();
     if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: ttl });
@@ -1011,6 +1001,68 @@ async function fetchAlphaVantageOverview(symbol, env) {
   } catch(e) { console.warn('[AV] erreur', symbol, e.message); return null; }
 }
 
+// ── Finnhub /stock/metric?metric=all (P/E, EPS, payout, beta) ────────────
+// Plan gratuit : 60 appels/minute (bien plus généreux que les 25/JOUR d'AV) —
+// fallback PRINCIPAL avant AV. Cache 7 jours en KV (confirmé libre pour APD/ADP
+// via /api/debug/finnhub, contrairement à FMP qui bloque ces mêmes champs).
+async function fetchFinnhubMetrics(symbol, env) {
+  const cacheKey = `fh9:${symbol}`;
+  if (env.PRICES_KV) {
+    const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+    if (cached) return cached;
+  }
+  if (!env.FINNHUB_KEY) return null;
+  try {
+    const url = `https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(symbol)}&metric=all&token=${env.FINNHUB_KEY}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!r.ok) { console.warn('[Finnhub] HTTP', r.status, symbol); return null; }
+    const d = await r.json();
+    const m = d.metric;
+    if (!m) { console.warn('[Finnhub] pas de metric', symbol); return null; }
+    const num = v => { const n = parseFloat(v); return isNaN(n) || n <= 0 ? null : n; };
+    // Finnhub renvoie payoutRatio en pourcentage (75.63) — converti en décimal (0.7563)
+    // pour matcher le format utilisé partout ailleurs dans l'app (FMP/AV).
+    const rawPayout = num(m.payoutRatioTTM ?? m.payoutRatioAnnual);
+    const parsed = {
+      pe_cur:       num(m.peBasicExclExtraTTM ?? m.peTTM ?? m.peExclExtraTTM ?? m.peInclExtraTTM),
+      eps:          num(m.epsBasicExclExtraItemsTTM ?? m.epsTTM ?? m.epsExclExtraItemsTTM),
+      payout_ratio: rawPayout != null ? +(rawPayout / 100).toFixed(4) : null,
+      beta:         num(m.beta),
+      annual_div:   num(m.dividendPerShareTTM ?? m.dividendPerShareAnnual),
+    };
+    if (env.PRICES_KV)
+      await env.PRICES_KV.put(cacheKey, JSON.stringify(parsed), { expirationTtl: 7 * 24 * 3600 });
+    console.log(`[Finnhub] ${symbol} PE=${parsed.pe_cur} payout=${parsed.payout_ratio}`);
+    return parsed;
+  } catch(e) { console.warn('[Finnhub] erreur', symbol, e.message); return null; }
+}
+
+// ── Complète un résultat normalizeFunda incomplet (402 FMP plan gratuit) ──
+// Ordre : Finnhub (60/min, principal) → Alpha Vantage (25/jour, secours).
+// Mute le `result` en place et pose un flag `_source` pour traçabilité/debug.
+async function fillFundaFallback(result, symbol, env) {
+  if (result.pe_cur != null) return;
+  const fh = await fetchFinnhubMetrics(symbol, env);
+  if (fh) {
+    if (fh.pe_cur       != null) result.pe_cur       = fh.pe_cur;
+    if (fh.payout_ratio != null) result.payout_ratio = fh.payout_ratio;
+    if (fh.beta         != null && result.beta       == null) result.beta       = fh.beta;
+    if (fh.annual_div   != null && result.annual_div == null) result.annual_div = fh.annual_div;
+    result._finnhub_source = true;
+  }
+  if (result.pe_cur == null) {
+    const av = await fetchAlphaVantageOverview(symbol, env);
+    if (av) {
+      if (av.pe_cur       != null) result.pe_cur       = av.pe_cur;
+      if (av.payout_ratio != null) result.payout_ratio = av.payout_ratio;
+      if (av.beta         != null && result.beta       == null) result.beta       = av.beta;
+      if (av.market_cap   != null && result.market_cap == null) result.market_cap = av.market_cap;
+      if (av.annual_div   != null && result.annual_div == null) result.annual_div = av.annual_div;
+      result._av_source = true;
+    }
+  }
+}
+
 // ── Cron: prix + fondamentaux automatiques à la clôture marché ─
 const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
 
@@ -1035,22 +1087,12 @@ async function handleScheduled(env) {
         fetch(`${FMP_BASE}/earnings?symbol=${symbol}&limit=8&apikey=${env.FMP_KEY}`, { headers: HEADERS }).then(tryJson).catch(() => null),
       ]);
       const normalized = normalizeFunda(profileData, metricsData, divsData, incData, balData, cfData, earnData);
-      // Complément Alpha Vantage si P/E manquant (402 sur plan FMP gratuit)
-      if (normalized.pe_cur == null) {
-        const av = await fetchAlphaVantageOverview(symbol, env);
-        if (av) {
-          if (av.pe_cur       != null) normalized.pe_cur       = av.pe_cur;
-          if (av.payout_ratio != null) normalized.payout_ratio = av.payout_ratio;
-          if (av.beta         != null && normalized.beta       == null) normalized.beta       = av.beta;
-          if (av.market_cap   != null && normalized.market_cap == null) normalized.market_cap = av.market_cap;
-          if (av.annual_div   != null && normalized.annual_div == null) normalized.annual_div = av.annual_div;
-          normalized._av_source = true;
-        }
-      }
+      // Complément Finnhub puis Alpha Vantage si P/E manquant (402 sur plan FMP gratuit)
+      await fillFundaFallback(normalized, symbol, env);
       const stillIncomplete = normalized.pe_cur == null && normalized.payout_ratio == null;
       const ttl = stillIncomplete ? 21600 : ttlFunda();
       await env.PRICES_KV.put(`funda9:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttl });
-      console.log(`[Cron] funda9:${symbol} mis à jour — ${reason}${stillIncomplete ? ' [incomplet]' : normalized._av_source ? ' [AV]' : ''}`);
+      console.log(`[Cron] funda9:${symbol} mis à jour — ${reason}${stillIncomplete ? ' [incomplet]' : normalized._finnhub_source ? ' [Finnhub]' : normalized._av_source ? ' [AV]' : ''}`);
       return true;
     } catch(e) { console.warn(`[Cron] funda ${symbol}:`, e.message); return false; }
   }
@@ -1418,7 +1460,14 @@ async function debugFunda(req, env) {
     out.kv_streak     = cached?.streak     ?? null;
     out.kv_data       = cached;
 
-    // Vérifier le cache AV (av9:SYMBOL) — pré-rempli par /api/debug/av-seed
+    // Vérifier le cache Finnhub (fh9:SYMBOL) — fallback principal
+    const fhCached = await env.PRICES_KV.get(`fh9:${symbol}`, { type: 'json' });
+    out.fh9_hit     = !!fhCached;
+    out.fh9_pe_cur  = fhCached?.pe_cur ?? null;
+    out.fh9_payout  = fhCached?.payout_ratio ?? null;
+    out.fh9_data    = fhCached;
+
+    // Vérifier le cache AV (av9:SYMBOL) — pré-rempli par /api/debug/av-seed, fallback secondaire
     const avCached = await env.PRICES_KV.get(`av9:${symbol}`, { type: 'json' });
     out.av9_hit     = !!avCached;
     out.av9_pe_cur  = avCached?.pe_cur ?? null;
