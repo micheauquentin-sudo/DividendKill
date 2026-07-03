@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 22:15] fix: client cache never re-validated an already-cached entry's completeness -- src/fmpData.js -->
-<!-- interrupted: [2026-07-03 22:13] context: Je pense avoir trouvé le vrai problème : ce n'est plus un souci serveur, mais que ton navigateur tourne probablement enc -->
-<!-- resume-from: files: worker/src/index.js -->
+<!-- interrupted: [2026-07-03 22:15] context: Poussé (`1bfaa37`). Cette fois c'est un correctif plus structurel : le cache client ne revalidait jamais une entrée déjà -->
+<!-- resume-from: files: src/fmpData.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
