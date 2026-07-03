@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 09:04] chore: update claude memory — Twelve Data fallback + self-computed P/E -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 09:05] chore: session-stop snapshot [2026-07-03 09:04] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 09:04] context: Poussé et déployé (~1-2 min). Résumé de l'intégration : -->
 <!-- resume-from: files: .claude/project-state.md, worker/src/index.js, worker/wrangler.toml -->
 
