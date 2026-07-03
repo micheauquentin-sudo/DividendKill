@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 07:52] feat: expose AV_KEY binding status and add live Alpha Vantage debug test -- .claude/bugs.md worker/src/index.js -->
+<!-- last-commit: [2026-07-03 07:52] chore: session-stop snapshot [2026-07-03 07:52] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 07:52] context: Poussé (déploiement ~1-2 min). L'audit n'a trouvé aucun bug dans le code — le mécanisme fonctionne correctement (vérifié -->
 <!-- resume-from: files: (unknown) -->
 
