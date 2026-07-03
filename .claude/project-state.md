@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:16] chore: update claude memory -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 12:16] chore: session-stop snapshot [2026-07-03 12:16] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 12:16] context: Pushed to `main` (commits `40cccfc` + memory update `0681049`). GitHub Actions should now redeploy. -->
 <!-- resume-from: files: .claude/project-state.md -->
 
