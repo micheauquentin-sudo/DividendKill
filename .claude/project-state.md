@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 07:17] feat: add clear mode to /api/debug/av-seed for switching mock to live AV data -- worker/src/index.js -->
+<!-- last-commit: [2026-07-03 07:17] chore: session-stop snapshot [2026-07-03 07:17] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 07:17] context: Poussé. Une fois que tu as ta clé Alpha Vantage : -->
 <!-- resume-from: files: worker/src/index.js -->
 
