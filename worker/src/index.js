@@ -1025,11 +1025,18 @@ async function benchmarkProxy(req, env) {
 // via /api/debug/finnhub, contrairement à FMP qui bloque ces mêmes champs).
 // N.B. : ne renvoie PAS de pe_cur — le P/E est toujours recalculé nous-mêmes
 // (prix FMP / EPS) dans fillFundaFallback, jamais depuis le P/E de Finnhub.
+// Version du format mis en cache (fh9:SYMBOL) — les entrées plus anciennes n'ont pas
+// les champs growth/interest_cov/debt_equity ajoutés depuis (confirmé en direct sur UNM :
+// le cache ne contenait que {eps,payout_ratio,beta,annual_div}, bloquant silencieusement
+// la catégorie "bilan" du Dividend Safety Score V2 pendant tout le TTL de 7 jours). Un
+// objet en cache sans ce marqueur est traité comme périmé et refetché.
+const FH9_VER = 2;
+
 async function fetchFinnhubMetrics(symbol, env) {
   const cacheKey = `fh9:${symbol}`;
   if (env.PRICES_KV) {
     const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
-    if (cached) return cached;
+    if (cached && cached._fh9_ver === FH9_VER) return cached;
   }
   if (!env.FINNHUB_KEY) return null;
   try {
@@ -1040,12 +1047,19 @@ async function fetchFinnhubMetrics(symbol, env) {
     const m = d.metric;
     if (!m) { console.warn('[Finnhub] pas de metric', symbol); return null; }
     const num = v => { const n = parseFloat(v); return isNaN(n) || n <= 0 ? null : n; };
+    // Idem mais autorise les valeurs négatives (CAGR de croissance peut être négatif —
+    // une entreprise en déclin, contrairement aux ratios ci-dessus qui n'ont pas de sens <=0).
+    const numSigned = v => { const n = parseFloat(v); return isNaN(n) ? null : n; };
     // Finnhub renvoie payoutRatio en pourcentage (75.63) — converti en décimal (0.7563)
     // pour matcher le format utilisé partout ailleurs dans l'app (FMP/AV).
     const rawPayout = num(m.payoutRatioTTM ?? m.payoutRatioAnnual);
-    // Couverture d'intérêts — netInterestCoverageTTM confirmé en direct sur APD (709),
-    // trop élevé pour être un multiple "x fois" (plage normale ~2-50x) → en pourcentage
-    // (709 → 7.09x, cohérent avec un groupe industriel solide).
+    // Couverture d'intérêts — testé en direct sur 2 tickers avec des échelles DIFFÉRENTES
+    // (APD: 709, UNM: 5.47) : pas une convention d'échelle Finnhub fiable, la valeur brute
+    // d'APD était probablement une anomalie ponctuelle plutôt qu'un "×100" systématique.
+    // Valeur prise telle quelle désormais — scoreInterestCoverage() plafonne de toute façon
+    // à 100/100 dès qu'un ratio dépasse 10x, donc une valeur anormalement haute ne fausse
+    // pas le score, contrairement à une division par 100 qui écrasait les vraies valeurs
+    // normales (5.47x → 0.05x, absurde pour un assureur solide).
     const rawIntCov = num(m.netInterestCoverageTTM ?? m.netInterestCoverageAnnual);
     // Dette/capitaux propres — pas de dette/EBITDA direct chez Finnhub, mais ce ratio
     // alimente le fallback existant (debt_equity * 2.0) dans dividendSafety.js.
@@ -1053,14 +1067,25 @@ async function fetchFinnhubMetrics(symbol, env) {
     // P/FCF par action — permet de dériver le FCF par action (prix / ratio), puis le FCF
     // payout (dividende / FCF par action) dans fillFundaFallback où le prix est connu.
     const pfcfShare = num(m.pfcfShareTTM ?? m.pfcfShareAnnual);
+    // Taux de croissance PRÉCALCULÉS par Finnhub (bundle ~130 champs, confirmé en direct
+    // sur UNM) — alimentent directement croissance/stabilité du Dividend Safety Score V2
+    // SANS dépendre des 5 endpoints FMP bloqués (income-statement/cash-flow 5 ans).
+    // En fraction décimale (0.05 = 5%), pas en pourcentage — cohérent avec dividendScore.js.
+    const epsGrowth5Y      = numSigned(m.epsGrowth5Y);
+    const revenueGrowth5Y  = numSigned(m.revenueGrowth5Y);
+    const dividendGrowth5Y = numSigned(m.dividendGrowthRate5Y);
     const parsed = {
       eps:          num(m.epsBasicExclExtraItemsTTM ?? m.epsTTM ?? m.epsExclExtraItemsTTM),
       payout_ratio: rawPayout != null ? +(rawPayout / 100).toFixed(4) : null,
       beta:         num(m.beta),
       annual_div:   num(m.dividendPerShareTTM ?? m.dividendPerShareAnnual),
-      interest_cov: rawIntCov != null ? +(rawIntCov / 100).toFixed(2) : null,
+      interest_cov: rawIntCov,
       debt_equity:  debtEquity,
       pfcf_share:   pfcfShare,
+      eps_growth_5y:      epsGrowth5Y      != null ? +(epsGrowth5Y / 100).toFixed(4)      : null,
+      revenue_growth_5y:  revenueGrowth5Y  != null ? +(revenueGrowth5Y / 100).toFixed(4)  : null,
+      dividend_growth_5y: dividendGrowth5Y != null ? +(dividendGrowth5Y / 100).toFixed(4) : null,
+      _fh9_ver: FH9_VER,
     };
     if (env.PRICES_KV)
       await env.PRICES_KV.put(cacheKey, JSON.stringify(parsed), { expirationTtl: 7 * 24 * 3600 });
@@ -1407,6 +1432,11 @@ async function fillFundaFallback(result, symbol, env, price) {
     // repris par computeDividendSafetyV2 (dividendScore.js) pour la couverture/confiance.
     if (fh.eps          != null) { result._eps = fh.eps; result._finnhub_eps = fh.eps; }
     if (fh.interest_cov  != null) result._finnhub_interest_cov = fh.interest_cov;
+    // Taux de croissance précalculés Finnhub (voir fetchFinnhubMetrics) — alimentent
+    // croissance/stabilité de computeDividendSafetyV2 sans dépendre des 5 endpoints FMP.
+    if (fh.eps_growth_5y      != null) result._finnhub_eps_growth_5y      = fh.eps_growth_5y;
+    if (fh.revenue_growth_5y  != null) result._finnhub_revenue_growth_5y  = fh.revenue_growth_5y;
+    if (fh.dividend_growth_5y != null) result._finnhub_dividend_growth_5y = fh.dividend_growth_5y;
     result._finnhub_source = true;
   }
   // Alpha Vantage retiré (25 appels/jour — trop juste dès qu'un portefeuille dépasse
@@ -1477,6 +1507,12 @@ async function buildDividendScoreV2(symbol, env, result, price) {
     incomeStatements,
     cashFlowStatements,
     priceHistory,
+    // Taux de croissance précalculés Finnhub — utilisés par dividendScore.js UNIQUEMENT
+    // quand l'historique FMP (incomeStatements) ne suffit pas à calculer son propre CAGR
+    // (cas quasi systématique hors mega-cap). Sans dépendre des 5 endpoints FMP bloqués.
+    epsGrowth5yHint:      result._finnhub_eps_growth_5y      ?? null,
+    revenueGrowth5yHint:  result._finnhub_revenue_growth_5y  ?? null,
+    dividendGrowth5yHint: result._finnhub_dividend_growth_5y ?? null,
   };
 
   return computeDividendSafetyV2(input);
@@ -1499,7 +1535,11 @@ const FV_VER = 4;
 // (~120 jours) figerait dse2 absent indéfiniment pour tout le portefeuille existant.
 // v2 : fetchTwelveDataTimeSeries passé de barres hebdo à quotidiennes (la volatilité
 // annualisée était ~2.2x trop élevée, sqrt(252) appliqué à des rendements hebdo).
-const DSE2_VER = 2;
+// v3 : ajout des hints croissance/CAGR dividende précalculés par Finnhub (eps/revenue/
+// dividendGrowthRate5Y) pour alimenter croissance/stabilité sans les 5 endpoints FMP
+// bloqués ; retiré la conversion /100 sur netInterestCoverageTTM (fausse, calée sur une
+// seule lecture anecdotique APD contredite par une lecture UNM à échelle normale).
+const DSE2_VER = 3;
 
 // ── Valorisation par réversion du rendement (méthode Simply Safe Dividends) ──
 // Au lieu de comparer le P/E à une moyenne sectorielle rigide (qui juge à tort

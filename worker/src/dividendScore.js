@@ -233,42 +233,44 @@ function computeBalance(totalDebt, cashFlowStatements, interestCoverageDirect, f
 // C) Dividend stability (sur historique reconstruit)
 // ---------------------------------------------------------------------------
 
-function computeStability(history) {
-  if (!history || history.length < 2) return { stabilityScore: null, dividendCAGR: null, volatilityBucketName: null, cutCount: null };
-
-  const series = history.map(h => ({ year: h.year, value: h.dividend }));
-  const cagr = cagrFromSeries(series);
-  const changes = yoyChanges(series);
-  const cv = coefficientOfVariation(changes);
-  const bucket = volatilityBucket(cv);
-  const cuts = countCuts(series);
+// dividendCagrHint : CAGR dividende précalculé par une source tierce (ex. Finnhub
+// dividendGrowthRate5Y) — utilisé UNIQUEMENT quand l'historique reconstruit ne permet
+// pas de calculer son propre CAGR (aucune source de dividende historique n'est gratuite
+// nulle part, confirmé empiriquement). Volatilité/cuts restent indisponibles dans ce cas
+// (le hint ne donne qu'un taux composé, pas la série complète) — gérés par le
+// renormalization existant ci-dessous, qui tolère déjà des sous-parties manquantes.
+function computeStability(history, dividendCagrHint) {
+  const usingHint = (!history || history.length < 2);
+  const series = usingHint ? [] : history.map(h => ({ year: h.year, value: h.dividend }));
+  const cagr = usingHint ? (isNum(dividendCagrHint) ? dividendCagrHint : null) : cagrFromSeries(series);
+  const changes = usingHint ? [] : yoyChanges(series);
+  const cv = usingHint ? null : coefficientOfVariation(changes);
+  const bucket = usingHint ? null : volatilityBucket(cv);
+  const cuts = usingHint ? null : countCuts(series);
 
   const cagrScore = cagr != null ? scoreCAGR(cagr) : null;
   const volScore = bucket != null ? scoreVolatilityBucket(bucket) : null;
-  const cutScore = scoreCutCount(cuts);
+  const cutScore = cuts != null ? scoreCutCount(cuts) : null;
 
-  // Si le CAGR ou la volatilité manquent malgré >=2 points (cas limite, ex tous les deltas nuls),
-  // on retombe sur le cut score seul plutôt que de renvoyer null pour toute la stabilité.
-  let stabilityScore;
-  if (cagrScore != null && volScore != null) {
-    stabilityScore = 0.45 * cagrScore + 0.30 * volScore + 0.25 * cutScore;
-  } else {
-    const parts = [];
-    if (cagrScore != null) parts.push([cagrScore, 0.45]);
-    if (volScore != null) parts.push([volScore, 0.30]);
-    parts.push([cutScore, 0.25]);
-    const wsum = parts.reduce((a, [, w]) => a + w, 0);
-    stabilityScore = parts.reduce((a, [s, w]) => a + s * w, 0) / wsum;
-  }
+  const parts = [];
+  if (cagrScore != null) parts.push([cagrScore, 0.45]);
+  if (volScore != null) parts.push([volScore, 0.30]);
+  if (cutScore != null) parts.push([cutScore, 0.25]);
+  const wsum = parts.reduce((a, [, w]) => a + w, 0);
+  const stabilityScore = wsum > 0 ? parts.reduce((a, [s, w]) => a + s * w, 0) / wsum : null;
 
-  return { stabilityScore, dividendCAGR: cagr, volatilityBucketName: bucket, cutCount: cuts };
+  return { stabilityScore, dividendCAGR: cagr, volatilityBucketName: bucket, cutCount: cuts, cagrFromHint: usingHint && cagr != null };
 }
 
 // ---------------------------------------------------------------------------
 // D) Business growth
 // ---------------------------------------------------------------------------
 
-function computeGrowth(incomeStatements) {
+// epsGrowthHint/revenueGrowthHint : CAGR précalculés par une source tierce (ex. Finnhub
+// epsGrowth5Y/revenueGrowth5Y) — utilisés UNIQUEMENT quand l'historique FMP
+// (incomeStatements) ne suffit pas (cas quasi systématique hors mega-cap, ces 5 endpoints
+// FMP étant bloqués sur le plan gratuit).
+function computeGrowth(incomeStatements, epsGrowthHint, revenueGrowthHint) {
   const epsSeries = (incomeStatements || [])
     .filter(s => s && isNum(s.year) && isNum(s.eps))
     .map(s => ({ year: s.year, value: s.eps }))
@@ -278,8 +280,10 @@ function computeGrowth(incomeStatements) {
     .map(s => ({ year: s.year, value: s.revenue }))
     .sort((a, b) => a.year - b.year);
 
-  const epsCAGR = epsSeries.length >= 2 ? cagrFromSeries(epsSeries) : null;
-  const revenueCAGR = revSeries.length >= 2 ? cagrFromSeries(revSeries) : null;
+  let epsCAGR = epsSeries.length >= 2 ? cagrFromSeries(epsSeries) : null;
+  if (epsCAGR == null && isNum(epsGrowthHint)) epsCAGR = epsGrowthHint;
+  let revenueCAGR = revSeries.length >= 2 ? cagrFromSeries(revSeries) : null;
+  if (revenueCAGR == null && isNum(revenueGrowthHint)) revenueCAGR = revenueGrowthHint;
 
   const epsScore = epsCAGR != null ? scoreCAGR(epsCAGR) : null;
   const revScore = revenueCAGR != null ? scoreCAGR(revenueCAGR) : null;
@@ -432,7 +436,7 @@ const CATEGORY_LABELS = {
 
 const SCORE_CATEGORY_KEYS = ['coverage', 'balance', 'stability', 'growth', 'market'];
 
-function buildExplanation({ breakdown, penalties, reconstructedUsed, confidence }) {
+function buildExplanation({ breakdown, penalties, reconstructedFields, confidence }) {
   const lines = [];
   // 'penalties' n'est pas une catégorie de score — exclue explicitement, sinon son 0 (!= null) polluait le classement.
   const available = SCORE_CATEGORY_KEYS
@@ -451,8 +455,14 @@ function buildExplanation({ breakdown, penalties, reconstructedUsed, confidence 
   if (best) lines.push(`Point fort : ${CATEGORY_LABELS[best[0]]} (${best[1]}/100).`);
   if (worst && worst[0] !== best[0]) lines.push(`Point faible : ${CATEGORY_LABELS[worst[0]]} (${worst[1]}/100).`);
 
-  if (reconstructedUsed) {
+  // Distinction volontaire : une estimation via EPS/FCF × payout (dividend_history) est
+  // bien plus incertaine qu'un taux de croissance précalculé par Finnhub (probablement
+  // dérivé de leurs propres données réelles, juste non exposées en historique brut) —
+  // les mélanger sous un même avertissement "reconstitué" serait trompeur.
+  if (reconstructedFields.includes('dividend_history')) {
     lines.push('Historique de dividendes reconstitué (pas de données réelles disponibles) — confiance réduite.');
+  } else if (reconstructedFields.includes('dividend_cagr_from_finnhub')) {
+    lines.push('Croissance du dividende basée sur une estimation Finnhub (pas d\'historique détaillé disponible).');
   }
 
   if (penalties > 0) {
@@ -490,6 +500,11 @@ export function computeDividendSafetyV2(input) {
     const incomeStatements = Array.isArray(input.incomeStatements) ? input.incomeStatements : [];
     const cashFlowStatements = Array.isArray(input.cashFlowStatements) ? input.cashFlowStatements : [];
     const priceHistory = Array.isArray(input.priceHistory) ? input.priceHistory : [];
+    // Taux de croissance précalculés par une source tierce (Finnhub) — n'interviennent
+    // que si l'historique FMP ne suffit pas à calculer le CAGR nous-mêmes.
+    const epsGrowth5yHint = isNum(input.epsGrowth5yHint) ? input.epsGrowth5yHint : null;
+    const revenueGrowth5yHint = isNum(input.revenueGrowth5yHint) ? input.revenueGrowth5yHint : null;
+    const dividendGrowth5yHint = isNum(input.dividendGrowth5yHint) ? input.dividendGrowth5yHint : null;
 
     // --- Reconstruction historique dividende ---
     const { history, sources } = reconstructDividendHistory(annualDividend, payoutRatio, incomeStatements, cashFlowStatements);
@@ -503,10 +518,11 @@ export function computeDividendSafetyV2(input) {
     const { balanceScore, debtToFCF, interestCoverage } = computeBalance(totalDebt, cashFlowStatements, interestCoverageDirect, finnhubInterestCoverage);
 
     // --- C) Stability ---
-    const { stabilityScore, dividendCAGR, cutCount } = computeStability(history);
+    const { stabilityScore, dividendCAGR, cutCount, cagrFromHint } = computeStability(history, dividendGrowth5yHint);
+    if (cagrFromHint) reconstructedFields.push('dividend_cagr_from_finnhub');
 
     // --- D) Growth ---
-    const { growthScore, epsCAGR, revenueCAGR } = computeGrowth(incomeStatements);
+    const { growthScore, epsCAGR, revenueCAGR } = computeGrowth(incomeStatements, epsGrowth5yHint, revenueGrowth5yHint);
 
     // --- E) Market ---
     const { marketScore, volatility, drawdown, enoughPoints } = computeMarket(priceHistory);
@@ -565,7 +581,7 @@ export function computeDividendSafetyV2(input) {
 
     const reconstructedUsed = reconstructedFields.length > 0;
 
-    const explanation = buildExplanation({ breakdown, penalties, reconstructedUsed, confidence });
+    const explanation = buildExplanation({ breakdown, penalties, reconstructedFields, confidence });
 
     return {
       symbol,
