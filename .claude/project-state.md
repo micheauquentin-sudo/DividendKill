@@ -77,11 +77,39 @@ system was restructured into a server-side V2 engine (this session's focus).
 ---
 
 ## Current task
-DSE V2 confirmed working end-to-end live (UNM: score 68 "Sûr", new
-breakdown/confidence/explanation UI all rendering correctly after two
-follow-up fixes — see below). FMP's 5 financial-statement endpoints
-confirmed still blocked in practice (UNM/ADP both only have `coverage`
-+ `market` populated, `balance`/`stability`/`growth` null) — expected.
+DSE V2 confirmed working end-to-end live. Just shipped (`560fa8b`) a
+significant accuracy upgrade found by inspecting Finnhub's full
+`/stock/metric?metric=all` response (~130 fields, we only used ~6):
+- `epsGrowth5Y`/`revenueGrowth5Y`/`dividendGrowthRate5Y` are precomputed
+  growth rates Finnhub already exposes — now used as hints in
+  `dividendScore.js`'s `computeGrowth`/`computeStability` whenever FMP's
+  blocked 5-year statements can't produce their own CAGR (the common
+  case). This should populate `growth` and part of `stability` for most
+  tickers going forward, not just `coverage`+`market`.
+- Found `fh9:SYMBOL` cache (7d TTL) had no version marker — entries
+  cached before `interest_cov`/`debt_equity` were added to the parser
+  silently lacked them (confirmed live on UNM), blocking `balance`
+  entirely. Added `FH9_VER` gating (same pattern as `FV_VER`/`DSE2_VER`).
+- Found the `netInterestCoverageTTM` `/100` conversion (based on one
+  anecdotal APD reading of 709) was wrong — UNM's raw value (5.47) is
+  already correctly scaled, dividing gave an absurd 0.05x. Removed the
+  conversion entirely.
+- `DSE2_VER` bumped to 3 to force recompute under the corrected/enriched
+  inputs. Verified via direct `computeDividendSafetyV2` smoke test with
+  hints (UNM: score 68→71, confidence 0.45→0.66, balance/stability/growth
+  all populated instead of null) — NOT yet confirmed live in prod (no
+  network access from this sandbox to verify).
+
+Also shipped (`c18ea99`, confirmed root cause but NOT yet verified live
+whether it flips the label): ADP showed "Could be overvalued" via the
+sector-P/E fallback (`fair_value` still null, same dividend-history
+wall). Root cause: the fallback's quality adjustment scales sector P/E
+by the DSE score, and a low-confidence dse2 score (driven by null
+sub-scores, not real risk) was dragging an already-approximate P/E
+estimate into a falsely confident "overvalued" call. Fix: only apply
+the quality adjustment when dse2 confidence >= 0.6. Should partially
+self-resolve now too, since confidence should be higher with the
+Finnhub growth hints above.
 
 Latest fix (`c18ea99`): live case found where ADP showed "Could be
 overvalued" via the sector-P/E fallback (fair_value still null — same
