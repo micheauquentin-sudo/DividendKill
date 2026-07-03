@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 08:38] feat: add /api/debug/finnhub to test Finnhub free-tier fundamentals -- worker/src/index.js -->
+<!-- last-commit: [2026-07-03 08:38] chore: session-stop snapshot [2026-07-03 08:38] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 08:38] context: Poussé et déployé (~1-2 min). Prochaine étape : -->
 <!-- resume-from: files: worker/src/index.js -->
 
