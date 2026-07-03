@@ -1091,6 +1091,10 @@ async function fetchFinnhubMetrics(symbol, env) {
 // ── Finnhub /stock/dividend (historique de versements) — secours pour la réversion
 // du rendement quand FMP /stable/dividends échoue (402, quasi tous les tickers hors
 // mega-cap). Cache 30j (l'historique de versements passés ne change jamais).
+// CONFIRMÉ 403 "You don't have access to this resource" sur ce compte gratuit (testé
+// en direct sur UNM via /api/debug/funda?fhdivlive=1) — laissé en premier essai (échoue
+// vite, sans frais) au cas où le plan Finnhub change, mais Alpha Vantage (ci-dessous)
+// est la source qui fonctionne réellement en pratique.
 async function fetchFinnhubDividends(symbol, env) {
   const cacheKey = `fhdiv9:${symbol}`;
   if (env.PRICES_KV) {
@@ -1117,6 +1121,40 @@ async function fetchFinnhubDividends(symbol, env) {
     console.log(`[Finnhub] ${symbol} dividendes historiques: ${divs.length} versements`);
     return divs;
   } catch(e) { console.warn('[Finnhub] erreur dividend', symbol, e.message); return []; }
+}
+
+// ── Alpha Vantage function=DIVIDENDS (historique de versements) — 2e secours pour la
+// réversion du rendement, après l'échec de FMP et de Finnhub (403 sur ce compte).
+// Fait partie des fonctions "core" gratuites d'AV (même statut que OVERVIEW, déjà
+// utilisé), contrairement aux limites qu'on a sur les fondamentaux ailleurs. Cache 30j
+// et seulement si on a un historique exploitable (≥4 versements) — pour ne jamais
+// figer un échec de quota AV (25/jour) comme un "pas d'historique" permanent.
+async function fetchAlphaVantageDividends(symbol, env) {
+  const cacheKey = `avdiv9:${symbol}`;
+  if (env.PRICES_KV) {
+    try {
+      const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+      if (cached) return cached;
+    } catch(_) {}
+  }
+  if (!env.AV_KEY) return [];
+  try {
+    const url = `https://www.alphavantage.co/query?function=DIVIDENDS&symbol=${encodeURIComponent(symbol)}&apikey=${env.AV_KEY}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!r.ok) { console.warn('[AV] dividend HTTP', r.status, symbol); return []; }
+    const d = await r.json();
+    const arr = Array.isArray(d.data) ? d.data : [];
+    const divs = arr
+      .map(x => ({ date: x.payment_date || x.pay_date || x.ex_dividend_date || '', amt: +(x.amount || 0) }))
+      .filter(x => x.date && x.date !== 'None' && x.amt > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    // Ne cache que les résultats exploitables — un échec de quota AV ("Information"/"Note"
+    // au lieu de "data") renverrait un tableau vide qu'on ne veut PAS figer 30 jours.
+    if (divs.length >= 4 && env.PRICES_KV)
+      await env.PRICES_KV.put(cacheKey, JSON.stringify(divs), { expirationTtl: 30 * 24 * 3600 });
+    console.log(`[AV] ${symbol} dividendes historiques: ${divs.length} versements`);
+    return divs;
+  } catch(e) { console.warn('[AV] erreur dividend', symbol, e.message); return []; }
 }
 
 // ── Twelve Data /statistics (EPS, payout, beta) — secours FINAL (après Finnhub + AV) ──
@@ -1213,10 +1251,11 @@ async function fillFundaFallback(result, symbol, env, price) {
 const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
 
 // Incrémenté quand fetchYieldReversion gagne une nouvelle source de données
-// (ex. secours Finnhub ajouté ici) — force UN nouveau essai pour les tickers
-// déjà marqués _fv_tried avec fair_value toujours null sous l'ancienne logique,
-// sans re-boucler indéfiniment une fois ce nouvel essai fait (succès ou échec).
-const FV_VER = 2;
+// (ex. secours Finnhub puis Alpha Vantage ajoutés ici) — force UN nouveau essai
+// pour les tickers déjà marqués _fv_tried avec fair_value toujours null sous
+// l'ancienne logique, sans re-boucler indéfiniment une fois ce nouvel essai fait
+// (succès ou échec).
+const FV_VER = 3;
 
 // ── Valorisation par réversion du rendement (méthode Simply Safe Dividends) ──
 // Au lieu de comparer le P/E à une moyenne sectorielle rigide (qui juge à tort
@@ -1254,8 +1293,10 @@ async function fetchYieldReversion(symbol, price, annualDiv, rawDivs, env) {
     .filter(d => d.date && d.amt > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
   // FMP /stable/dividends 402 pour la plupart des tickers hors mega-cap — bascule sur
-  // l'historique de dividendes Finnhub (même clé que fillFundaFallback, gratuit 60/min).
+  // l'historique de dividendes Finnhub, puis Alpha Vantage (Finnhub confirmé 403 sur ce
+  // compte — voir fetchFinnhubDividends — mais laissé au cas où le plan change).
   if (divs.length < 4) divs = await fetchFinnhubDividends(symbol, env);
+  if (divs.length < 4) divs = await fetchAlphaVantageDividends(symbol, env);
   if (divs.length < 4) return null; // pas assez d'historique de dividendes, aucune source dispo
   try {
     const from = new Date(Date.now() - 5 * 365 * 86400000).toISOString().slice(0, 10);
@@ -1680,6 +1721,7 @@ async function debugFunda(req, env) {
   const live   = url.searchParams.get('live') === '1';
   const avlive = url.searchParams.get('avlive') === '1';
   const fhdivlive = url.searchParams.get('fhdivlive') === '1';
+  const avdivlive = url.searchParams.get('avdivlive') === '1';
   const out    = { symbol, kv_key: `funda9:${symbol}`, ts: new Date().toISOString() };
 
   // Statut de la clé secrète AV_KEY — jamais la valeur elle-même, juste présence/longueur.
@@ -1710,6 +1752,11 @@ async function debugFunda(req, env) {
     const fhDivCached = await env.PRICES_KV.get(`fhdiv9:${symbol}`, { type: 'json' });
     out.fhdiv9_hit   = !!fhDivCached;
     out.fhdiv9_count = Array.isArray(fhDivCached) ? fhDivCached.length : 0;
+
+    // Vérifier le cache dividendes Alpha Vantage (avdiv9:SYMBOL) — 2e secours
+    const avDivCached = await env.PRICES_KV.get(`avdiv9:${symbol}`, { type: 'json' });
+    out.avdiv9_hit   = !!avDivCached;
+    out.avdiv9_count = Array.isArray(avDivCached) ? avDivCached.length : 0;
 
     // Vérifier le cache yield-reversion (yr9:SYMBOL)
     const yrCached = await env.PRICES_KV.get(`yr9:${symbol}`, { type: 'json' });
@@ -1788,6 +1835,22 @@ async function debugFunda(req, env) {
         const redact = s => env.FINNHUB_KEY ? s.split(env.FINNHUB_KEY).join('[REDACTED]') : s;
         out.fhdiv_live_raw = redact(t.slice(0, 500));
       } catch(e) { out.fhdiv_live_error = e.message; }
+    }
+  }
+
+  // Test Alpha Vantage DIVIDENDS en direct (bypass le cache avdiv9)
+  if (avdivlive) {
+    if (!env.AV_KEY) {
+      out.avdiv_live_error = 'AV_KEY not set on this Worker (env.AV_KEY is falsy)';
+    } else {
+      try {
+        const avUrl = `https://www.alphavantage.co/query?function=DIVIDENDS&symbol=${encodeURIComponent(symbol)}&apikey=${env.AV_KEY}`;
+        const r = await fetch(avUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+        out.avdiv_live_status = r.status;
+        const t = await r.text();
+        const redact = s => env.AV_KEY ? s.split(env.AV_KEY).join('[REDACTED]') : s;
+        out.avdiv_live_raw = redact(t.slice(0, 500));
+      } catch(e) { out.avdiv_live_error = e.message; }
     }
   }
 
