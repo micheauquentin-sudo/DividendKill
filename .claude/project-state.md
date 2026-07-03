@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 22:58] chore: session-stop snapshot [2026-07-03 22:58] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 23:00] chore: session-stop snapshot [2026-07-03 23:00] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 23:00] context: Les données serveur sont maintenant complètes et cohérentes — `kv_dse2_ver: 4`, toutes les catégories remplies (coverage -->
 <!-- resume-from: files: .claude/project-state.md -->
 
