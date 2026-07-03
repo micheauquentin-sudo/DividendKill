@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:26] fix: Alpha Vantage DIVIDENDS as 2nd fallback for yield-reversion history -- worker/src/index.js -->
+<!-- last-commit: [2026-07-03 12:26] chore: session-stop snapshot [2026-07-03 12:26] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 12:26] context: J'ai poussé un correctif (`333dd7b`). Une fois déployé, refais un **Sync** pour UNM puis revérifie : -->
 <!-- resume-from: files: worker/src/index.js -->
 
