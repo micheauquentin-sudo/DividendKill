@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:39] fix: shorter cache TTL when fair_value stays pending (quota, not permanent) -- worker/src/index.js -->
+<!-- last-commit: [2026-07-03 12:39] chore: session-stop snapshot [2026-07-03 12:39] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 12:39] context: **Diagnostic final :** le quota gratuit Alpha Vantage (25 appels/jour) est épuisé pour aujourd'hui — la réponse `{"Infor -->
 <!-- resume-from: files: src/public/sw.js, worker/src/index.js -->
 
