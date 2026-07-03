@@ -1,4 +1,5 @@
 # PROJECT STATE
+<!-- last-commit: [2026-07-03 21:36] chore: update claude memory — dividend score V2 restructure -- .claude/project-state.md -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
