@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 10:20] feat: recover interest_cov and debt_ebitda (via debt/equity) from Finnhub -- src/fmpData.js worker/src/index.js -->
-<!-- interrupted: [2026-07-03 10:15] context: Poussé et déployé (~1-2 min). Reteste la même URL : -->
-<!-- resume-from: files: worker/src/index.js -->
+<!-- interrupted: [2026-07-03 10:20] context: Poussé et déployé (~1-2 min). Bilan : -->
+<!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
