@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 09:59] chore: session-stop snapshot [2026-07-03 09:59] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 10:09] fix: DSE score no longer capped ~78, valuation signal adjusted for quality -- src/dividendSafety.js src/panels/deal.js src/panels/valorisation.js -->
 <!-- interrupted: [2026-07-03 09:59] context: Poussé et déployé (~1-2 min). Bug trouvé : mon limiteur de débit et le verrou anti-doublon n'avaient aucune protection s -->
 <!-- resume-from: files: worker/src/index.js -->
 
