@@ -1679,6 +1679,7 @@ async function debugFunda(req, env) {
   const symbol = (url.searchParams.get('symbol') || 'JNJ').toUpperCase();
   const live   = url.searchParams.get('live') === '1';
   const avlive = url.searchParams.get('avlive') === '1';
+  const fhdivlive = url.searchParams.get('fhdivlive') === '1';
   const out    = { symbol, kv_key: `funda9:${symbol}`, ts: new Date().toISOString() };
 
   // Statut de la clé secrète AV_KEY — jamais la valeur elle-même, juste présence/longueur.
@@ -1768,6 +1769,25 @@ async function debugFunda(req, env) {
           out.av_live_note       = redact(d.Information || d.Note || '') || null;
         } catch(_) { out.av_live_parse_error = true; }
       } catch(e) { out.av_live_error = e.message; }
+    }
+  }
+
+  // Test Finnhub /stock/dividend en direct (bypass le cache fhdiv9) — vérifie si
+  // l'endpoint est vraiment gratuit ou 403 (plan premium requis) sur CE compte.
+  if (fhdivlive) {
+    if (!env.FINNHUB_KEY) {
+      out.fhdiv_live_error = 'FINNHUB_KEY not set on this Worker (env.FINNHUB_KEY is falsy)';
+    } else {
+      try {
+        const from = new Date(Date.now() - 5 * 365 * 86400000).toISOString().slice(0, 10);
+        const to   = new Date().toISOString().slice(0, 10);
+        const fhUrl = `https://finnhub.io/api/v1/stock/dividend?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}&token=${env.FINNHUB_KEY}`;
+        const r = await fetch(fhUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+        out.fhdiv_live_status = r.status;
+        const t = await r.text();
+        const redact = s => env.FINNHUB_KEY ? s.split(env.FINNHUB_KEY).join('[REDACTED]') : s;
+        out.fhdiv_live_raw = redact(t.slice(0, 500));
+      } catch(e) { out.fhdiv_live_error = e.message; }
     }
   }
 
