@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 08:49] chore: session-stop snapshot [2026-07-03 08:49] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 08:56] refactor: always compute P/E ourselves (price / EPS), never trust provider P/E -- worker/src/index.js -->
 <!-- interrupted: [2026-07-03 08:49] context: Intégré et déployé (~1-2 min). Résumé : -->
 <!-- resume-from: files: .claude/project-state.md, worker/src/index.js, worker/wrangler.toml -->
 
