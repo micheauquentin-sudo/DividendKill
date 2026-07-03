@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 22:00] chore: session-stop snapshot [2026-07-03 22:00] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 22:03] chore: session-stop snapshot [2026-07-03 22:03] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 22:03] context: Le déploiement (`22635d0`) a bien réussi à 21:59:56 UTC, avant ta vérification à 22:02. Mais `/api/debug/funda` ne fait  -->
 <!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
