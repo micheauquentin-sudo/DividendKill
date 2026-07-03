@@ -37,8 +37,17 @@ export function renderValorisation(el) {
     // 2) Fallback P/E sectoriel ajusté qualité
     var sec = d.sec || a.sector || (meta[d.ticker] || {}).sector || '';
     var baseFairPe = SECTOR_FAIR_PE[sec] || 20;
-    var dseScore = _computeSafety(d);
-    var qualityAdj = 1 + (dseScore - 50) / 75;
+    var dseDisp = _computeSafetyDisp(d);
+    var dseScore = dseDisp.score;
+    // N'applique l'ajustement qualité qu'avec un DSE V2 assez fiable (confiance >= 0.6 —
+    // la plupart des tickers hors mega-cap n'ont QUE la couverture dispo, pas bilan/
+    // stabilité/croissance, faute d'historique de dividendes accessible gratuitement).
+    // Sinon deux estimations bancales se combinent : un DSE tiré vers le bas par des
+    // données manquantes (pas par un vrai risque) fait paraître à tort "survalorisé"
+    // un compounder de qualité comme ADP — vu en direct sur ce cas précis. Le P/E
+    // sectoriel neutre reste un signal plus honnête qu'un faux "surévalué" confiant.
+    var qualityReliable = dseDisp.method !== 'v2' || dseDisp.confidence >= 0.6;
+    var qualityAdj = qualityReliable ? 1 + (dseScore - 50) / 75 : 1;
     var fair_pe = +(baseFairPe * qualityAdj).toFixed(1);
     var label;
     if (pe_cur > 0) {
@@ -60,11 +69,14 @@ export function renderValorisation(el) {
     var div = ma.d || m.d || 0;
     return d.price > 0 ? div/d.price*100 : 0;
   }
-  function _computeSafety(d) {
+  function _computeSafetyDisp(d) {
     var m = meta[d.ticker] || {};
     var ma = assets[d.ticker] || {};
     var dseInput = Object.assign({}, ma, { d: ma.d || m.d });
-    return getDisplayDSE(dseInput).score;
+    return getDisplayDSE(dseInput);
+  }
+  function _computeSafety(d) {
+    return _computeSafetyDisp(d).score;
   }
 
   /* ── Mini-jauge horizontale (remplace mini-courbe SVG) ──── */
