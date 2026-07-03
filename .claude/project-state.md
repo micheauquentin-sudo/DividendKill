@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 22:41] chore: dedupe claude memory entry -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 22:41] chore: session-stop snapshot [2026-07-03 22:41] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 22:41] context: Poussé (`560fa8b` + memory updates). Résumé de ce qui a changé : -->
 <!-- resume-from: files: .claude/project-state.md -->
 
