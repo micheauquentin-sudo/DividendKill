@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:23] debug: add live test for Finnhub /stock/dividend endpoint -- worker/src/index.js -->
+<!-- last-commit: [2026-07-03 12:23] chore: session-stop snapshot [2026-07-03 12:23] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 12:23] context: Le correctif tourne bien (`kv_fv_ver:2` confirme que le nouvel essai a eu lieu), mais `fhdiv9_hit:false` avec `streak:0` -->
 <!-- resume-from: files: worker/src/index.js -->
 
