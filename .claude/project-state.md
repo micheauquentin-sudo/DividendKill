@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 09:59] fix: make rate limiter and coalescing lock fail-open on KV errors -- worker/src/index.js -->
+<!-- last-commit: [2026-07-03 09:59] chore: session-stop snapshot [2026-07-03 09:59] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 09:59] context: Poussé et déployé (~1-2 min). Bug trouvé : mon limiteur de débit et le verrou anti-doublon n'avaient aucune protection s -->
 <!-- resume-from: files: worker/src/index.js -->
 
