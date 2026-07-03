@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 08:34] chore: session-stop snapshot [2026-07-03 08:34] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 08:34] context: D'après ce qu'on a confirmé cette session (via `/api/debug/funda?live=1`) : -->
-<!-- resume-from: files: .claude/project-state.md, .claude/roadmap.md, worker/src/index.js -->
+<!-- interrupted: [2026-07-03 08:35] context: Finnhub a un avantage concret pour ce cas d'usage : son plan gratuit autorise **60 appels/minute** (contre 25/**jour** p -->
+<!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
