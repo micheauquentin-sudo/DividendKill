@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 08:48] feat: use Finnhub as primary fundamentals fallback, Alpha Vantage as backup -- worker/src/index.js worker/wrangler.toml -->
+<!-- last-commit: [2026-07-03 08:49] chore: update claude memory — Finnhub primary fallback shipped -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 08:38] context: Poussé et déployé (~1-2 min). Prochaine étape : -->
 <!-- resume-from: files: worker/src/index.js -->
 
