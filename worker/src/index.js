@@ -640,9 +640,11 @@ function normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, 
       if (ttm > 0) eps = +ttm.toFixed(4);
     }
   }
+  // P/E toujours calculé nous-mêmes (prix / EPS) — jamais depuis un champ P/E
+  // pré-calculé du fournisseur (méthodologies TTM/forward/dilué incohérentes entre eux).
   const pe_cur = (eps && p.price > 0)
     ? +(p.price / eps).toFixed(2)
-    : (m.peRatioTTM || null);
+    : null;
 
   // Cash flow
   const operatingCF   = cf.operatingCashFlow  != null ? cf.operatingCashFlow  : null;
@@ -826,7 +828,8 @@ async function fmpProxy(req, env) {
     const rawEarnings = earnRes.status    === 'fulfilled' ? earnRes.value     : null;
     const result = normalizeFunda(rawProfile, rawMetrics, rawDivs, rawIncome, rawBalance, rawCashflow, rawEarnings);
     // Complément Finnhub puis Alpha Vantage si les métriques financières sont manquantes (402 FMP plan gratuit)
-    await fillFundaFallback(result, symbol, env);
+    const _profileForPrice = Array.isArray(rawProfile) ? rawProfile[0] : rawProfile;
+    await fillFundaFallback(result, symbol, env, _profileForPrice?.price);
     // Cache 6h si toujours pas de métriques (quotas épuisés ou clés absentes), sinon TTL long
     const stillIncomplete = result.pe_cur == null && result.payout_ratio == null;
     const ttl = stillIncomplete ? 21600 : ttlFunda();
@@ -986,8 +989,9 @@ async function fetchAlphaVantageOverview(symbol, env) {
     }
     const num = v => { const n = parseFloat(v); return isNaN(n) || n <= 0 ? null : n; };
     // PayoutRatio AV = décimal (0.559 = 55.9%), même format que notre payout_ratio
+    // N.B. : pas de pe_cur ici — le P/E est toujours recalculé nous-mêmes (prix FMP / EPS)
+    // dans fillFundaFallback, jamais depuis le PERatio fourni par Alpha Vantage.
     const parsed = {
-      pe_cur:       num(d.PERatio),
       payout_ratio: num(d.PayoutRatio),
       beta:         num(d.Beta),
       market_cap:   num(d.MarketCapitalization),
@@ -996,15 +1000,17 @@ async function fetchAlphaVantageOverview(symbol, env) {
     };
     if (env.PRICES_KV)
       await env.PRICES_KV.put(cacheKey, JSON.stringify(parsed), { expirationTtl: 7 * 24 * 3600 });
-    console.log(`[AV] ${symbol} PE=${parsed.pe_cur} payout=${parsed.payout_ratio}`);
+    console.log(`[AV] ${symbol} EPS=${parsed.eps} payout=${parsed.payout_ratio}`);
     return parsed;
   } catch(e) { console.warn('[AV] erreur', symbol, e.message); return null; }
 }
 
-// ── Finnhub /stock/metric?metric=all (P/E, EPS, payout, beta) ────────────
+// ── Finnhub /stock/metric?metric=all (EPS, payout, beta) ─────────────────
 // Plan gratuit : 60 appels/minute (bien plus généreux que les 25/JOUR d'AV) —
 // fallback PRINCIPAL avant AV. Cache 7 jours en KV (confirmé libre pour APD/ADP
 // via /api/debug/finnhub, contrairement à FMP qui bloque ces mêmes champs).
+// N.B. : ne renvoie PAS de pe_cur — le P/E est toujours recalculé nous-mêmes
+// (prix FMP / EPS) dans fillFundaFallback, jamais depuis le P/E de Finnhub.
 async function fetchFinnhubMetrics(symbol, env) {
   const cacheKey = `fh9:${symbol}`;
   if (env.PRICES_KV) {
@@ -1024,7 +1030,6 @@ async function fetchFinnhubMetrics(symbol, env) {
     // pour matcher le format utilisé partout ailleurs dans l'app (FMP/AV).
     const rawPayout = num(m.payoutRatioTTM ?? m.payoutRatioAnnual);
     const parsed = {
-      pe_cur:       num(m.peBasicExclExtraTTM ?? m.peTTM ?? m.peExclExtraTTM ?? m.peInclExtraTTM),
       eps:          num(m.epsBasicExclExtraItemsTTM ?? m.epsTTM ?? m.epsExclExtraItemsTTM),
       payout_ratio: rawPayout != null ? +(rawPayout / 100).toFixed(4) : null,
       beta:         num(m.beta),
@@ -1032,7 +1037,7 @@ async function fetchFinnhubMetrics(symbol, env) {
     };
     if (env.PRICES_KV)
       await env.PRICES_KV.put(cacheKey, JSON.stringify(parsed), { expirationTtl: 7 * 24 * 3600 });
-    console.log(`[Finnhub] ${symbol} PE=${parsed.pe_cur} payout=${parsed.payout_ratio}`);
+    console.log(`[Finnhub] ${symbol} EPS=${parsed.eps} payout=${parsed.payout_ratio}`);
     return parsed;
   } catch(e) { console.warn('[Finnhub] erreur', symbol, e.message); return null; }
 }
@@ -1040,11 +1045,15 @@ async function fetchFinnhubMetrics(symbol, env) {
 // ── Complète un résultat normalizeFunda incomplet (402 FMP plan gratuit) ──
 // Ordre : Finnhub (60/min, principal) → Alpha Vantage (25/jour, secours).
 // Mute le `result` en place et pose un flag `_source` pour traçabilité/debug.
-async function fillFundaFallback(result, symbol, env) {
+// `price` = prix courant FMP (/stable/profile, plan gratuit) — seule source de prix utilisée.
+// Le P/E n'est JAMAIS pris tel quel chez un fournisseur : toujours recalculé ici
+// (prix / EPS), pour rester indépendant des méthodologies (TTM/forward/dilué…)
+// qui diffèrent entre FMP, Finnhub et Alpha Vantage.
+async function fillFundaFallback(result, symbol, env, price) {
   if (result.pe_cur != null) return;
   const fh = await fetchFinnhubMetrics(symbol, env);
   if (fh) {
-    if (fh.pe_cur       != null) result.pe_cur       = fh.pe_cur;
+    if (fh.eps != null && price > 0) result.pe_cur = +(price / fh.eps).toFixed(2);
     if (fh.payout_ratio != null) result.payout_ratio = fh.payout_ratio;
     if (fh.beta         != null && result.beta       == null) result.beta       = fh.beta;
     if (fh.annual_div   != null && result.annual_div == null) result.annual_div = fh.annual_div;
@@ -1053,7 +1062,7 @@ async function fillFundaFallback(result, symbol, env) {
   if (result.pe_cur == null) {
     const av = await fetchAlphaVantageOverview(symbol, env);
     if (av) {
-      if (av.pe_cur       != null) result.pe_cur       = av.pe_cur;
+      if (av.eps != null && price > 0) result.pe_cur = +(price / av.eps).toFixed(2);
       if (av.payout_ratio != null) result.payout_ratio = av.payout_ratio;
       if (av.beta         != null && result.beta       == null) result.beta       = av.beta;
       if (av.market_cap   != null && result.market_cap == null) result.market_cap = av.market_cap;
@@ -1088,7 +1097,8 @@ async function handleScheduled(env) {
       ]);
       const normalized = normalizeFunda(profileData, metricsData, divsData, incData, balData, cfData, earnData);
       // Complément Finnhub puis Alpha Vantage si P/E manquant (402 sur plan FMP gratuit)
-      await fillFundaFallback(normalized, symbol, env);
+      const _profileForPrice = Array.isArray(profileData) ? profileData[0] : profileData;
+      await fillFundaFallback(normalized, symbol, env, _profileForPrice?.price);
       const stillIncomplete = normalized.pe_cur == null && normalized.payout_ratio == null;
       const ttl = stillIncomplete ? 21600 : ttlFunda();
       await env.PRICES_KV.put(`funda9:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttl });
@@ -1461,16 +1471,17 @@ async function debugFunda(req, env) {
     out.kv_data       = cached;
 
     // Vérifier le cache Finnhub (fh9:SYMBOL) — fallback principal
+    // (eps sert à calculer nous-mêmes le P/E = kv_pe_cur ; pas de pe_cur stocké ici)
     const fhCached = await env.PRICES_KV.get(`fh9:${symbol}`, { type: 'json' });
     out.fh9_hit     = !!fhCached;
-    out.fh9_pe_cur  = fhCached?.pe_cur ?? null;
+    out.fh9_eps     = fhCached?.eps ?? null;
     out.fh9_payout  = fhCached?.payout_ratio ?? null;
     out.fh9_data    = fhCached;
 
     // Vérifier le cache AV (av9:SYMBOL) — pré-rempli par /api/debug/av-seed, fallback secondaire
     const avCached = await env.PRICES_KV.get(`av9:${symbol}`, { type: 'json' });
     out.av9_hit     = !!avCached;
-    out.av9_pe_cur  = avCached?.pe_cur ?? null;
+    out.av9_eps     = avCached?.eps ?? null;
     out.av9_payout  = avCached?.payout_ratio ?? null;
     out.av9_data    = avCached;
 
