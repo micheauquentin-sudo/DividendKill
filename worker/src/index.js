@@ -556,12 +556,20 @@ async function fetchTwelveDataQuote(symbol, env) {
 
 async function isRateLimited(env, key, limit) {
   if (!env.PRICES_KV) return false;
-  const window = Math.floor(Date.now() / 60000);
-  const kvKey  = `rl:${key}:${window}`;
-  const cur    = parseInt(await env.PRICES_KV.get(kvKey) || '0', 10);
-  if (cur >= limit) return true;
-  await env.PRICES_KV.put(kvKey, String(cur + 1), { expirationTtl: 120 });
-  return false;
+  // Fail-open : si KV a un souci (quota d'écriture dépassé, erreur transitoire…),
+  // on n'applique pas la limite plutôt que de faire planter tout le Worker —
+  // un rate-limiter qui casse la fonctionnalité qu'il protège est pire que rien.
+  try {
+    const window = Math.floor(Date.now() / 60000);
+    const kvKey  = `rl:${key}:${window}`;
+    const cur    = parseInt(await env.PRICES_KV.get(kvKey) || '0', 10);
+    if (cur >= limit) return true;
+    await env.PRICES_KV.put(kvKey, String(cur + 1), { expirationTtl: 120 });
+    return false;
+  } catch(e) {
+    console.warn('[isRateLimited] KV erreur, fail-open:', e.message);
+    return false;
+  }
 }
 
 // Rate limit par email sur fenêtre 15 min — protection brute force ciblée
@@ -768,10 +776,14 @@ async function fmpProxy(req, env) {
   const symbolUp = symbol.toUpperCase();
   const cacheKey = `funda9:${symbolUp}`;
   if (env.PRICES_KV) {
-    const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
-    // Re-fetch si pe_cur manquant (AV peut maintenant le combler via KV cache)
-    const incomplete = cached && cached.pe_cur == null;
-    if (cached && !incomplete) return json(cached);
+    try {
+      const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+      // Re-fetch si pe_cur manquant (AV peut maintenant le combler via KV cache)
+      const incomplete = cached && cached.pe_cur == null;
+      if (cached && !incomplete) return json(cached);
+    } catch(e) {
+      console.warn('[fmpProxy] lecture cache KV échouée, on refetch:', e.message);
+    }
   }
 
   // À partir d'ici on va appeler des API externes (FMP/Finnhub/AV) — pas de limite
@@ -790,13 +802,18 @@ async function fmpProxy(req, env) {
   // KV n'offre pas de verrou atomique — c'est une réduction de bruit, pas une garantie.
   const lockKey = `fundalock:${symbolUp}`;
   if (env.PRICES_KV) {
-    const already = await env.PRICES_KV.get(lockKey);
-    if (already) {
-      await new Promise(r => setTimeout(r, 400));
-      const retryCache = await env.PRICES_KV.get(cacheKey, { type: 'json' });
-      if (retryCache && retryCache.pe_cur != null) return json(retryCache);
-    } else {
-      await env.PRICES_KV.put(lockKey, '1', { expirationTtl: 10 });
+    try {
+      const already = await env.PRICES_KV.get(lockKey);
+      if (already) {
+        await new Promise(r => setTimeout(r, 400));
+        const retryCache = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+        if (retryCache && retryCache.pe_cur != null) return json(retryCache);
+      } else {
+        await env.PRICES_KV.put(lockKey, '1', { expirationTtl: 10 });
+      }
+    } catch(e) {
+      // Fail-open : un souci KV sur le verrou ne doit jamais faire planter la requête.
+      console.warn('[fmpProxy] lock KV erreur, on continue sans coalescence:', e.message);
     }
   }
 
