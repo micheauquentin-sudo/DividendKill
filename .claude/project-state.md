@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 22:23] fix: don't let a low-confidence DSE score swing the P/E fallback valuation -- src/panels/valorisation.js -->
+<!-- last-commit: [2026-07-03 22:24] chore: update claude memory — DSE V2 live confirmation + ADP fallback fix -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 22:15] context: Poussé (`1bfaa37`). Cette fois c'est un correctif plus structurel : le cache client ne revalidait jamais une entrée déjà -->
 <!-- resume-from: files: src/fmpData.js -->
 
