@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 23:07] fix: Deal tab NaN in AI stress-test + pull-to-refresh over-triggering -- src/panels/deal.js src/ui.js -->
+<!-- last-commit: [2026-07-03 23:07] chore: session-stop snapshot [2026-07-03 23:07] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 23:07] context: Auto-snapshot already captured it. Résumé : -->
 <!-- resume-from: files: .claude/project-state.md, src/ui.js -->
 
