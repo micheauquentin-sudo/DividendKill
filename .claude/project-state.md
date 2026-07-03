@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 22:40] chore: update claude memory — Finnhub growth-field enrichment -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 22:41] chore: dedupe claude memory entry -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 22:32] context: Oui, il y a un angle plus prometteur que ce qu'on a fait jusqu'ici — et il ne nécessite aucune nouvelle API. -->
 <!-- resume-from: files: .claude/project-state.md -->
 
