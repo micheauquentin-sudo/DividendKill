@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 07:02] fix: invalidate stale client-side funda cache blocking P/E display -- src/fmpData.js -->
-<!-- interrupted: [2026-07-03 06:52] context: Je ne peux pas atteindre le domaine de prod directement depuis ce sandbox (policy réseau bloque `divkiller.michooo-45.wo -->
-<!-- resume-from: files: src, src/panels/valorisation.js, src/public/sw.js -->
+<!-- interrupted: [2026-07-03 07:03] context: Trouvé et corrigé. Le serveur renvoyait déjà les bonnes données (`pe_cur: 29.4`), mais le cache `localStorage` du naviga -->
+<!-- resume-from: files: src/fmpData.js -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
