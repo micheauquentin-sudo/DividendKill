@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 22:00] chore: session-stop snapshot [2026-07-03 22:00] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 22:00] context: Poussé (`cbd1ff4`). Peux-tu refaire un Sync puis revérifier `/api/debug/funda?symbol=UNM` ? Tu devrais maintenant voir ` -->
+<!-- interrupted: [2026-07-03 22:00] context: Oui, tout est poussé sur `main` (dernier commit `cbd1ff4`). Le déploiement se fait automatiquement via GitHub Actions à  -->
 <!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
 ## Current mission
