@@ -1,99 +1,118 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 21:35] feat: restructure dividend safety scoring — server-side V2 engine with reconstruction + confidence -- src/dividendSafety.js src/fmpData.js src/panels/deal.js src/panels/rendement.js src/panels/valorisation.js src/ui.js worker/src/dividendScore.js worker/src/index.js -->
-<!-- interrupted: [2026-07-03 14:34] context: Reprenons où j'en étais : j'ai confirmé que les 3 fournisseurs gratuits (FMP, Finnhub, Twelve Data) bloquent tous l'hist -->
-<!-- resume-from: files: .claude/project-state.md -->
 
 ## Current mission
-Roadmap Phase 3/4 UX improvements, resumed after the fundamentals/valuation
-pipeline was hardened against real-world API instability (this session's focus).
+Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
+system was restructured into a server-side V2 engine (this session's focus).
 
 ---
 
 ## Last completed (this session)
 
 - **Yield-reversion valuation** (Simply Safe Dividends method): `fair_value =
-  annual_div / median(TTM yield over 5y, monthly)`. Replaces flat sector-P/E
-  comparison as the primary valuation method in `valorisation.js` (`_computeVal`,
-  `method:'yield'`); sector-P/E stays as fallback when `fair_value` is null.
-- **DSE score renormalization** (`src/dividendSafety.js`): only averages over
-  factors that actually have data, instead of scoring permanently-null fields
-  (fcf_payout/debt_ebitda/interest_cov) as neutral-50 forever, which had capped
-  every score around ~78/100.
-- **UNM investigation (root-caused via code reading, prod URL not reachable
-  from this sandbox — network policy blocks it)**: fair_value stayed null
-  because FMP's `/stable/dividends` 402s for non-mega-cap tickers, and the
-  fetch used `tryJson` (resolves to `null` on failure) instead of throwing, so
-  no fallback ever kicked in. Then found the CLIENT never even re-asked the
-  server once `pe_cur` was cached (its 24h localStorage check ignored
-  `fair_value`) — that was the real "nothing changes after Sync" blocker.
-- **Alpha Vantage removed entirely** (commit `d0edd33`): its 25 calls/day quota
-  was the reason UNM's dividend-history fallback kept failing — too tight once
-  a portfolio has more than a couple of Finnhub-uncovered tickers. Removed
-  `fetchAlphaVantageOverview`, `fetchAlphaVantageDividends`, `AV_KEY`, the
-  `/api/debug/av-seed` mock endpoint, all `av9`/`avdiv9` KV keys.
-- **Twelve Data widened as the fallback after Finnhub** (was mostly disabled):
-  `fetchTwelveDataFundamentals` re-enabled in `fillFundaFallback` (previously
-  commented out after an earlier 403 on `/statistics` — retried since it's the
-  only remaining fallback, fails fast and harmlessly if still gated). New
-  `fetchTwelveDataDividends()` (`/dividends` endpoint) as the dividend-history
-  fallback for `fetchYieldReversion`, replacing Alpha Vantage's role.
-- **Final fundamentals chain**: FMP profile+dividends (name/sector/beta/
-  market_cap/annual_div/streak/pay_months/CAGR) → Finnhub (eps/payout/beta/
-  interest_cov/debt_equity, primary, 60 req/min) → Twelve Data (secondary).
-  Dividend-history chain (for yield reversion): FMP → Finnhub `/stock/dividend`
-  (confirmed 403 on this account's plan, kept in case it changes) → Twelve
-  Data `/dividends`. Price chain: FMP profile → Twelve Data quote.
-- **Cache resilience fixes**:
-  - `FV_VER` constant (now 4) stamped as `_fv_ver` alongside `_fv_tried` —
-    forces exactly one retry when the fallback chain gains a new source,
-    instead of a stuck `fair_value:null` blocking retries for the full
-    ~120-day funda TTL.
-  - Tickers with a known dividend but still no `fair_value` now get a 24h KV
-    TTL instead of ~120 days, since that's usually a same-day quota miss, not
-    permanent unavailability — self-heals the next day without a code change.
-  - `src/fmpData.js` client cache: incomplete-check now also considers
-    `fair_value`/`_fv_tried` (was `pe_cur`-only, which is why Sync silently
-    no-op'd on tickers whose EPS/payout Finnhub already covered). `CACHE_KEY`
-    bumped v11→v15 total across this session's fixes.
-- **Debug tooling**: `/api/debug/funda` now reports `kv_fv_tried`, `kv_fv_ver`,
-  `fhdiv9_hit/count`, `tddiv9_hit/count`, `yr9_hit/data`; live-test params
-  renamed `tdlive`/`tddivlive` (was `avlive`/`avdivlive`).
+  annual_div / median(TTM yield over 5y, monthly)`. Primary valuation method
+  in `valorisation.js` (`_computeVal`, `method:'yield'`); sector-P/E stays as
+  fallback when `fair_value` is null.
+- **UNM dividend-history dead end**: confirmed FMP `/stable/dividends` (402),
+  Finnhub `/stock/dividend` (403 "paid plan"), and Twelve Data `/dividends`
+  (403 "pro/ultra/venture/enterprise only") ALL gate real per-year dividend
+  history behind paid tiers on this account. No free-tier source exists for
+  it — this directly motivated the V2 scoring engine's reconstruction
+  approach below, since real history genuinely isn't obtainable.
+- **Alpha Vantage removed entirely**: 25 calls/day was too tight once a
+  portfolio has more than a couple of Finnhub-uncovered tickers. Twelve Data
+  widened as the fallback after Finnhub instead (fundamentals + dividends +
+  now also time_series for price history).
+- **Dividend Safety Score V2 — full restructure** (commit `b658ff0`), built
+  with a background agent for the pure scoring module + own wiring:
+  - New `worker/src/dividendScore.js` (`computeDividendSafetyV2`): pure,
+    dependency-free module (no fetch/KV/env) implementing reconstruction +
+    5 weighted sub-scores + risk penalties + confidence engine + French
+    explanation bullets. Never throws — traced/tested against bare-minimum,
+    fully-populated, and garbage inputs.
+  - **Reconstruction engine**: when no real dividend history exists (the
+    common case per above), estimates past dividends per year as
+    `MIN(EPS_year × current_payout_ratio, FCF_per_share_year × current_payout_ratio)`
+    when both known, whichever one when only one is known. Confidence score
+    reflects this (lower when reconstructed vs real).
+  - **5 sub-scores** (coverage 35% / balance 25% / stability 20% / growth
+    10% / market 10%), each renormalized over whichever are actually
+    available — mirrors the renormalization pattern already used in
+    `src/dividendSafety.js`'s v1 `calculate()`.
+  - New FMP fetchers (`fetchFmpRatiosTTM`, `fetchFmpKeyMetricsTTM`,
+    `fetchFmpIncomeStatement5Y`, `fetchFmpCashFlow5Y`,
+    `fetchFmpBalanceSheetLatest`) — these 5 endpoints were already confirmed
+    402 for non-mega-cap tickers earlier in the session, but are retried
+    here anyway (FMP's tiering can vary, and the engine tolerates them being
+    empty); failures cached 3 days (not ~120d) to limit quota burn without
+    permanently blocking a retry.
+  - New `fetchTwelveDataTimeSeries` (`/time_series`, "Core Data" — expected
+    free unlike `/statistics`/`/dividends`) feeds the market-stability
+    sub-score (volatility/drawdown/trend).
+  - Orchestrated in `buildDividendScoreV2()`, called from both `fmpProxy`
+    and the cron's `refreshFunda`, result stored as `result.dse2` inside the
+    existing `funda9:SYMBOL` cache entry (no new top-level cache key needed
+    — individual source fetchers already cache themselves).
+  - Frontend: `src/dividendSafety.js` gained `getDisplayDSE(stock)` —
+    prefers `stock.dse2` (server V2) when present, falls back to the old
+    client `calculate()` otherwise. All 4 call sites migrated
+    (`valorisation.js`, `deal.js`, `rendement.js` cards, `ui.js`'s
+    `showDSESheet` detail panel, which now also shows confidence %,
+    per-category "données insuffisantes" when a sub-score is null, the 8
+    raw metrics, a reconstruction warning banner, and the explanation
+    bullets — old breakdown UI kept as the v1 fallback path).
+  - `src/fmpData.js` `CACHE_KEY` bumped v15→v16 to roll `dse2` out
+    immediately instead of waiting on the 24h client TTL.
+  - Verified via: `node --check` on both new/modified worker files, a
+    direct-import smoke test of `dividendScore.js` with 3 scenarios
+    (bare-minimum/full-data/partial-data — none crash), `npm run build` for
+    the frontend, and an `esbuild --bundle` dry-run of the whole worker
+    entry (confirms the new ESM import resolves and bundles the way
+    wrangler/Cloudflare will) — could NOT verify live against production
+    (network policy blocks this sandbox from reaching the deployed Worker
+    URL and FMP/Finnhub/Twelve Data directly).
 
 ---
 
 ## Current task
-None in progress — awaiting confirmation that UNM (and ADP/HRL/APD/ACN) show
-the yield-reversion label after a Sync post-deploy, and that Twelve Data's
-`/statistics` and `/dividends` endpoints actually work on this account's free
-plan (both were re-enabled optimistically; `/statistics` was previously
-confirmed 403 — worth checking `/api/debug/funda?symbol=X&tdlive=1` and
-`&tddivlive=1` to see current real status).
+None in progress — awaiting confirmation from the user, once deployed, that:
+1. `dse2` actually populates for real tickers (check `/api/debug/funda?symbol=X`
+   → `kv_data.dse2`) and isn't silently erroring in `buildDividendScoreV2`'s
+   try/catch (which would leave `dse2` absent and everything falling back to
+   v1, which is silent/harmless but worth confirming isn't happening for ALL
+   tickers).
+2. Whether FMP's 5 financial-statement endpoints still 402 (expected) or
+   surprisingly work now — check any single ticker's `dse2.reconstructed` /
+   `dse2.breakdown` to see how many sub-scores came through.
+3. The DSE detail sheet renders correctly for both a v2-scored ticker and a
+   ticker that hasn't been re-synced yet (v1 fallback) — no live UI testing
+   was possible this session (network-isolated sandbox).
 
 ---
 
 ## Known blockers / notes
-- FMP free plan still 402s `/stable/dividends` for all but a handful of
-  popular tickers, and always 402s the 5 financial-statement endpoints
-  (income-statement, key-metrics-ttm, balance-sheet, cash-flow, earnings).
-- Finnhub's `/stock/dividend` confirmed 403 ("You don't have access to this
-  resource") on this account — paid-plan gated. `/stock/metric?metric=all`
-  (EPS/payout/beta/debt/interest) works fine on the free tier.
-- Twelve Data's `/statistics` was confirmed 403 earlier this session
-  ("pro/ultra/venture/enterprise only") but is re-enabled in the fallback
-  chain since Alpha Vantage's removal leaves it as the only remaining
-  secondary source — needs a fresh live check to confirm current status.
-- `fcf_payout`/`debt_ebitda` are permanently null (no free-tier source
-  anywhere) — `dividendSafety.js` renormalizes over available factors only,
-  doesn't just score them neutral-50.
+- No free-tier source exists ANYWHERE for real historical dividend payments
+  (FMP/Finnhub/Twelve Data all confirmed gated) — this is now permanently
+  handled via reconstruction in dividendScore.js rather than treated as a bug
+  to keep chasing with more providers.
+- FMP's 5 financial-statement endpoints (ratios-ttm, key-metrics-ttm, income-
+  statement, cash-flow-statement, balance-sheet-statement) are very likely
+  still 402 for non-mega-cap tickers (confirmed earlier this session for the
+  same underlying data via different endpoint names) — the V2 engine assumes
+  this and degrades gracefully, but this means `dse2.breakdown.coverage` will
+  often only have Finnhub's EPS (not FCF), `balance`/`growth`/`stability` may
+  frequently be null, and confidence will often be low. This is expected
+  behavior, not a bug — the explanation bullets should say so per ticker.
+- `fcf_payout`/`debt_ebitda` (the OLD v1 fields) are still permanently null —
+  irrelevant now for tickers with `dse2`, but v1 fallback still uses them.
 - Pay months for some tickers still hardcoded in `calendar.js` PAY_MONTHS map.
 
 ---
 
 ## Resume instruction
 When restarting:
-1. Read `architecture.md` → understand the FMP→Finnhub→TwelveData→KV→client
-   pipeline (Alpha Vantage is gone, don't reintroduce it).
-2. Read this file → pick up current task.
+1. Read `architecture.md` → understand FMP→Finnhub→TwelveData→KV→client
+   pipeline AND the new dividendScore.js V2 scoring engine on top of it.
+2. Read this file → pick up current task (awaiting live confirmation above).
 3. Check git log for the latest commit to confirm deploy state.
 4. Roadmap Phase 3/4 remaining items: mobile keyboard handling, faster boot
    prefetch, dark/light theme, PDF/CSV export, watchlist alerts.
