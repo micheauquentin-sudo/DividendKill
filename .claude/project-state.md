@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:33] chore: session-stop snapshot [2026-07-03 12:33] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 12:37] chore: session-stop snapshot [2026-07-03 12:37] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 12:37] context: `kv_fv_ver:3` confirme que le nouveau code a tourné, mais `avdiv9_hit:false` et `avdiv9_count:0` — Alpha Vantage n'a rie -->
 <!-- resume-from: files: src/fmpData.js, src/public/sw.js -->
 
