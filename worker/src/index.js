@@ -863,9 +863,13 @@ async function fmpProxy(req, env) {
       result._fv_tried = true; // marqueur : évite de re-fetcher en boucle si la réversion échoue
       result._fv_ver = FV_VER;
     }
-    // Cache 6h si toujours pas de métriques (quotas épuisés ou clés absentes), sinon TTL long
+    // Cache 6h si toujours pas de métriques (quotas épuisés ou clés absentes), 24h si le
+    // payeur de dividende n'a toujours pas de fair_value (source d'historique en échec —
+    // souvent juste un quota AV/Finnhub épuisé pour AUJOURD'HUI, pas une absence
+    // définitive — sinon _fv_tried figerait ça ~120 jours), sinon TTL long
     const stillIncomplete = result.pe_cur == null && result.payout_ratio == null;
-    const ttl = stillIncomplete ? 21600 : ttlFunda();
+    const fvPending = result.annual_div > 0 && result.fair_value == null;
+    const ttl = stillIncomplete ? 21600 : fvPending ? 86400 : ttlFunda();
     if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify(result), { expirationTtl: ttl });
     return json(result);
   } catch(e) {
@@ -1368,7 +1372,8 @@ async function handleScheduled(env) {
         normalized._fv_ver = FV_VER;
       }
       const stillIncomplete = normalized.pe_cur == null && normalized.payout_ratio == null;
-      const ttl = stillIncomplete ? 21600 : ttlFunda();
+      const fvPending = normalized.annual_div > 0 && normalized.fair_value == null;
+      const ttl = stillIncomplete ? 21600 : fvPending ? 86400 : ttlFunda();
       await env.PRICES_KV.put(`funda9:${symbol}`, JSON.stringify(normalized), { expirationTtl: ttl });
       console.log(`[Cron] funda9:${symbol} mis à jour — ${reason}${stillIncomplete ? ' [incomplet]' : normalized._finnhub_source ? ' [Finnhub]' : normalized._av_source ? ' [AV]' : ''}`);
       return true;
