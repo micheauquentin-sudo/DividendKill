@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 22:24] chore: update claude memory — DSE V2 live confirmation + ADP fallback fix -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 22:24] chore: session-stop snapshot [2026-07-03 22:24] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 22:24] context: Poussé (`c18ea99`). Une fois déployé, refais un Sync et regarde la carte ADP — le score DSE reste probablement similaire -->
 <!-- resume-from: files: .claude/project-state.md, src/panels/valorisation.js -->
 
