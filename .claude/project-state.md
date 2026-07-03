@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 08:04] chore: update claude memory — P/E N/A resolved (AV quota, not a bug) -- .claude/bugs.md -->
-<!-- interrupted: [2026-07-03 08:01] context: Poussé. Résumé de la situation : -->
-<!-- resume-from: files: worker/src/index.js -->
+<!-- interrupted: [2026-07-03 08:04] context: D'après le roadmap (`.claude/roadmap.md`), je recommande **les états de chargement (skeleton)** : actuellement l'app aff -->
+<!-- resume-from: files: .claude/bugs.md, .claude/roadmap.md, worker/src/index.js -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
