@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 09:54] chore: session-stop snapshot [2026-07-03 09:54] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 09:54] context: Reprenons le diagnostic. Vérifie à nouveau, et cette fois envoie-moi aussi si tu vois un message d'erreur différent : -->
-<!-- resume-from: files: worker/src/index.js -->
+<!-- interrupted: [2026-07-03 09:55] context: Le déploiement est bien passé il y a 10 minutes (confirmé côté GitHub Actions), donc ce n'est pas un problème de délai.  -->
+<!-- resume-from: files: (unknown) -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, picked after the FMP/Alpha Vantage
