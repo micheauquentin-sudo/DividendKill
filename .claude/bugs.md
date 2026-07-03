@@ -37,12 +37,14 @@
 - [x] Deal cards regression after large refactor
 - [x] News panel duplicate header
 
-## Medium (new)
-- **P/E still N/A for ADP/UNM/MMM/ACN/HRL/APD after AV_KEY secret added** (status: diagnostics added, awaiting live test)
-  → Code path (fetchAlphaVantageOverview, fmpProxy, cron refreshFunda) is correct; KV confirmed clean (no stale data)
-  → Root cause is one of: AV_KEY not actually bound to the deployed Worker (wrong dashboard env/typo), AV 25/day quota exhausted from earlier testing, or AV OVERVIEW returning Note/Information (rate limit) for these symbols
-  → Added diagnostics in `debugFunda` (worker/src/index.js ~1394-1457): `av_key_set`/`av_key_len` always returned; new `?avlive=1` param does a live AV OVERVIEW call and returns raw HTTP status + body (bypasses KV cache, costs 1 AV quota call)
-  → Next: hit `/api/debug/funda?symbol=APD&avlive=1` to get definitive answer
+## Fixed (new)
+- [x] **P/E N/A for ADP/UNM/MMM/ACN/HRL/APD** — root cause confirmed via `avlive=1`:
+  `av_key_set:true` (secret correctly bound), AV returned `Note` = free-tier 25 req/day
+  quota exhausted from same-day testing. Not a code bug — resets daily; normal Sync
+  usage (7-day KV cache per ticker) won't hit this limit in practice.
+  → Fixed a real bug found along the way: AV's rate-limit error echoes the API key in
+  plaintext, and the public/unauthenticated `/api/debug/funda?avlive=1` endpoint was
+  leaking it. Redacted (commit 7adbd06).
 
 ## Debug endpoint
 `GET /api/debug/price?symbol=APD&live=1`
