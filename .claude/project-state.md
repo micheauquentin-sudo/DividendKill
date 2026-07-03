@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 23:07] chore: session-stop snapshot [2026-07-03 23:07] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 23:16] fix: pull-to-refresh fires regardless of actual scroll position -- src/ui.js -->
 <!-- interrupted: [2026-07-03 23:07] context: Auto-snapshot already captured it. Résumé : -->
 <!-- resume-from: files: .claude/project-state.md, src/ui.js -->
 
