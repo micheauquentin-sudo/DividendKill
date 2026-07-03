@@ -786,7 +786,7 @@ async function fmpProxy(req, env) {
       // (_fv_tried absent = entrée mise en cache avant l'ajout de la valorisation yield).
       const incomplete = cached && (
         cached.pe_cur == null ||
-        (cached.annual_div > 0 && cached.fair_value == null && !cached._fv_tried)
+        (cached.annual_div > 0 && cached.fair_value == null && cached._fv_ver !== FV_VER)
       );
       if (cached && !incomplete) return json(cached);
     } catch(e) {
@@ -861,6 +861,7 @@ async function fmpProxy(req, env) {
       const yr = await fetchYieldReversion(symbol, price, result.annual_div, rawDivs, env);
       if (yr) { result.fair_value = yr.fair_value; result.avg_yield_5y = yr.avg_yield_5y; }
       result._fv_tried = true; // marqueur : évite de re-fetcher en boucle si la réversion échoue
+      result._fv_ver = FV_VER;
     }
     // Cache 6h si toujours pas de métriques (quotas épuisés ou clés absentes), sinon TTL long
     const stillIncomplete = result.pe_cur == null && result.payout_ratio == null;
@@ -1087,6 +1088,37 @@ async function fetchFinnhubMetrics(symbol, env) {
   } catch(e) { console.warn('[Finnhub] erreur', symbol, e.message); return null; }
 }
 
+// ── Finnhub /stock/dividend (historique de versements) — secours pour la réversion
+// du rendement quand FMP /stable/dividends échoue (402, quasi tous les tickers hors
+// mega-cap). Cache 30j (l'historique de versements passés ne change jamais).
+async function fetchFinnhubDividends(symbol, env) {
+  const cacheKey = `fhdiv9:${symbol}`;
+  if (env.PRICES_KV) {
+    try {
+      const cached = await env.PRICES_KV.get(cacheKey, { type: 'json' });
+      if (cached) return cached;
+    } catch(_) {}
+  }
+  if (!env.FINNHUB_KEY) return [];
+  try {
+    const from = new Date(Date.now() - 5 * 365 * 86400000).toISOString().slice(0, 10);
+    const to   = new Date().toISOString().slice(0, 10);
+    const url  = `https://finnhub.io/api/v1/stock/dividend?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}&token=${env.FINNHUB_KEY}`;
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+    if (!r.ok) { console.warn('[Finnhub] dividend HTTP', r.status, symbol); return []; }
+    const data = await r.json();
+    const arr = Array.isArray(data) ? data : [];
+    const divs = arr
+      .map(d => ({ date: d.payDate || d.date || '', amt: +(d.adjustedAmount || d.amount || 0) }))
+      .filter(d => d.date && d.amt > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (env.PRICES_KV)
+      await env.PRICES_KV.put(cacheKey, JSON.stringify(divs), { expirationTtl: 30 * 24 * 3600 });
+    console.log(`[Finnhub] ${symbol} dividendes historiques: ${divs.length} versements`);
+    return divs;
+  } catch(e) { console.warn('[Finnhub] erreur dividend', symbol, e.message); return []; }
+}
+
 // ── Twelve Data /statistics (EPS, payout, beta) — secours FINAL (après Finnhub + AV) ──
 // Cache 7 jours en KV. N.B. : pas de pe_cur ici non plus — même règle que les autres
 // fallbacks, le P/E est toujours recalculé nous-mêmes (prix FMP / EPS).
@@ -1180,6 +1212,12 @@ async function fillFundaFallback(result, symbol, env, price) {
 // ── Cron: prix + fondamentaux automatiques à la clôture marché ─
 const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
 
+// Incrémenté quand fetchYieldReversion gagne une nouvelle source de données
+// (ex. secours Finnhub ajouté ici) — force UN nouveau essai pour les tickers
+// déjà marqués _fv_tried avec fair_value toujours null sous l'ancienne logique,
+// sans re-boucler indéfiniment une fois ce nouvel essai fait (succès ou échec).
+const FV_VER = 2;
+
 // ── Valorisation par réversion du rendement (méthode Simply Safe Dividends) ──
 // Au lieu de comparer le P/E à une moyenne sectorielle rigide (qui juge à tort
 // les compounders de qualité surévalués et les assureurs sous-évalués), on
@@ -1211,11 +1249,14 @@ async function fetchYieldReversion(symbol, price, annualDiv, rawDivs, env) {
   // Normalise l'historique des dividendes (adjDividend = ajusté splits, cohérent avec adjClose)
   const divsArr = Array.isArray(rawDivs) ? rawDivs
                 : Array.isArray(rawDivs?.historical) ? rawDivs.historical : [];
-  const divs = divsArr
+  let divs = divsArr
     .map(d => ({ date: (d.paymentDate || d.date || ''), amt: (d.adjDividend || d.dividend || 0) }))
     .filter(d => d.date && d.amt > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
-  if (divs.length < 4) return null; // pas assez d'historique de dividendes
+  // FMP /stable/dividends 402 pour la plupart des tickers hors mega-cap — bascule sur
+  // l'historique de dividendes Finnhub (même clé que fillFundaFallback, gratuit 60/min).
+  if (divs.length < 4) divs = await fetchFinnhubDividends(symbol, env);
+  if (divs.length < 4) return null; // pas assez d'historique de dividendes, aucune source dispo
   try {
     const from = new Date(Date.now() - 5 * 365 * 86400000).toISOString().slice(0, 10);
     const url = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&from=${from}&apikey=${env.FMP_KEY}`;
@@ -1283,6 +1324,7 @@ async function handleScheduled(env) {
         const yr = await fetchYieldReversion(symbol, price, normalized.annual_div, divsData, env);
         if (yr) { normalized.fair_value = yr.fair_value; normalized.avg_yield_5y = yr.avg_yield_5y; }
         normalized._fv_tried = true;
+        normalized._fv_ver = FV_VER;
       }
       const stillIncomplete = normalized.pe_cur == null && normalized.payout_ratio == null;
       const ttl = stillIncomplete ? 21600 : ttlFunda();
@@ -1658,7 +1700,20 @@ async function debugFunda(req, env) {
     out.kv_streak     = cached?.streak     ?? null;
     out.kv_fair_value = cached?.fair_value   ?? null;
     out.kv_avg_yield_5y = cached?.avg_yield_5y ?? null;
+    out.kv_fv_tried   = cached?._fv_tried ?? false;
+    out.kv_fv_ver     = cached?._fv_ver ?? null;
     out.kv_data       = cached;
+
+    // Vérifier le cache dividendes Finnhub (fhdiv9:SYMBOL) — secours de fetchYieldReversion
+    // quand FMP /stable/dividends 402 (quasi tous les tickers hors mega-cap)
+    const fhDivCached = await env.PRICES_KV.get(`fhdiv9:${symbol}`, { type: 'json' });
+    out.fhdiv9_hit   = !!fhDivCached;
+    out.fhdiv9_count = Array.isArray(fhDivCached) ? fhDivCached.length : 0;
+
+    // Vérifier le cache yield-reversion (yr9:SYMBOL)
+    const yrCached = await env.PRICES_KV.get(`yr9:${symbol}`, { type: 'json' });
+    out.yr9_hit = !!yrCached;
+    out.yr9_data = yrCached;
 
     // Vérifier le cache Finnhub (fh9:SYMBOL) — fallback principal
     // (eps sert à calculer nous-mêmes le P/E = kv_pe_cur ; pas de pe_cur stocké ici)
