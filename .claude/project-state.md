@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 23:16] fix: pull-to-refresh fires regardless of actual scroll position -- src/ui.js -->
+<!-- last-commit: [2026-07-03 23:16] chore: session-stop snapshot [2026-07-03 23:16] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 23:16] context: Trouvé et corrigé la vraie cause, pas juste un ajustement de seuil cette fois. J'ai reproduit le bug avec un harnais de  -->
 <!-- resume-from: files: src/ui.js -->
 
