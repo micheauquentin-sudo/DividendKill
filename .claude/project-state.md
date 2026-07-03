@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:39] chore: session-stop snapshot [2026-07-03 12:39] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 12:57] refactor: drop Alpha Vantage, widen Twelve Data as fundamentals/dividends fallback -- src/fmpData.js worker/src/index.js worker/wrangler.toml -->
 <!-- interrupted: [2026-07-03 12:39] context: **Diagnostic final :** le quota gratuit Alpha Vantage (25 appels/jour) est épuisé pour aujourd'hui — la réponse `{"Infor -->
 <!-- resume-from: files: src/public/sw.js, worker/src/index.js -->
 
