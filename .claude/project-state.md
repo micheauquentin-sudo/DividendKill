@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 09:09] fix: disable Twelve Data fundamentals fallback (403 on free plan) -- worker/src/index.js -->
+<!-- last-commit: [2026-07-03 09:09] chore: session-stop snapshot [2026-07-03 09:09] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 09:09] context: Poussé et déployé. Bilan final de la chaîne de données : -->
 <!-- resume-from: files: .claude/project-state.md, worker/src/index.js -->
 
