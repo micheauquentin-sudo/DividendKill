@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 07:39] chore: session-stop snapshot [2026-07-03 07:39] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 07:39] context: Poussé (déploiement ~1-2 min). Attends que le déploiement se termine, puis appuie sur **Sync** à nouveau — cette fois le -->
+<!-- interrupted: [2026-07-03 07:44] context: C'est en fait possible que ce soit cohérent : mes données mock avaient été estimées à partir de P/E réalistes connus, do -->
 <!-- resume-from: files: src/fmpData.js -->
 
 ## Current mission
