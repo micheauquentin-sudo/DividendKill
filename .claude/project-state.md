@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 08:01] fix: redact AV_KEY value from debug/funda avlive response -- worker/src/index.js -->
+<!-- last-commit: [2026-07-03 08:01] chore: session-stop snapshot [2026-07-03 08:01] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 08:01] context: Poussé. Résumé de la situation : -->
 <!-- resume-from: files: worker/src/index.js -->
 
