@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-02 21:08] chore: session-stop snapshot [2026-07-02 21:08] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-02 21:08] context: Parfait, le diagnostic est clair : -->
-<!-- resume-from: files: worker/src/index.js -->
+<!-- interrupted: [2026-07-03 06:52] context: Je ne peux pas atteindre le domaine de prod directement depuis ce sandbox (policy réseau bloque `divkiller.michooo-45.wo -->
+<!-- resume-from: files: src, src/panels/valorisation.js, src/public/sw.js -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
