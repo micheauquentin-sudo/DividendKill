@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 22:58] chore: session-stop snapshot [2026-07-03 22:58] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 22:58] context: Pour diagnostiquer précisément, j'ai besoin de revoir les données brutes plutôt que de deviner. Peux-tu renvoyer le cont -->
+<!-- interrupted: [2026-07-03 23:00] context: Les données serveur sont maintenant complètes et cohérentes — `kv_dse2_ver: 4`, toutes les catégories remplies (coverage -->
 <!-- resume-from: files: .claude/project-state.md -->
 
 ## Current mission
