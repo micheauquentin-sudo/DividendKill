@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 10:12] chore: session-stop snapshot [2026-07-03 10:12] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 10:15] feat: expose raw values of debt/interest-coverage/FCF candidate fields -- worker/src/index.js -->
 <!-- interrupted: [2026-07-03 10:12] context: Poussé et déployé (~1-2 min). Teste : -->
 <!-- resume-from: files: worker/src/index.js -->
 
