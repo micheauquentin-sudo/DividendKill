@@ -76,7 +76,7 @@ export function calculatePriorityRanking(portfolio) {
       reasons: reasons, risks: risks, opportunityType: oppType,
       _yd: yd, _yoc: yoc, _pe_cur: pe_cur, _pe_disc: pe_disc, _safe: safetyScore, _streak: streak,
       _s_safety: s_safety, _s_val: s_val, _s_yq: s_yq, _s_div: s_div, _s_poids: s_poids,
-      _cur_w: cur_w, _sec_gap: sec_gap, _d: d
+      _cur_w: cur_w, _sec_gap: sec_gap, _d: d, _mv: d.mv
     });
   }
   results.sort(function(a, b) { return b.priorityScore - a.priorityScore; });

@@ -1002,8 +1002,8 @@ const App = (() => {
 
       // Pull-to-refresh: vertical pull from top — only if gesture started at top
       if (!swiping && dy > 0 && Math.abs(dy) > Math.abs(dx) * 1.5) {
-        if (startScrollTop <= 2) {
-          const progress = Math.min(1, dy / 90);
+        if (startScrollTop <= 0) {
+          const progress = Math.min(1, dy / 110);
           ptr.style.transform = `translateX(-50%) translateY(${Math.min(dy * 0.45, 38) - 70}px)`;
           ptr.style.opacity = progress.toFixed(2);
           const ic = document.getElementById('ptr-icon');
@@ -1032,8 +1032,10 @@ const App = (() => {
         return;
       }
 
-      // Pull-to-refresh trigger — only if gesture started at top
-      if (dy > 70 && Math.abs(dy) > Math.abs(dx) * 1.5 && startScrollTop <= 2) {
+      // Pull-to-refresh trigger — seuil relevé (70→110px) + tolérance de scroll retirée
+      // (<=2 → <=0) : un simple rebond/inertie en fin de scroll suffisait à déclencher un
+      // Sync non voulu dès qu'on approchait du haut, plutôt qu'un vrai tiré volontaire.
+      if (dy > 110 && Math.abs(dy) > Math.abs(dx) * 1.5 && startScrollTop <= 0) {
         ptr.style.transform = 'translateX(-50%) translateY(0px)';
         const ic = document.getElementById('ptr-icon');
         if (ic) { ic.style.transform = ''; ic.style.animation = 'ptr-spin .8s linear infinite'; }
