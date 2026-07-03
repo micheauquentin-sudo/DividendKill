@@ -62,7 +62,29 @@ correctly end-to-end via AV fallback for FMP-402'd tickers).
 ---
 
 ## Current task
-None in progress — awaiting next user request.
+Just fixed: UNM (and other non-mega-cap tickers) stayed on the old
+sector-P/E label after the yield-reversion deploy because FMP's
+`/stable/dividends` 402s for them, so `fetchYieldReversion` never had
+≥4 dividend payments to compute `fair_value`. Root-caused by reading
+the worker code (prod URL blocked from this sandbox's network egress,
+couldn't hit `/api/debug/funda` live) — confirmed `divsRes` uses
+`tryJson` which resolves to `null` on non-2xx instead of rejecting, so
+the "profile failed → still try Finnhub" fallback path never applied
+to the dividends call.
+Fix pushed to `main` (commit `40cccfc`):
+- New `fetchFinnhubDividends()` — `/stock/dividend` on Finnhub (same
+  key as the existing metrics fallback), cached `fhdiv9:SYMBOL` 30d.
+  `fetchYieldReversion` now tries it when FMP's own dividend array has
+  < 4 entries.
+- New `FV_VER` constant (=2) + `_fv_ver` stamp alongside `_fv_tried` —
+  forces exactly one retry for tickers already cached with a failed
+  attempt under the old logic, without looping forever after.
+- `src/fmpData.js` CACHE_KEY bumped v12→v13 to force clients past
+  stale localStorage entries.
+- `debugFunda` now also reports `kv_fv_tried`, `kv_fv_ver`,
+  `fhdiv9_hit/count`, `yr9_hit/data` for future debugging.
+Awaiting user confirmation that UNM (and ADP/HRL/APD/ACN) now show the
+yield-reversion label/gauge after a fresh Sync.
 
 ---
 
