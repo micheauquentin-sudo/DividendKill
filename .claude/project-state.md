@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 09:32] chore: session-stop snapshot [2026-07-03 09:32] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 09:32] context: Poussé et déployé (~1-2 min). Ce qui change concrètement : -->
+<!-- interrupted: [2026-07-03 09:36] context: Je ne peux pas atteindre le serveur de prod directement (réseau bloqué côté sandbox), donc j'ai besoin que tu m'envoies  -->
 <!-- resume-from: files: src/fmpData.js, worker/src/index.js -->
 
 ## Current mission
