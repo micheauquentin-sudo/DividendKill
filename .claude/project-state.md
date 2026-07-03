@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 12:26] chore: session-stop snapshot [2026-07-03 12:26] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-03 12:30] chore: session-stop snapshot [2026-07-03 12:30] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-03 12:30] context: Le déploiement du dernier correctif (`217be77`, avec le fallback Alpha Vantage + FV_VER 3) est bien confirmé réussi sur  -->
 <!-- resume-from: files: worker/src/index.js -->
 
