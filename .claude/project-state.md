@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-03 07:44] chore: session-stop snapshot [2026-07-03 07:44] -- .claude/project-state.md -->
-<!-- interrupted: [2026-07-03 07:44] context: C'est en fait possible que ce soit cohérent : mes données mock avaient été estimées à partir de P/E réalistes connus, do -->
-<!-- resume-from: files: src/fmpData.js -->
+<!-- interrupted: [2026-07-03 07:45] context: Le serveur est confirmé propre (aucune donnée en KV). Le problème vient donc du **cache navigateur/PWA** qui sert encore -->
+<!-- resume-from: files: (unknown) -->
 
 ## Current mission
 Fix FMP fundamentals pipeline so dividend yield, P/E, annual div, and safety scores
