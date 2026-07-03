@@ -77,18 +77,36 @@ system was restructured into a server-side V2 engine (this session's focus).
 ---
 
 ## Current task
-None in progress — awaiting confirmation from the user, once deployed, that:
-1. `dse2` actually populates for real tickers (check `/api/debug/funda?symbol=X`
-   → `kv_data.dse2`) and isn't silently erroring in `buildDividendScoreV2`'s
-   try/catch (which would leave `dse2` absent and everything falling back to
-   v1, which is silent/harmless but worth confirming isn't happening for ALL
-   tickers).
-2. Whether FMP's 5 financial-statement endpoints still 402 (expected) or
-   surprisingly work now — check any single ticker's `dse2.reconstructed` /
-   `dse2.breakdown` to see how many sub-scores came through.
-3. The DSE detail sheet renders correctly for both a v2-scored ticker and a
-   ticker that hasn't been re-synced yet (v1 fallback) — no live UI testing
-   was possible this session (network-isolated sandbox).
+DSE V2 confirmed working end-to-end live (UNM: score 68 "Sûr", new
+breakdown/confidence/explanation UI all rendering correctly after two
+follow-up fixes — see below). FMP's 5 financial-statement endpoints
+confirmed still blocked in practice (UNM/ADP both only have `coverage`
++ `market` populated, `balance`/`stability`/`growth` null) — expected.
+
+Latest fix (`c18ea99`): live case found where ADP showed "Could be
+overvalued" via the sector-P/E fallback (fair_value still null — same
+dividend-history wall). Root cause: the fallback's quality adjustment
+scales sector P/E by the DSE score, and ADP's dse2 score (41, low
+confidence, driven by null sub-scores not real risk) dragged the
+already-approximate sector P/E down into a falsely confident
+"overvalued" signal for what's actually considered a safe compounder
+(SSD shows it undervalued). Fix: only apply the quality adjustment when
+dse2 confidence >= 0.6; below that, use the neutral unadjusted sector
+P/E. NOT yet confirmed live whether this actually flips ADP's label —
+awaiting user's next Sync + screenshot.
+
+Two bugs found and fixed getting DSE V2 live, both worth remembering as
+a pattern: (1) server cache-incomplete-check didn't know `dse2` existed,
+so pre-existing `funda9` entries never retried it — fixed with
+`DSE2_VER` versioning mirroring `FV_VER`. (2) client's `_isFresh()` only
+checked TTL age, never content completeness of an already-cached entry
+— an entry cached incomplete once stayed "fresh" for 24h regardless of
+Sync clicks or reloads. Fixed by extracting `_isIncomplete(d)` and using
+it in both the write path AND `_isFresh()`, so this self-heals for any
+future field without needing a CACHE_KEY bump. Also caught (3): Twelve
+Data time_series was pulling WEEKLY bars while dividendScore.js's
+market-stability calc annualizes assuming daily bars (sqrt(252)) —
+inflated volatility ~2.2x. Fixed by switching to daily bars.
 
 ---
 
