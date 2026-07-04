@@ -1,4 +1,4 @@
-import { _emptyState, _logo } from '../ui-shared.js';
+import { _emptyState, _logo, _esc } from '../ui-shared.js';
 import { getMV, getDivA, eu } from '../calc.js';
 import { Data, meta } from '../data.js';
 import { getDisplayDSE } from '../dividendSafety.js';
@@ -142,7 +142,7 @@ export function renderDeal(el) {
         + '<span style="font-size:15px;font-weight:700">' + r.ticker + '</span>'
         + '<span style="font-size:9.5px;padding:2px 8px;border-radius:6px;font-weight:700;background:' + bc + '">' + r.opportunityType + '</span>'
         + '</div>'
-        + '<div style="font-size:10px;color:var(--muted)">' + r.name + '</div>'
+        + '<div style="font-size:10px;color:var(--muted)">' + _esc(r.name) + '</div>'
         + '<div style="font-size:10px;color:var(--muted);margin-top:2px">Yield ' + r._yd.toFixed(2) + '% \u00b7 YoC ' + r._yoc.toFixed(2) + '% \u00b7 Safety ' + r._safe + ' \u00b7 Streak ' + r._streak + ' ans</div>'
         + '</div>'
         // Score

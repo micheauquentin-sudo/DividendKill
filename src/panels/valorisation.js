@@ -342,7 +342,7 @@ export function renderValorisation(el) {
         + _logo(d.ticker, 34)
         + '<div>'
         + '<div style="font-size:17px;font-weight:700;letter-spacing:-.4px">'+d.ticker+getDivBadge(d.ticker)+'</div>'
-        + '<div style="font-size:10px;color:var(--muted);margin-top:1px">'+d.name+'</div>'
+        + '<div style="font-size:10px;color:var(--muted);margin-top:1px">'+_esc(d.name)+'</div>'
         + '</div></div>'
         + '<div style="text-align:right">'
         + '<span style="display:inline-block;padding:4px 10px;border-radius:7px;font-size:10.5px;font-weight:700;background:'+lc.bg+';color:'+lc.col+'">'+lc.txt+'</span>'

@@ -454,10 +454,17 @@ async function handleAuthCallback(req, env) {
   return new Response(null, { status: 302, headers });
 }
 
-function handleAuthLogout(req) {
-  const origin  = new URL(req.url).origin;
+async function handleAuthLogout(req, env) {
+  const origin = new URL(req.url).origin;
+  // C-1 : révoquer AUSSI le refresh token (cookie + ligne DB), sinon la session
+  // reste ressuscitable via /auth/refresh pendant 30 jours après "déconnexion".
+  const rtId = getCookie(req, 'dk_refresh');
+  if (rtId && env?.DB) {
+    try { await env.DB.prepare('DELETE FROM refresh_tokens WHERE id = ?').bind(rtId).run(); } catch(_) {}
+  }
   const headers = new Headers({ 'Location': `${origin}/` });
   headers.append('Set-Cookie', mkCookie('dk_session', '', 0));
+  headers.append('Set-Cookie', mkCookie('dk_refresh', '', 0));
   return new Response(null, { status: 302, headers });
 }
 
@@ -1673,6 +1680,11 @@ async function handleScheduled(env) {
     } catch(e) { console.warn(`[Cron] funda ${symbol}:`, e.message); return false; }
   }
 
+  // Hygiène : purge des refresh tokens expirés (le refresh consomme sa propre ligne,
+  // mais les tokens jamais réutilisés s'accumulent). Best-effort, ne bloque pas le cron.
+  try { await env.DB.prepare('DELETE FROM refresh_tokens WHERE expires_at < ?').bind(Math.floor(Date.now() / 1000)).run(); }
+  catch(e) { console.warn('[Cron] purge refresh_tokens:', e.message); }
+
   try {
     const { results } = await env.DB.prepare(
       "SELECT DISTINCT ticker FROM transactions WHERE type IN ('buy','sell')"
@@ -1908,18 +1920,30 @@ async function getNav(env, userId) {
   return json({ nav: results });
 }
 
+// Validation partagée d'une transaction — utilisée par postTransaction ET postRestore
+// (H-1 : le restore court-circuitait toute validation, permettant d'insérer un ticker
+// type `<img onerror=…>` rendu ensuite non échappé côté client = XSS stocké).
+// Retourne un message d'erreur (string) ou null si valide.
+const _VALID_TX_TYPES = new Set(['buy', 'sell', 'dividend']);
+function validateTx(tx) {
+  if (!tx || typeof tx !== 'object') return 'transaction invalide';
+  if (!tx.type || !_VALID_TX_TYPES.has(tx.type)) return 'type invalide (buy/sell/dividend)';
+  if (!tx.ticker || typeof tx.ticker !== 'string') return 'ticker requis';
+  if (tx.ticker.length > 20 || !/^[A-Za-z0-9.\-^=]+$/.test(tx.ticker)) return 'ticker invalide';
+  if (!tx.date || !/^\d{4}-\d{2}-\d{2}$/.test(tx.date)) return 'date invalide (YYYY-MM-DD)';
+  if (tx.shares != null && (isNaN(tx.shares) || +tx.shares <= 0)) return 'shares invalide';
+  if (tx.price  != null && (isNaN(tx.price)  || +tx.price  <  0)) return 'prix invalide';
+  if (tx.currency != null && (typeof tx.currency !== 'string' || tx.currency.length > 8)) return 'devise invalide';
+  return null;
+}
+
 // ── D1: POST /api/transaction ────────────────────────────────
 async function postTransaction(req, env, userId) {
   let body;
   try { body = await req.json(); } catch { return err('invalid JSON'); }
+  const invalid = validateTx(body);
+  if (invalid) return err(invalid);
   const { type, ticker, shares, price, amount, date, currency = 'USD' } = body;
-  const VALID_TYPES = new Set(['buy', 'sell', 'dividend']);
-  if (!type || !VALID_TYPES.has(type))   return err('type invalide (buy/sell/dividend)');
-  if (!ticker || typeof ticker !== 'string') return err('ticker requis');
-  if (ticker.length > 20 || !/^[A-Za-z0-9.\-^=]+$/.test(ticker)) return err('ticker invalide');
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return err('date invalide (YYYY-MM-DD)');
-  if (shares != null && (isNaN(shares) || +shares <= 0)) return err('shares invalide');
-  if (price  != null && (isNaN(price)  || +price  <  0)) return err('prix invalide');
 
   const r = await env.DB
     .prepare('INSERT INTO transactions (type,ticker,shares,price,amount,date,currency,user_id) VALUES (?,?,?,?,?,?,?,?)')
@@ -1939,12 +1963,14 @@ async function deleteTransaction(path, env, userId) {
   return json({ ok: true });
 }
 
+// Clés de réglages autorisées — partagées entre PUT /api/settings et /api/restore.
+const ALLOWED_SETTING_KEYS = new Set(['target','contrib','horizon','currency','pseudo','display_name','pfu','drip','fire_target']);
+
 // ── D1: PUT /api/settings ────────────────────────────────────
 async function putSettings(req, env, userId) {
   let body;
   try { body = await req.json(); } catch { return err('invalid JSON'); }
-  const ALLOWED_KEYS = new Set(['target','contrib','horizon','currency','pseudo','display_name','pfu','drip','fire_target']);
-  const entries = Object.entries(body).filter(([k]) => ALLOWED_KEYS.has(k));
+  const entries = Object.entries(body).filter(([k]) => ALLOWED_SETTING_KEYS.has(k));
   if (!entries.length) return err('aucune clé valide');
   const stmts = entries.map(([key, value]) =>
     env.DB.prepare('INSERT OR REPLACE INTO user_settings (user_id,key,value) VALUES (?,?,?)').bind(userId, key, String(value).slice(0, 500))
@@ -1974,18 +2000,27 @@ async function postRestore(req, env, userId) {
   try { body = await req.json(); } catch { return err('invalid JSON'); }
   const { transactions = [], settings = {} } = body;
   if (!Array.isArray(transactions) || transactions.length > 10000) return err('Format invalide');
+  // H-1 : valider chaque transaction comme à la création (le restore ne le faisait pas).
+  for (const tx of transactions) {
+    const invalid = validateTx(tx);
+    if (invalid) return err(`Restore : ${invalid}`);
+  }
   const stmts = [
     env.DB.prepare('DELETE FROM transactions WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM user_settings WHERE user_id = ?').bind(userId),
+    // Pas de tx.id imposé par le client (évite collisions/écrasements) — AUTOINCREMENT.
     ...transactions.map(tx =>
       env.DB.prepare(
-        'INSERT INTO transactions (id,type,ticker,shares,price,amount,date,currency,created_at,user_id) VALUES (?,?,?,?,?,?,?,?,?,?)'
-      ).bind(tx.id, tx.type, tx.ticker, tx.shares ?? null, tx.price ?? null, tx.amount ?? null,
+        'INSERT INTO transactions (type,ticker,shares,price,amount,date,currency,created_at,user_id) VALUES (?,?,?,?,?,?,?,?,?)'
+      ).bind(tx.type, tx.ticker.toUpperCase(), tx.shares ?? null, tx.price ?? null, tx.amount ?? null,
              tx.date, tx.currency || 'USD', tx.created_at || Math.floor(Date.now() / 1000), userId)
     ),
-    ...Object.entries(settings).map(([key, value]) =>
-      env.DB.prepare('INSERT OR REPLACE INTO user_settings (user_id,key,value) VALUES (?,?,?)').bind(userId, key, String(value))
-    ),
+    // Restreint aux mêmes clés que PUT /api/settings (pas d'insertion de clés arbitraires).
+    ...Object.entries(settings)
+      .filter(([key]) => ALLOWED_SETTING_KEYS.has(key))
+      .map(([key, value]) =>
+        env.DB.prepare('INSERT OR REPLACE INTO user_settings (user_id,key,value) VALUES (?,?,?)').bind(userId, key, String(value).slice(0, 500))
+      ),
   ];
   await env.DB.batch(stmts);
   return json({ ok: true, restored: transactions.length });
@@ -1993,16 +2028,23 @@ async function postRestore(req, env, userId) {
 
 // ── DELETE /api/account ─────────────────────────────────────
 async function deleteAccount(env, userId) {
+  // C-2 : purge COMPLÈTE. refresh_tokens et push_subscriptions stockent user_id/email
+  // de façon autonome — sans les supprimer, /auth/refresh continuait d'émettre des
+  // access tokens pour un compte "supprimé". Exigé aussi par Apple/Google (suppression
+  // de compte fonctionnelle). Cookies effacés avec le BON nom (dk_session/dk_refresh —
+  // l'ancien code effaçait un cookie "session=" qui n'existe pas).
   await env.DB.batch([
     env.DB.prepare('DELETE FROM transactions WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM user_settings WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM portfolio_nav WHERE user_id = ?').bind(userId),
+    env.DB.prepare('DELETE FROM refresh_tokens WHERE user_id = ?').bind(userId),
+    env.DB.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').bind(userId),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId),
   ]);
-  return new Response(JSON.stringify({ ok: true }), {
-    status: 200,
-    headers: { ...CORS, 'Content-Type': 'application/json', 'Set-Cookie': 'session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0' },
-  });
+  const headers = new Headers({ ...CORS, 'Content-Type': 'application/json' });
+  headers.append('Set-Cookie', mkCookie('dk_session', '', 0));
+  headers.append('Set-Cookie', mkCookie('dk_refresh', '', 0));
+  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
 
 // ── Debug fondamentaux : montre le cache KV + test live income/earnings ──
@@ -2660,15 +2702,23 @@ export default {
     if (path === '/api/push/vapid-key' && method === 'GET') return getPushVapidKey(env);
     if (path === '/api/news')            return newsProxy(req, env);
     if (path === '/api/prices/history')  return priceHistoryProxy(req, env);
-    if (path === '/api/debug/price')     return debugPrice(req, env);
-    if (path === '/api/debug/funda')     return debugFunda(req, env);
-    if (path === '/api/debug/finnhub')   return debugFinnhub(req, env);
-    if (path === '/api/debug/twelvedata') return debugTwelveData(req, env);
+    // H-2 : les endpoints de debug consomment le quota FMP/Finnhub (?live=1) et
+    // exposent des métadonnées de secrets — réservés à une session authentifiée
+    // (évite l'épuisement de quota par un tiers et le scraping non authentifié).
+    if (path.startsWith('/api/debug/')) {
+      const dbgUser = await getUser(req, env);
+      if (!dbgUser) return new Response('Unauthorized', { status: 401, headers: CORS });
+      if (path === '/api/debug/price')      return debugPrice(req, env);
+      if (path === '/api/debug/funda')      return debugFunda(req, env);
+      if (path === '/api/debug/finnhub')    return debugFinnhub(req, env);
+      if (path === '/api/debug/twelvedata') return debugTwelveData(req, env);
+      return err('route not found', 404);
+    }
 
     // Routes auth
     if (path === '/auth/login')       return handleAuthLogin(req, env);
     if (path === '/auth/callback')    return handleAuthCallback(req, env);
-    if (path === '/auth/logout')      return handleAuthLogout(req);
+    if (path === '/auth/logout')      return handleAuthLogout(req, env);
     if (path === '/auth/me')          return handleAuthMe(req, env);
     if (path === '/auth/register'  && method === 'POST') return handleAuthRegister(req, env);
     if (path === '/auth/login/email' && method === 'POST') return handleAuthLoginEmail(req, env);

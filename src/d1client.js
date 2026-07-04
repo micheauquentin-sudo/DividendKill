@@ -38,7 +38,18 @@ export const D1Client = (() => {
   }
 
   function login()  { window.location.href = '/auth/login'; }
-  function logout() { window.location.href = '/auth/logout'; }
+  function logout() {
+    // Hygiène : purge le cache local (données de portefeuille) avant de partir — sinon
+    // il survivrait à la déconnexion sur un appareil partagé. Les caches sensibles sont
+    // préfixés astra_* (fondamentaux) et dk_* (état appli).
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('astra_') || k.startsWith('dk_'))) localStorage.removeItem(k);
+      }
+    } catch(_) {}
+    window.location.href = '/auth/logout';
+  }
 
   async function sync() {
     _setSyncDot('syncing');

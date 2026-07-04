@@ -1474,14 +1474,18 @@ async function _fabDoSearch(q) {
     var _EXCH_TO_FLAG = {NASDAQ:'\U0001F1FA\U0001F1F8',NYSE:'\U0001F1FA\U0001F1F8',AMEX:'\U0001F1FA\U0001F1F8',TSX:'\U0001F1E8\U0001F1E6',LSE:'\U0001F1EC\U0001F1E7',EURONEXT:'\U0001F1EA\U0001F1FA',XETRA:'\U0001F1E9\U0001F1EA'};
     el.innerHTML = results.map(function(r) {
       var flag = _EXCH_TO_FLAG[r.exchangeShortName] || '\U0001F3F3️';
-      var nameSafe = (r.name || r.symbol).replace(/'/g, '&#39;');
-      var exchSafe = (r.exchangeShortName || '').replace(/'/g, '');
+      // Ce nom entre à la fois dans une string JS ET un attribut HTML (onclick="…('…')").
+      // Les deux contextes se démêlent mal (un &#39; est re-décodé en ' avant le JS) — on
+      // retire simplement tout caractère capable de sortir de l'un ou l'autre contexte.
+      // Le nom n'est qu'un libellé d'affichage, cette normalisation est sans perte utile.
+      var nameSafe = (r.name || r.symbol).replace(/[<>"'`\\]/g, ' ');
+      var exchSafe = (r.exchangeShortName || '').replace(/[<>"'`\\]/g, '');
       return '<div class="fab-sug-item" onclick="fabSelectTicker(\''
         + r.symbol + '\',\'' + nameSafe + '\',\'' + exchSafe + '\')">'
         + _logo(r.symbol, 24)
         + '<div style="flex:1;min-width:0;margin-left:8px">'
         + '<span class="fab-sug-tk">' + r.symbol + '</span>'
-        + '<span class="fab-sug-name">' + (r.name || '') + '</span>'
+        + '<span class="fab-sug-name">' + _esc(r.name || '') + '</span>'
         + '</div>'
         + '<div class="fab-sug-right"><span class="fab-sug-flag">' + flag + '</span></div>'
         + '</div>';
