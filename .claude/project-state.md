@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-04 10:36] chore: record security audit in decisions log -- .claude/decisions.md -->
+<!-- last-commit: [2026-07-04 10:37] chore: session-stop snapshot [2026-07-04 10:37] -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-04 10:37] context: Tout est corrigé, testé et déployé sur `main`. L'artifact d'audit est à jour (11/12 marqués corrigés). -->
 <!-- resume-from: files: worker/src/index.js -->
 
