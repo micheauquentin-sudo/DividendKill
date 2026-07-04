@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-04 10:36] chore: record security audit in decisions log -- .claude/decisions.md -->
-<!-- interrupted: [2026-07-03 23:16] context: Trouvé et corrigé la vraie cause, pas juste un ajustement de seuil cette fois. J'ai reproduit le bug avec un harnais de  -->
-<!-- resume-from: files: src/ui.js -->
+<!-- interrupted: [2026-07-04 10:37] context: Tout est corrigé, testé et déployé sur `main`. L'artifact d'audit est à jour (11/12 marqués corrigés). -->
+<!-- resume-from: files: worker/src/index.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
