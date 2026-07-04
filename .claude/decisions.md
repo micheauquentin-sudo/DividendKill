@@ -78,3 +78,26 @@ weighted average over only the factors actually available per stock. Finnhub
 later recovered interest_cov (netInterestCoverageTTM /100) and debt_equity
 (→ debt_ebitda approximation); FCF payout deliberately NOT derived from
 Price/FCF (too price-sensitive, tanked scores).
+
+## Audit sécurité & durcissement (2026-07-04)
+Audit OWASP complet du Worker + SPA. 11/12 constats corrigés et déployés
+(commits 1a89f7e, 357a2c5, c34ec5e). Fondamentaux déjà sains (SQL paramétré,
+cookies HttpOnly/Secure/SameSite=Lax, JWT vérifié).
+Corrigés :
+- C-1 logout révoque le refresh token (cookie + DB) ; C-2 deleteAccount purge
+  refresh_tokens + push_subscriptions et efface les bons cookies (dk_session/
+  dk_refresh, pas "session="). Cron purge les refresh tokens expirés. Logout
+  client vide le cache localStorage astra_*/dk_*.
+- H-1 validateTx() partagé appliqué au /api/restore (ne bindait rien avant),
+  plus de tx.id client, settings restreints à l'allowlist. H-2 /api/debug/*
+  derrière auth (consommaient le quota FMP + fuite métadonnées clés).
+- M-1 _esc() sur les noms d'entreprise (données FMP) en innerHTML.
+- M-3 PBKDF2 100k→600k avec ré-hash progressif au login (format iter:salt:hash,
+  rétro-compatible). M-4 CORS ACAO '*' → APP_ORIGIN. Rate-limit auth fail-closed.
+  L-3 fetchRetry (backoff, timeout) sur le chemin prix. L-1 hypothèse OAuth
+  documentée.
+RESTE : M-2 (retrait unsafe-inline de la CSP) — refactor de fond touchant chaque
+onclick inline, reporté à une passe dédiée avec vérif live. IMPORTANT : les flux
+auth (login/logout/suppression compte) ont été modifiés — vérifiés en isolation
+(round-trip PBKDF2) mais PAS en live contre la prod (sandbox sans accès réseau) ;
+à re-tester après déploiement. Détail complet dans l'artifact audit.
