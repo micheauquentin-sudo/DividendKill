@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-04 10:34] security: harden auth crypto, rate-limiting, CORS, external fetches (audit M3/M4/L3) -- worker/src/index.js -->
+<!-- last-commit: [2026-07-04 10:35] docs: document OAuth id_token trust assumption (audit L-1) -- worker/src/index.js -->
 <!-- interrupted: [2026-07-03 23:16] context: Trouvé et corrigé la vraie cause, pas juste un ajustement de seuil cette fois. J'ai reproduit le bug avec un harnais de  -->
 <!-- resume-from: files: src/ui.js -->
 
