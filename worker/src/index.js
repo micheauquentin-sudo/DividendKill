@@ -216,10 +216,13 @@ async function getUser(req, env) {
 }
 
 // ── Hachage mot de passe (PBKDF2-SHA256) ────────────────────
-// M-3 : 600 000 itérations (reco OWASP 2023, contre 100 000 auparavant). Le nombre
-// d'itérations est stocké DANS le hash (`iter:salt:hash`) pour permettre un ré-hash
-// progressif au login des anciens hashs sans invalider les comptes existants.
-const PBKDF2_ITER = 600000;
+// 600 000 itérations (reco OWASP 2023) dépasse la limite de CPU time par requête
+// des Cloudflare Workers — confirmé en prod par un "Erreur réseau" systématique à
+// l'inscription/connexion (le Worker est tué en plein calcul avant de répondre en
+// JSON). Revenu à 100 000, seule valeur dont on ait la preuve qu'elle tient dans le
+// budget CPU de ce compte. Le nombre d'itérations reste stocké DANS le hash
+// (`iter:salt:hash`) pour permettre un ré-hash progressif si ce budget augmente.
+const PBKDF2_ITER = 100000;
 
 async function _pbkdf2(password, salt, iterations) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
