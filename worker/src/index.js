@@ -37,10 +37,16 @@
 
 import { computeDividendSafetyV2 } from './dividendScore.js';
 
+// M-4 : ACAO restreint à l'origine de l'app au lieu de '*'. Le Worker sert la SPA ET
+// l'API depuis la MÊME origine — le navigateur ignore donc ACAO pour les requêtes de
+// l'app (same-origin), et cet en-tête ne concerne que d'éventuels lecteurs cross-origin,
+// qu'on ne veut pas. Changer ce const si l'app est un jour servie sur un autre domaine.
+const APP_ORIGIN = 'https://divkiller.michooo-45.workers.dev';
 const CORS = {
-  'Access-Control-Allow-Origin':  '*',
+  'Access-Control-Allow-Origin':  APP_ORIGIN,
   'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+  'Vary': 'Origin',
 };
 
 // Injecté uniquement sur les réponses HTML (pas les API JSON)
@@ -210,23 +216,36 @@ async function getUser(req, env) {
 }
 
 // ── Hachage mot de passe (PBKDF2-SHA256) ────────────────────
-async function hashPassword(password) {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const key  = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-  const hash = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256);
-  return `${_b64u(salt)}:${_b64u(hash)}`;
+// M-3 : 600 000 itérations (reco OWASP 2023, contre 100 000 auparavant). Le nombre
+// d'itérations est stocké DANS le hash (`iter:salt:hash`) pour permettre un ré-hash
+// progressif au login des anciens hashs sans invalider les comptes existants.
+const PBKDF2_ITER = 600000;
+
+async function _pbkdf2(password, salt, iterations) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, key, 256));
 }
 
+async function hashPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const hash = await _pbkdf2(password, salt, PBKDF2_ITER);
+  return `${PBKDF2_ITER}:${_b64u(salt)}:${_b64u(hash)}`;
+}
+
+// Retourne { ok, needsRehash }. Rétro-compatible avec l'ancien format `salt:hash`
+// (sans préfixe d'itérations) qui utilisait 100 000 itérations.
 async function verifyPassword(password, stored) {
-  const [saltB64, hashB64] = stored.split(':');
-  const salt    = _b64uDec(saltB64);
+  const parts = stored.split(':');
+  let iterations, saltB64, hashB64;
+  if (parts.length === 3) { [iterations, saltB64, hashB64] = [parseInt(parts[0], 10), parts[1], parts[2]]; }
+  else                    { [iterations, saltB64, hashB64] = [100000, parts[0], parts[1]]; } // ancien format
+  const salt     = _b64uDec(saltB64);
   const expected = _b64uDec(hashB64);
-  const key     = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-  const hash    = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256));
-  if (hash.length !== expected.length) return false;
+  const hash     = await _pbkdf2(password, salt, iterations);
+  if (hash.length !== expected.length) return { ok: false, needsRehash: false };
   let diff = 0;
   for (let i = 0; i < hash.length; i++) diff |= hash[i] ^ expected[i];
-  return diff === 0;
+  return { ok: diff === 0, needsRehash: diff === 0 && iterations < PBKDF2_ITER };
 }
 
 // ── Token pair (access 1h + refresh 30j rotatif) ───────────
@@ -302,7 +321,7 @@ async function ensureMigrations(db) {
 async function handleAuthRegister(req, env) {
   if (!env.SESSION_SECRET) return err('Auth non configurée', 500);
   const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
-  if (await isRateLimited(env, `reg:${ip}`, 5)) return err('Trop de tentatives, réessaie dans une minute', 429);
+  if (await isRateLimited(env, `reg:${ip}`, 5, true)) return err('Trop de tentatives, réessaie dans une minute', 429);
   let body;
   try { body = await req.json(); } catch { return err('invalid JSON'); }
   const { email, password, name } = body;
@@ -331,7 +350,7 @@ async function handleAuthRegister(req, env) {
 async function handleAuthLoginEmail(req, env) {
   if (!env.SESSION_SECRET) return err('Auth non configurée', 500);
   const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
-  if (await isRateLimited(env, `login:${ip}`, 10)) return err('Trop de tentatives, réessaie dans une minute', 429);
+  if (await isRateLimited(env, `login:${ip}`, 10, true)) return err('Trop de tentatives, réessaie dans une minute', 429);
   let body;
   try { body = await req.json(); } catch { return err('invalid JSON'); }
   const { email, password } = body;
@@ -340,8 +359,17 @@ async function handleAuthLoginEmail(req, env) {
 
   if (env.DB) await ensureMigrations(env.DB);
   const user = await env.DB.prepare('SELECT id,pw_hash,name FROM users WHERE email = ?').bind(email.toLowerCase()).first();
-  if (!user || !(await verifyPassword(password, user.pw_hash))) {
+  const check = user ? await verifyPassword(password, user.pw_hash) : { ok: false };
+  if (!user || !check.ok) {
     return err('Email ou mot de passe incorrect', 401);
+  }
+  // M-3 : ré-hash progressif — si le hash utilisait moins d'itérations que la cible,
+  // on le régénère maintenant qu'on a le mot de passe en clair (migration transparente).
+  if (check.needsRehash) {
+    try {
+      const newHash = await hashPassword(password);
+      await env.DB.prepare('UPDATE users SET pw_hash = ? WHERE id = ?').bind(newHash, user.id).run();
+    } catch(_) {}
   }
 
   const pair = await issueTokenPair(user.id, email.toLowerCase(), user.name || email.split('@')[0], env);
@@ -563,11 +591,12 @@ async function fetchTwelveDataQuote(symbol, env) {
   } catch(e) { console.warn('[TwelveData] erreur quote', symbol, e.message); return null; }
 }
 
-async function isRateLimited(env, key, limit) {
-  if (!env.PRICES_KV) return false;
-  // Fail-open : si KV a un souci (quota d'écriture dépassé, erreur transitoire…),
-  // on n'applique pas la limite plutôt que de faire planter tout le Worker —
-  // un rate-limiter qui casse la fonctionnalité qu'il protège est pire que rien.
+// failClosed=false (défaut) : fail-open — pour les routes non sensibles (prix/funda),
+// un rate-limiter qui casse la fonctionnalité qu'il protège est pire que rien.
+// failClosed=true : fail-closed — pour l'AUTH (login/register), on préfère refuser en
+// cas de souci KV plutôt que de laisser un brute-force passer sous le radar.
+async function isRateLimited(env, key, limit, failClosed = false) {
+  if (!env.PRICES_KV) return failClosed;
   try {
     const window = Math.floor(Date.now() / 60000);
     const kvKey  = `rl:${key}:${window}`;
@@ -576,20 +605,54 @@ async function isRateLimited(env, key, limit) {
     await env.PRICES_KV.put(kvKey, String(cur + 1), { expirationTtl: 120 });
     return false;
   } catch(e) {
-    console.warn('[isRateLimited] KV erreur, fail-open:', e.message);
-    return false;
+    console.warn('[isRateLimited] KV erreur, fail-' + (failClosed ? 'closed' : 'open') + ':', e.message);
+    return failClosed;
   }
 }
 
-// Rate limit par email sur fenêtre 15 min — protection brute force ciblée
+// Rate limit par email sur fenêtre 15 min — protection brute force ciblée.
+// Fail-closed + try/catch : une erreur KV ne doit ni crasher le login (pas de try/catch
+// auparavant) ni ouvrir une brèche de brute-force silencieuse.
 async function isEmailRateLimited(env, email, limit) {
-  if (!env.PRICES_KV) return false;
-  const win = Math.floor(Date.now() / 900000); // 15-minute window
-  const key = `rl:email:${email}:${win}`;
-  const cur = parseInt(await env.PRICES_KV.get(key) || '0', 10);
-  if (cur >= limit) return true;
-  await env.PRICES_KV.put(key, String(cur + 1), { expirationTtl: 1800 });
-  return false;
+  if (!env.PRICES_KV) return true;
+  try {
+    const win = Math.floor(Date.now() / 900000); // 15-minute window
+    const key = `rl:email:${email}:${win}`;
+    const cur = parseInt(await env.PRICES_KV.get(key) || '0', 10);
+    if (cur >= limit) return true;
+    await env.PRICES_KV.put(key, String(cur + 1), { expirationTtl: 1800 });
+    return false;
+  } catch(e) {
+    console.warn('[isEmailRateLimited] KV erreur, fail-closed:', e.message);
+    return true;
+  }
+}
+
+// L-3 : fetch avec retry + backoff exponentiel court + timeout par tentative.
+// Réessaie sur erreur réseau, timeout, 429 et 5xx (transitoires) ; ne réessaie PAS sur
+// 402/403/404 (définitifs — inutile de gaspiller des tentatives). Renvoie la Response
+// (même non-2xx après le dernier essai) ou null si toutes les tentatives ont échoué.
+async function fetchRetry(url, opts = {}, { tries = 2, timeoutMs = 8000 } = {}) {
+  for (let attempt = 0; attempt <= tries; attempt++) {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), timeoutMs);
+      let r;
+      try { r = await fetch(url, { ...opts, signal: ctl.signal }); }
+      finally { clearTimeout(t); }
+      // Transitoire → retry ; sinon on rend la réponse telle quelle.
+      if ((r.status === 429 || r.status >= 500) && attempt < tries) {
+        await new Promise(res => setTimeout(res, 300 * Math.pow(2, attempt)));
+        continue;
+      }
+      return r;
+    } catch(e) {
+      if (attempt < tries) { await new Promise(res => setTimeout(res, 300 * Math.pow(2, attempt))); continue; }
+      console.warn('[fetchRetry] échec définitif:', e.message);
+      return null;
+    }
+  }
+  return null;
 }
 
 // ── Helpers fondamentaux FMP ─────────────────────────────────
@@ -725,8 +788,8 @@ async function priceProxy(req, env) {
   if (missing.length > 0) {
     try {
       const batchUrl = `https://financialmodelingprep.com/stable/profile?symbol=${missing.join(',')}&apikey=${env.FMP_KEY}`;
-      const r = await fetch(batchUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-      if (r.ok) {
+      const r = await fetchRetry(batchUrl, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+      if (r && r.ok) {
         const d = await r.json();
         const profiles = Array.isArray(d) ? d : (d && d.price ? [d] : []);
         await Promise.all(profiles.map(async p => {
@@ -741,8 +804,8 @@ async function priceProxy(req, env) {
         const stillMissing = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null);
         await Promise.all(stillMissing.map(async t => {
           try {
-            const r2 = await fetch(`https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(t)}&apikey=${env.FMP_KEY}`, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-            if (!r2.ok) return;
+            const r2 = await fetchRetry(`https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(t)}&apikey=${env.FMP_KEY}`, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+            if (!r2 || !r2.ok) return;
             const d2 = await r2.json();
             const p2 = Array.isArray(d2) ? d2[0] : d2;
             if (!p2 || !p2.price) return;
@@ -753,7 +816,7 @@ async function priceProxy(req, env) {
           } catch(e2) { console.warn(`[price] Profile individuel ${t}:`, e2.message); }
         }));
       } else {
-        console.warn(`[price] Batch profile HTTP ${r.status}`);
+        console.warn(`[price] Batch profile HTTP ${r ? r.status : 'no-response'}`);
       }
     } catch(e) { console.warn('[price] Batch profile:', e.message); }
 
