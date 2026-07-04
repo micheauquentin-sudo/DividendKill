@@ -440,7 +440,12 @@ async function handleAuthCallback(req, env) {
   }
   const tData = await tRes.json();
 
-  // Décode l'id_token Google (JWT non vérifié — on fait confiance à Google)
+  // L-1 — HYPOTHÈSE DE SÉCURITÉ : l'id_token n'est PAS vérifié cryptographiquement.
+  // C'est acceptable ICI précisément parce que tData vient d'être obtenu par un échange
+  // code→token effectué NOUS-MÊMES, en HTTPS direct vers oauth2.googleapis.com, avec
+  // notre client_secret. L'id_token n'a donc jamais transité par le client/navigateur.
+  // Si un jour ce flux change (ex. id_token reçu depuis le front, implicit flow), il
+  // FAUDRA vérifier la signature via les clés JWKS de Google avant de faire confiance.
   const idP = JSON.parse(new TextDecoder().decode(
     _b64uDec(tData.id_token.split('.')[1])
   ));
