@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-03 23:16] chore: session-stop snapshot [2026-07-03 23:16] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-04 10:30] security: fix session lifecycle + input validation + debug exposure (audit C1/C2/H1/H2/M1) -- src/d1client.js src/panels/deal.js src/panels/valorisation.js src/ui.js worker/src/index.js -->
 <!-- interrupted: [2026-07-03 23:16] context: Trouvé et corrigé la vraie cause, pas juste un ajustement de seuil cette fois. J'ai reproduit le bug avec un harnais de  -->
 <!-- resume-from: files: src/ui.js -->
 
