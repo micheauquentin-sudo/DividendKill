@@ -1,5 +1,5 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-05 17:44] chore: session-stop snapshot [2026-07-05 17:44] -- .claude/project-state.md -->
+<!-- last-commit: [2026-07-05 17:54] chore: session-stop snapshot -- .claude/project-state.md -->
 <!-- interrupted: [2026-07-05 17:44] context: Le stop-hook signale que plusieurs commits sur `claude/action-persistence-refresh-mbnd7l` (dont mon fix PBKDF2 et des sn -->
 <!-- resume-from: files: (unknown) -->
 
