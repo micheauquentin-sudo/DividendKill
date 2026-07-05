@@ -1,7 +1,7 @@
 # PROJECT STATE
-<!-- last-commit: [2026-07-04 10:58] fix: revert PBKDF2 to 100k iterations, 600k blew Workers CPU budget -- worker/src/index.js -->
-<!-- interrupted: [2026-07-04 10:37] context: Tout est corrigé, testé et déployé sur `main`. L'artifact d'audit est à jour (11/12 marqués corrigés). -->
-<!-- resume-from: files: worker/src/index.js -->
+<!-- last-commit: [2026-07-05 17:44] chore: session-stop snapshot [2026-07-05 17:44] -- .claude/project-state.md -->
+<!-- interrupted: [2026-07-05 17:44] context: Le stop-hook signale que plusieurs commits sur `claude/action-persistence-refresh-mbnd7l` (dont mon fix PBKDF2 et des sn -->
+<!-- resume-from: files: (unknown) -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
