@@ -101,3 +101,22 @@ onclick inline, reporté à une passe dédiée avec vérif live. IMPORTANT : les
 auth (login/logout/suppression compte) ont été modifiés — vérifiés en isolation
 (round-trip PBKDF2) mais PAS en live contre la prod (sandbox sans accès réseau) ;
 à re-tester après déploiement. Détail complet dans l'artifact audit.
+
+## 2026-07-07 — Taux EUR/USD dynamique + purge du code mort (audit)
+Branche claude/dividendkill-repo-audit-8kbypn.
+- **EUR/USD n'est plus codé en dur** (Config.EURUSD = 1.1611 dérivait depuis des
+  mois). Nouveau `GET /api/fx` dans le worker : Twelve Data /exchange_rate
+  (endpoint "Core Data", gratuit comme /time_series), cache KV `fx:EURUSD` 24h,
+  entrée conservée 7j pour servir une valeur périmée si l'API échoue. Client :
+  Config.EURUSD initialisé depuis localStorage `dk_fx_eurusd` (dernier taux
+  connu), rafraîchi au boot via /api/fx (lecture dynamique par toE()/eu(), un
+  simple `Config.EURUSD = rate` + recompute suffit). Bornes de vraisemblance
+  [0.5, 2] des deux côtés. 1.1611 reste le filet ultime (premier boot hors ligne).
+- **Code mort supprimé** : index.html racine (5108 lignes, ancienne app
+  monolithique — Vite builde depuis src/, le worker sert dist/), wrangler.jsonc
+  racine (config fantôme en conflit avec worker/wrangler.toml utilisé par le CI),
+  worker/migrate-localstorage.js (script one-shot terminé), bloc Data.PERF
+  (série NAV factice) + constantes EURUSD/NAV_EUR/PERF inutilisées de ui.js et
+  NAV_EUR/PFU/YF_BASE de config.js. Calc.eu() simplifié en () => Config.EURUSD.
+- Vérifié : 40 tests unitaires + 10 e2e Playwright verts, build OK (bundle
+  index 97.7→96.3 kB).

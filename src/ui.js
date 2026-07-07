@@ -110,12 +110,6 @@ async function _doSubscribePush(reg) {
   } catch(e) { console.warn('[Push]', e.message); }
 }
 
-const EURUSD = Config.EURUSD;
-const NAV_EUR = Config.NAV_EUR;
-
-/* PERF rétrocompat */
-const PERF = Data.PERF;
-
 let _cur      = 0;
 let _rendered = {};
 const _noKPI  = {accueil:1, news:1, impots:1, import:1};
@@ -1158,6 +1152,21 @@ const App = (() => {
     _panelsInner.style.transition = 'none';
     goTo(Number.isFinite(_savedTab) && _savedTab >= 0 && _savedTab < allTabs.length ? _savedTab : 0);
     requestAnimationFrame(() => { _panelsInner.style.transition = ''; });
+
+    /* Rafraîchit le taux EUR/USD (non bloquant) — Config.EURUSD est lu dynamiquement
+       par toE()/eu(), donc mettre à jour l'objet suffit ; on persiste pour que le
+       prochain boot démarre directement sur le dernier taux connu. */
+    fetch('/api/fx').then(r => r.json()).then(fx => {
+      if (fx && fx.rate > 0.5 && fx.rate < 2 && fx.rate !== Config.EURUSD) {
+        Config.EURUSD = fx.rate;
+        try { localStorage.setItem('dk_fx_eurusd', String(fx.rate)); } catch(_) {}
+        Calc.recompute();
+        buildKPI();
+        const fxPanels = ['accueil','rendement','secteurs','dividendes','calendar','deal','valorisation','news','impots','import'];
+        const fxEl = document.getElementById('panel-' + fxPanels[window._curTab || 0]);
+        if (fxEl) { try { renderPanel(fxPanels[window._curTab || 0], fxEl); } catch(_e) {} }
+      }
+    }).catch(() => {});
 
     /* Charge l'historique NAV (non bloquant) */
     fetch('/api/nav').then(r => r.json()).then(data => {

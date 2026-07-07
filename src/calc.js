@@ -3,7 +3,7 @@ import { Data } from './data.js';
 
 export const Calc = (() => {
 
-  const eu    = () => Data.PERF ? (window.EURUSD || Config.EURUSD) : Config.EURUSD;
+  const eu    = () => Config.EURUSD;
   const toE   = v => v / Config.EURUSD;
   const fE    = v => `${Math.round(toE(v)).toLocaleString('fr-FR')} €`;
   const fEsign = v => `${v >= 0 ? '+' : ''}${fE(v)}`;

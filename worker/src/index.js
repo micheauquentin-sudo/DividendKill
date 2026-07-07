@@ -2687,6 +2687,41 @@ async function debugPrice(req, env) {
   return json(out);
 }
 
+// ── Taux de change EUR/USD ───────────────────────────────────
+// Le client convertit tous les montants en € avec ce taux — il était codé en dur
+// (Config.EURUSD = 1.1611) et dérivait donc au fil des mois. Twelve Data
+// /exchange_rate est un endpoint "Core Data" (gratuit, comme /time_series).
+// Cache KV 24h ; l'entrée est conservée 7 jours pour servir une valeur périmée
+// si l'API échoue — un taux d'hier vaut mieux qu'un taux figé de 6 mois.
+async function fxProxy(env) {
+  const KEY = 'fx:EURUSD';
+  let cached = null;
+  if (env.PRICES_KV) {
+    try { cached = await env.PRICES_KV.get(KEY, { type: 'json' }); } catch(_) {}
+    if (cached && Date.now() - cached.ts < 86400000) return json(cached);
+  }
+  if (env.TWELVEDATA_KEY) {
+    try {
+      const r = await fetch(`https://api.twelvedata.com/exchange_rate?symbol=EUR/USD&apikey=${env.TWELVEDATA_KEY}`,
+        { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+      if (r.ok) {
+        const d = await r.json();
+        const rate = parseFloat(d.rate);
+        // Bornes de vraisemblance : un EUR/USD hors [0.5, 2] est forcément une erreur API
+        if (rate > 0.5 && rate < 2) {
+          const entry = { rate: +rate.toFixed(4), ts: Date.now() };
+          if (env.PRICES_KV) await env.PRICES_KV.put(KEY, JSON.stringify(entry), { expirationTtl: 7 * 24 * 3600 });
+          return json(entry);
+        }
+        console.warn('[FX] taux invraisemblable:', d.rate);
+      } else { console.warn('[FX] HTTP', r.status); }
+    } catch(e) { console.warn('[FX]', e.message); }
+  }
+  // Échec API : dernière valeur connue même périmée, sinon null (le client garde son fallback local)
+  if (cached && cached.rate) return json({ ...cached, stale: true });
+  return json({ rate: null });
+}
+
 // ── Actualités : lecture KV uniquement (peuplé par le cron à 22h30) ──
 // Zéro appel FMP côté utilisateur.
 async function newsProxy(req, env) {
@@ -2776,6 +2811,7 @@ export default {
     if (path === '/api/benchmark')       return benchmarkProxy(req, env);
     if (path === '/api/push/vapid-key' && method === 'GET') return getPushVapidKey(env);
     if (path === '/api/news')            return newsProxy(req, env);
+    if (path === '/api/fx')              return fxProxy(env);
     if (path === '/api/prices/history')  return priceHistoryProxy(req, env);
     // H-2 : les endpoints de debug consomment le quota FMP/Finnhub (?live=1) et
     // exposent des métadonnées de secrets — réservés à une session authentifiée
