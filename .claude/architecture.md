@@ -47,7 +47,7 @@ DividendKill/
 ## KV key schema
 | Key pattern          | Content                          | TTL        |
 |----------------------|----------------------------------|------------|
-| `p:SYMBOL`           | Normalized price quote (JSON)    | ~5 min     |
+| `p:SYMBOL`           | Normalized price quote (JSON)    | frais 15 min (`_ts`), secours 24 h |
 | `funda5:SYMBOL`      | Normalized fundamentals (JSON)   | ~7 days    |
 | `rl:*`               | Rate limit counters              | 2 min      |
 | `rl:email:*`         | Email-based rate limit           | 30 min     |

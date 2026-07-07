@@ -5,10 +5,21 @@ import { getDisplayDSE } from '../dividendSafety.js';
 
 /* -- DEAL FINDER ------------------------------------------ */
 export function calculatePriorityRanking(portfolio) {
-  var secAlloc  = {'Tech':3.22,'Mat.':11.26,'Santé':18.93,'Médias':2.80,'Finance':4.05,'Conso.':27.58,'Industrie':5.53,'Immo.':5.26,'Utilities':21.03};
   var secTarget = {'Tech':10,  'Mat.':10,   'Santé':20,   'Médias':8,  'Finance':10, 'Conso.':15,   'Industrie':10, 'Immo.':8,  'Utilities':16};
   var SECTOR_FAIR_PE = {'Tech':28,'Santé':22,'Finance':15,'Utilities':18,'Conso.':20,'Industrie':20,'Mat.':17,'Immo.':18,'Énergie':12,'Médias':16};
   var totalMV   = getMV();
+
+  // Allocation sectorielle RÉELLE, calculée sur les positions courantes. Avant : un
+  // snapshot codé en dur d'un ancien portefeuille — le sous-score "diversification"
+  // (15% du Priority Score) était donc faux pour tout portefeuille différent de ce
+  // snapshot. secTarget reste un modèle de répartition cible, lui légitimement fixe.
+  var secAlloc = {};
+  if (totalMV > 0) {
+    for (var si = 0; si < portfolio.length; si++) {
+      var sp = portfolio[si];
+      secAlloc[sp.sec] = (secAlloc[sp.sec] || 0) + sp.mv / totalMV * 100;
+    }
+  }
 
   var results = [];
   for (var i = 0; i < portfolio.length; i++) {
@@ -23,7 +34,7 @@ export function calculatePriorityRanking(portfolio) {
     var fair_pe = SECTOR_FAIR_PE[d.sec] || 20;
     var pe_disc = pe_cur > 0 ? Math.max(0, (fair_pe - pe_cur) / fair_pe * 100) : 0;
     var cur_w   = totalMV > 0 ? d.mv / totalMV * 100 : 0;
-    var sec_w   = secAlloc[d.sec]  || 10;
+    var sec_w   = secAlloc[d.sec]  || 0;
     var tgt_w   = secTarget[d.sec] || 10;
     var sec_gap = tgt_w - sec_w;
     // 30% Dividend Safety (DSE score)

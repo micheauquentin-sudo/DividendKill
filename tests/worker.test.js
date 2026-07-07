@@ -4,7 +4,7 @@ import { pbkdf2Sync, randomBytes } from 'node:crypto';
 import {
   validateTx, hashPassword, verifyPassword, signJWT, verifyJWT,
   computeStreak, computeDivCAGR5y, extractPayMonths,
-  normalizeFunda, normalizeProfile, isRateLimited,
+  normalizeFunda, normalizeProfile, isRateLimited, priceProxy,
 } from '../worker/src/index.js';
 
 import {
@@ -262,8 +262,12 @@ describe('normalizeProfile', () => {
 function mkKV() {
   const m = new Map();
   return {
-    get: async k => m.get(k) ?? null,
-    put: async (k, v) => { m.set(k, v); },
+    get: async (k, opts) => {
+      const v = m.get(k) ?? null;
+      return (v != null && opts?.type === 'json') ? JSON.parse(v) : v;
+    },
+    put: async (k, v) => { m.set(k, String(v)); },
+    _raw: m,
   };
 }
 
@@ -283,6 +287,54 @@ describe('isRateLimited', () => {
     const broken = { PRICES_KV: { get: async () => { throw new Error('kv down'); }, put: async () => {} } };
     expect(await isRateLimited(broken, 'k', 3)).toBe(false);
     expect(await isRateLimited(broken, 'k', 3, true)).toBe(true);
+  });
+});
+
+// ── priceProxy : fraîcheur 15 min + secours sur entrée périmée ──
+describe('priceProxy (fraîcheur + secours)', () => {
+  const quote = (sym, price, ts) => JSON.stringify({
+    symbol: sym, regularMarketPrice: price, currency: 'USD', _ts: ts,
+  });
+  const req = new Request('https://x.test/api/prices?symbols=AAA,BBB');
+
+  async function run(kvSeed, fetchImpl) {
+    const kv = mkKV();
+    for (const [k, v] of Object.entries(kvSeed)) kv._raw.set(k, v);
+    const env = { FMP_KEY: 'test-key', PRICES_KV: kv };
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = fetchImpl;
+    try {
+      const res = await priceProxy(req.clone(), env);
+      return { body: await res.json(), kv };
+    } finally { globalThis.fetch = origFetch; }
+  }
+
+  it('sert le cache frais sans refetch, et ressert l’entrée périmée si FMP échoue', async () => {
+    let fetchCalls = 0;
+    const { body } = await run({
+      'p:AAA': quote('AAA', 100, Date.now()),                 // frais
+      'p:BBB': quote('BBB', 55,  Date.now() - 3600 * 1000),   // périmé (1h)
+    }, async () => { fetchCalls++; return new Response('payment required', { status: 402 }); });
+
+    const bySym = Object.fromEntries(body.quoteResponse.result.map(q => [q.symbol, q]));
+    expect(bySym.AAA.regularMarketPrice).toBe(100); // servi du cache frais
+    expect(bySym.BBB.regularMarketPrice).toBe(55);  // secours : valeur périmée plutôt que rien
+    expect(body.fmp_error).toBeNull();
+    expect(fetchCalls).toBeGreaterThan(0);          // le refetch de BBB a bien été tenté
+  });
+
+  it('rafraîchit une entrée périmée quand FMP répond, et la redate en KV', async () => {
+    const { body, kv } = await run({
+      'p:AAA': quote('AAA', 100, Date.now()),
+      'p:BBB': quote('BBB', 55, Date.now() - 3600 * 1000),
+    }, async () => new Response(JSON.stringify([{ symbol: 'BBB', price: 111, companyName: 'B Corp' }]),
+                                { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+    const bySym = Object.fromEntries(body.quoteResponse.result.map(q => [q.symbol, q]));
+    expect(bySym.BBB.regularMarketPrice).toBe(111); // prix rafraîchi, pas l'ancien 55
+    const stored = await kv.get('p:BBB', { type: 'json' });
+    expect(stored.regularMarketPrice).toBe(111);
+    expect(Date.now() - stored._ts).toBeLessThan(5000); // redaté → frais pour les 15 prochaines minutes
   });
 });
 

@@ -136,3 +136,22 @@ haute, pénalités payout intenable, streakHint). Pour rendre ça testable :
 exports nommés ajoutés en fin de worker/src/index.js (sans effet runtime —
 Workers n'utilise que l'export default ; vérifié par esbuild --bundle).
 Total suite : 91 tests verts.
+
+## 2026-07-07 — Fraîcheur des prix 15 min + allocation sectorielle réelle (audit, fin)
+- **Prix : frais 15 min, secours 24 h.** Le TTL KV de 24h sur p:SYMBOL faisait
+  office de fraîcheur — en pleine séance l'app pouvait afficher les prix de la
+  veille (l'architecture documentait "~5 min", faux). Désormais chaque quote
+  porte un `_ts` (posé dans normalizeProfile + fetchTwelveDataQuote, donc aussi
+  par le cron) ; priceProxy ne sert une entrée telle quelle que si < 15 min
+  (PRICE_FRESH_MS), sinon refetch, et l'entrée périmée sert de SECOURS si
+  FMP/Twelve Data échouent — jamais pire qu'avant. Entrées pré-déploiement sans
+  _ts = périmées, refetchées une fois puis datées. Quota FMP protégé par le
+  cache client 1h + rate limit 10/min/IP + refetch batch (1 appel pour N tickers).
+- **deal.js : secAlloc calculé depuis les positions réelles.** L'allocation
+  sectorielle était un snapshot codé en dur d'un ancien portefeuille — le
+  sous-score diversification (15% du Priority Score) et les raisons "secteur
+  sous-pondéré" étaient faux pour tout autre portefeuille. secTarget reste
+  fixe (c'est un modèle cible, légitime).
+- Tests : priceProxy (cache frais servi sans refetch, secours périmé sur échec
+  FMP 402, redatage après refetch réussi) + deal.js (sec_gap réel, s_div,
+  concentration). Suite : 97 tests verts, e2e 10/10, bundle esbuild OK.

@@ -16,7 +16,7 @@
  *   POST   /api/restore           → restaurer depuis backup
  *
  * Routes publiques:
- *   GET  /api/prices?symbols=JNJ,MMM   → prix FMP (KV cache 30min)
+ *   GET  /api/prices?symbols=JNJ,MMM   → prix FMP (frais 15min, secours KV 24h)
  *   GET  /api/funda?symbol=JNJ         → fondamentaux FMP
  *
  * Cron (toutes les 30min):
@@ -562,6 +562,7 @@ function normalizeProfile(t, p) {
     lastDiv:                    annualDiv,
     dividendYield:              annualDiv && p.price > 0 ? +(annualDiv / p.price).toFixed(6) : null,
     trailingAnnualDividendRate: annualDiv,
+    _ts:                        Date.now(), // fraîcheur — voir priceProxy (PRICE_FRESH_MS)
   };
 }
 
@@ -595,6 +596,7 @@ async function fetchTwelveDataQuote(symbol, env) {
       lastDiv:                    null,
       dividendYield:              null,
       trailingAnnualDividendRate: null,
+      _ts:                        Date.now(), // fraîcheur — voir priceProxy (PRICE_FRESH_MS)
     };
   } catch(e) { console.warn('[TwelveData] erreur quote', symbol, e.message); return null; }
 }
@@ -766,6 +768,15 @@ function normalizeFunda(rawProfile, rawDivs) {
 
 // ── Prix FMP avec cache KV ───────────────────────────────────
 // Utilise /stable/profile (plan free) — /stable/quote requiert plan payant (402)
+// Fraîcheur : une entrée p:SYMBOL n'est servie telle quelle que pendant 15 min
+// (avant : le TTL KV de 24h faisait office de fraîcheur — les prix affichés
+// pouvaient dater de la veille en pleine séance). Au-delà de 15 min on refetch,
+// et l'entrée périmée sert de SECOURS si FMP/Twelve Data échouent (quota, panne) :
+// jamais pire qu'avant, frais quand c'est possible. Le quota FMP reste protégé
+// par le cache client 1h (Config.MARKET_CACHE_TTL), le rate limit 10/min/IP et
+// le fait qu'un refetch couvre tous les tickers manquants en 1 appel batch.
+const PRICE_FRESH_MS = 15 * 60 * 1000;
+
 async function priceProxy(req, env) {
   // Rate limit: 10 req/min per IP to protect FMP quota
   const ip = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Real-IP') || 'unknown';
@@ -780,13 +791,19 @@ async function priceProxy(req, env) {
 
   const tickers = symbols.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
   const cached  = {};
+  const stale   = {}; // entrées valides mais > 15 min — secours si le refetch échoue
   const missing = [];
 
   if (env.PRICES_KV) {
     await Promise.all(tickers.map(async t => {
       const val = await env.PRICES_KV.get(`p:${t}`, { type: 'json' });
-      if (val && val.regularMarketPrice != null) cached[t] = val;
-      else missing.push(t);
+      if (val && val.regularMarketPrice != null) {
+        // Entrées sans _ts (écrites avant l'ajout du champ) : traitées comme périmées,
+        // elles seront refetchées une fois puis datées.
+        if (val._ts && Date.now() - val._ts < PRICE_FRESH_MS) { cached[t] = val; return; }
+        stale[t] = val;
+      }
+      missing.push(t);
     }));
   } else {
     missing.push(...tickers);
@@ -839,6 +856,12 @@ async function priceProxy(req, env) {
         }
       }));
     }
+  }
+
+  // Secours : refetch échoué (quota FMP, panne réseau) → on ressert l'entrée périmée
+  // plutôt que rien. Appliqué APRÈS toutes les tentatives (batch, individuel, Twelve Data).
+  for (const t of missing) {
+    if ((!cached[t] || cached[t].regularMarketPrice == null) && stale[t]) cached[t] = stale[t];
   }
 
   const fmpError = missing.filter(t => !cached[t] || cached[t].regularMarketPrice == null).length
@@ -2900,5 +2923,5 @@ export default {
 export {
   validateTx, hashPassword, verifyPassword, signJWT, verifyJWT,
   computeStreak, computeDivCAGR5y, extractPayMonths,
-  normalizeFunda, normalizeProfile, isRateLimited,
+  normalizeFunda, normalizeProfile, isRateLimited, priceProxy,
 };
