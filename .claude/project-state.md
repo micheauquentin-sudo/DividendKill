@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-04 10:58] fix: revert PBKDF2 to 100k iterations, 600k blew Workers CPU budget -- worker/src/index.js -->
-<!-- interrupted: [2026-07-07 09:45] context: Bonne cible — mais précisons d'abord un point : le badge « sous-évalué / surévalué » ne vient pas du score de safety (DS -->
+<!-- interrupted: [2026-07-07 14:05] context: C'est fait — la réversion synthétique est commitée (`1ce404e`), poussée sur la branche **et sur `main`** (fast-forward p -->
 <!-- resume-from: files: (unknown) -->
 
 ## Current mission
