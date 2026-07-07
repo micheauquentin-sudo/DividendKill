@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-04 10:58] fix: revert PBKDF2 to 100k iterations, 600k blew Workers CPU budget -- worker/src/index.js -->
-<!-- interrupted: [2026-07-07 09:30] context: Les deux correctifs sont poussés — commit `24b63c7`, suite complète à **97 tests verts** + 10 e2e, bundle worker vérifié -->
-<!-- resume-from: files: .claude/architecture.md, tests/deal.test.js, tests/worker.test.js, worker/src/index.js -->
+<!-- interrupted: [2026-07-07 09:37] context: C'est poussé sur `main` (`9dd9a3c..fe9bf21`, fast-forward propre, 97 tests verts juste avant le push). Tout le travail d -->
+<!-- resume-from: files: (unknown) -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
