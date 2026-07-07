@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-04 10:58] fix: revert PBKDF2 to 100k iterations, 600k blew Workers CPU budget -- worker/src/index.js -->
-<!-- interrupted: [2026-07-07 08:45] context: Terminé — les deux chantiers sont poussés sur `claude/dividendkill-repo-audit-8kbypn` (commit `e298214`) : **+82 lignes, -->
-<!-- resume-from: files: src/calc.js, src/config.js, src/data.js, src/ui.js -->
+<!-- interrupted: [2026-07-07 08:52] context: Poussé — commit `1cd0924`. Le worker a maintenant une vraie couverture de tests : **91 tests verts** (40 existants + 51  -->
+<!-- resume-from: files: tests/worker.test.js, worker/src/dividendScore.js, worker/src/index.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
