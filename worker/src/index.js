@@ -965,7 +965,12 @@ async function fmpProxy(req, env) {
     // Valorisation par réversion du rendement (fair value vs prix courant) — Simply Safe Dividends
     if (price > 0 && result.annual_div > 0) {
       const yr = await fetchYieldReversion(symbol, price, result.annual_div, rawDivs, env);
-      if (yr) { result.fair_value = yr.fair_value; result.avg_yield_5y = yr.avg_yield_5y; }
+      if (yr) {
+        result.fair_value = yr.fair_value; result.avg_yield_5y = yr.avg_yield_5y;
+        // Réversion estimée (rétro-projection) : le client élargit les bandes et exige
+        // la confirmation du P/E vs sa propre médiane 5 ans (fv_pe_med_5y).
+        if (yr.estimated) { result.fv_estimated = true; result.fv_pe_med_5y = yr.pe_med_5y ?? null; }
+      }
       result._fv_tried = true; // marqueur : évite de re-fetcher en boucle si la réversion échoue
       result._fv_ver = FV_VER;
     }
@@ -1632,7 +1637,10 @@ const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
 // nouveau essai pour les tickers déjà marqués _fv_tried avec fair_value toujours
 // null sous l'ancienne logique, sans re-boucler indéfiniment une fois ce nouvel
 // essai fait (succès ou échec).
-const FV_VER = 4;
+// v5 : réversion SYNTHÉTIQUE par rétro-projection (computeSyntheticReversion) quand
+// aucun historique de dividendes réel n'est accessible — les tickers type ADP déjà
+// marqués _fv_tried sous v4 (fair_value restée null) doivent être re-tentés.
+const FV_VER = 5;
 
 // Marqueur de version pour le Dividend Safety Score V2 (dividendScore.js) — même
 // mécanisme que FV_VER : les entrées funda9 déjà en cache (créées avant l'ajout de
@@ -1648,6 +1656,78 @@ const FV_VER = 4;
 // v4 : streak réel (années sans baisse, normalizeFunda) utilisé comme preuve de 0 coupure
 // quand l'historique de dividendes reconstruit est indisponible pour la stabilité.
 const DSE2_VER = 4;
+
+// ── Réversion SYNTHÉTIQUE par rétro-projection (fonction pure, testée) ──────
+// Quand AUCUN historique de dividendes réel n'est accessible (FMP 402 / Finnhub 403 /
+// Twelve Data 403 — le cas de la quasi-totalité des tickers hors mega-cap sur ces
+// comptes gratuits), on ESTIME le rendement et le P/E historiques du titre :
+//   D(il y a k ans)   ≈ D_actuel   / (1 + croissance_div_5a)^k
+//   EPS(il y a k ans) ≈ EPS_actuel / (1 + croissance_eps_5a)^k
+// appliqués à l'historique de PRIX réel (FMP, gratuit). Pour un compounder régulier
+// (ADP, ACN…) c'est directionnellement juste : cours en baisse + dividende/EPS en
+// croissance → rendement au-dessus de sa médiane ET P/E sous la sienne = décote.
+// Garde-fous :
+//  - croissance du dividende STRICTEMENT positive et plausible (0 < g ≤ 0.5) — pour un
+//    cutter, la rétro-projection inventerait un passé qui n'a pas existé ;
+//  - ≥ 36 points mensuels (3 ans) pour une médiane qui veut dire quelque chose ;
+//  - le P/E médian rétro-projeté est renvoyé SÉPARÉMENT : le client n'affiche
+//    "sous-évalué" que si les DEUX signaux concordent (double signal, bandes élargies).
+function computeSyntheticReversion({ price, annualDiv, divGrowth5y, eps, epsGrowth5y, monthly }) {
+  if (!(price > 0) || !(annualDiv > 0)) return null;
+  if (!(divGrowth5y > 0) || divGrowth5y > 0.5) return null;
+  if (!Array.isArray(monthly) || monthly.length < 36) return null;
+  const now = Date.now();
+  const YEAR_MS = 365.25 * 86400000;
+  // EPS : la décroissance est ACCEPTÉE (g_eps < 0) — elle rend le P/E passé
+  // mécaniquement plus bas, donc le signal P/E ne confirmera pas une "décote" :
+  // c'est le comportement conservateur voulu face à un bénéfice qui s'érode.
+  const epsOk = eps > 0 && Number.isFinite(epsGrowth5y) && epsGrowth5y > -0.5 && epsGrowth5y < 1;
+  const yields = [], pes = [];
+  for (const m of monthly) {
+    const t = new Date(m.date).getTime();
+    if (!Number.isFinite(t) || !(m.close > 0)) continue;
+    const k = (now - t) / YEAR_MS;
+    if (k < 0 || k > 5.5) continue;
+    yields.push(annualDiv / Math.pow(1 + divGrowth5y, k) / m.close);
+    if (epsOk) {
+      const eEst = eps / Math.pow(1 + epsGrowth5y, k);
+      if (eEst > 0) pes.push(m.close / eEst);
+    }
+  }
+  if (yields.length < 36) return null;
+  yields.sort((a, b) => a - b);
+  const medYield = yields[Math.floor(yields.length / 2)];
+  if (!(medYield > 0)) return null;
+  let pe_med_5y = null;
+  if (pes.length >= 36) {
+    pes.sort((a, b) => a - b);
+    pe_med_5y = +pes[Math.floor(pes.length / 2)].toFixed(2);
+  }
+  return {
+    avg_yield_5y: +(medYield * 100).toFixed(3),
+    fair_value:   +(annualDiv / medYield).toFixed(2),
+    pe_med_5y,
+  };
+}
+
+// Historique de prix FMP → un point par mois (le plus récent du mois, adjClose).
+// Partagé entre la réversion réelle et la réversion synthétique.
+async function _fetchMonthlyCloses(symbol, env) {
+  const from = new Date(Date.now() - 5 * 365 * 86400000).toISOString().slice(0, 10);
+  const url = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&from=${from}&apikey=${env.FMP_KEY}`;
+  const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+  if (!r.ok) { console.warn('[YieldRev] histo HTTP', r.status, symbol); return null; }
+  const data = await r.json();
+  const hist = Array.isArray(data) ? data : (data.historical || []);
+  const monthly = {};
+  for (const h of hist) {
+    if (!h.date || h.close == null) continue;
+    const ym = h.date.slice(0, 7);
+    const close = +(h.adjClose ?? h.close);
+    if (close > 0 && !monthly[ym]) monthly[ym] = { date: h.date, close }; // FMP = plus récent d'abord
+  }
+  return Object.values(monthly);
+}
 
 // ── Valorisation par réversion du rendement (méthode Simply Safe Dividends) ──
 // Au lieu de comparer le P/E à une moyenne sectorielle rigide (qui juge à tort
@@ -1671,7 +1751,9 @@ async function fetchYieldReversion(symbol, price, annualDiv, rawDivs, env) {
         // Le fair_value dépend du dividende annuel courant — on recalcule à partir
         // du rendement moyen mémorisé (stable) sans refetch l'historique des prix.
         if (cached.avg_yield_5y > 0) {
-          return { fair_value: +(annualDiv / (cached.avg_yield_5y / 100)).toFixed(2), avg_yield_5y: cached.avg_yield_5y };
+          const out = { fair_value: +(annualDiv / (cached.avg_yield_5y / 100)).toFixed(2), avg_yield_5y: cached.avg_yield_5y };
+          if (cached.estimated) { out.estimated = true; out.pe_med_5y = cached.pe_med_5y ?? null; }
+          return out;
         }
         return cached;
       }
@@ -1689,25 +1771,43 @@ async function fetchYieldReversion(symbol, price, annualDiv, rawDivs, env) {
   // où le plan change) puis Twelve Data.
   if (divs.length < 4) divs = await fetchFinnhubDividends(symbol, env);
   if (divs.length < 4) divs = await fetchTwelveDataDividends(symbol, env);
-  if (divs.length < 4) return null; // pas assez d'historique de dividendes, aucune source dispo
+
+  // Aucun historique de versements accessible → réversion SYNTHÉTIQUE par
+  // rétro-projection (voir computeSyntheticReversion). Les hints Finnhub sont déjà
+  // en cache fh9 (fillFundaFallback vient de tourner) — on vérifie la croissance
+  // AVANT de payer l'appel FMP d'historique de prix.
+  const synthetic = divs.length < 4;
+  let fhHints = null;
+  if (synthetic) {
+    fhHints = await fetchFinnhubMetrics(symbol, env);
+    if (!(fhHints?.dividend_growth_5y > 0)) return null; // pas de croissance fiable → pas d'estimation
+  }
   try {
-    const from = new Date(Date.now() - 5 * 365 * 86400000).toISOString().slice(0, 10);
-    const url = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&from=${from}&apikey=${env.FMP_KEY}`;
-    const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-    if (!r.ok) { console.warn('[YieldRev] histo HTTP', r.status, symbol); return null; }
-    const data = await r.json();
-    const hist = Array.isArray(data) ? data : (data.historical || []);
-    // Un point par mois (le plus récent du mois) pour lisser
-    const monthly = {};
-    for (const h of hist) {
-      if (!h.date || h.close == null) continue;
-      const ym = h.date.slice(0, 7);
-      const close = +(h.adjClose ?? h.close);
-      if (close > 0 && !monthly[ym]) monthly[ym] = { date: h.date, close };
+    const monthly = await _fetchMonthlyCloses(symbol, env);
+    if (!monthly) return null;
+
+    if (synthetic) {
+      const syn = computeSyntheticReversion({
+        price, annualDiv,
+        divGrowth5y: fhHints.dividend_growth_5y,
+        eps:         fhHints.eps,
+        epsGrowth5y: fhHints.eps_growth_5y,
+        monthly,
+      });
+      if (!syn) return null;
+      // TTL 30j (vs ~120j pour la réversion réelle) : si un plan API s'ouvre un jour,
+      // l'estimation laisse la place aux vraies données plus vite.
+      if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey,
+        JSON.stringify({ avg_yield_5y: syn.avg_yield_5y, estimated: true, pe_med_5y: syn.pe_med_5y }),
+        { expirationTtl: 30 * 24 * 3600 });
+      console.log(`[YieldRev] ${symbol} SYNTH rdt_médian_5a=${syn.avg_yield_5y}% fair=${syn.fair_value} pe_med=${syn.pe_med_5y}`);
+      return { fair_value: syn.fair_value, avg_yield_5y: syn.avg_yield_5y, estimated: true, pe_med_5y: syn.pe_med_5y };
     }
-    // Rendement à chaque point = dividende TTM à cette date / prix à cette date
+
+    // Réversion RÉELLE : rendement TTM à chaque point mensuel = somme des versements
+    // des 12 mois précédents / prix du point.
     const yields = [];
-    for (const s of Object.values(monthly)) {
+    for (const s of monthly) {
       const yearAgo = new Date(new Date(s.date).getTime() - 365 * 86400000).toISOString().slice(0, 10);
       let ttm = 0;
       for (const d of divs) { if (d.date > yearAgo && d.date <= s.date) ttm += d.amt; }
@@ -1755,7 +1855,10 @@ async function handleScheduled(env) {
       // Valorisation par réversion du rendement (fair value) — Simply Safe Dividends
       if (price > 0 && normalized.annual_div > 0) {
         const yr = await fetchYieldReversion(symbol, price, normalized.annual_div, divsData, env);
-        if (yr) { normalized.fair_value = yr.fair_value; normalized.avg_yield_5y = yr.avg_yield_5y; }
+        if (yr) {
+          normalized.fair_value = yr.fair_value; normalized.avg_yield_5y = yr.avg_yield_5y;
+          if (yr.estimated) { normalized.fv_estimated = true; normalized.fv_pe_med_5y = yr.pe_med_5y ?? null; }
+        }
         normalized._fv_tried = true;
         normalized._fv_ver = FV_VER;
       }
@@ -2924,4 +3027,5 @@ export {
   validateTx, hashPassword, verifyPassword, signJWT, verifyJWT,
   computeStreak, computeDivCAGR5y, extractPayMonths,
   normalizeFunda, normalizeProfile, isRateLimited, priceProxy,
+  computeSyntheticReversion,
 };

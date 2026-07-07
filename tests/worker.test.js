@@ -5,6 +5,7 @@ import {
   validateTx, hashPassword, verifyPassword, signJWT, verifyJWT,
   computeStreak, computeDivCAGR5y, extractPayMonths,
   normalizeFunda, normalizeProfile, isRateLimited, priceProxy,
+  computeSyntheticReversion,
 } from '../worker/src/index.js';
 
 import {
@@ -335,6 +336,75 @@ describe('priceProxy (fraîcheur + secours)', () => {
     const stored = await kv.get('p:BBB', { type: 'json' });
     expect(stored.regularMarketPrice).toBe(111);
     expect(Date.now() - stored._ts).toBeLessThan(5000); // redaté → frais pour les 15 prochaines minutes
+  });
+});
+
+// ── computeSyntheticReversion : réversion estimée par rétro-projection ──
+describe('computeSyntheticReversion', () => {
+  // 60 points mensuels : closes[0] = il y a ~5 ans … closes[59] = ce mois-ci
+  const mkMonthly = closes => closes.map((close, i) => ({
+    date: new Date(Date.now() - (closes.length - 1 - i) * 30.44 * 86400000).toISOString().slice(0, 10),
+    close,
+  }));
+
+  // Profil "ADP" : compounder (div +11%/an, EPS +10%/an) dont le cours a chuté
+  // de 300$ à 220$ sur la dernière année alors que les fondamentaux ont continué.
+  const adpLike = {
+    price: 220, annualDiv: 6.16, divGrowth5y: 0.11, eps: 9.9, epsGrowth5y: 0.10,
+    monthly: mkMonthly([...Array(48).fill(300), ...Array(12).fill(220)]),
+  };
+
+  it('compounder décoté : fair value nettement au-dessus du cours, P/E médian au-dessus de l’actuel', () => {
+    const r = computeSyntheticReversion(adpLike);
+    expect(r).not.toBeNull();
+    // Rendement actuel (6.16/220 ≈ 2.8%) bien au-dessus de la médiane rétro-projetée
+    expect(r.avg_yield_5y).toBeGreaterThan(1);
+    expect(r.avg_yield_5y).toBeLessThan(2.2);
+    expect(r.fair_value).toBeGreaterThan(adpLike.price * 1.1); // ratio prix/fair < 0.90 → "under"
+    // Double signal : P/E actuel (220/9.9 ≈ 22x) sous sa médiane rétro-projetée
+    const peCur = adpLike.price / adpLike.eps;
+    expect(r.pe_med_5y).toBeGreaterThan(peCur * 1.1);
+  });
+
+  it('rendement compressé (cours qui a doublé) : fair value SOUS le cours', () => {
+    const r = computeSyntheticReversion({
+      price: 80, annualDiv: 1.7, divGrowth5y: 0.05, eps: 8, epsGrowth5y: 0.04,
+      monthly: mkMonthly([...Array(48).fill(40), ...Array(12).fill(80)]),
+    });
+    expect(r).not.toBeNull();
+    expect(r.fair_value).toBeLessThan(80); // ratio > 1 → jamais "under"
+  });
+
+  it('garde-fou : pas d’estimation sans croissance du dividende positive et plausible', () => {
+    expect(computeSyntheticReversion({ ...adpLike, divGrowth5y: 0 })).toBeNull();
+    expect(computeSyntheticReversion({ ...adpLike, divGrowth5y: -0.05 })).toBeNull();
+    expect(computeSyntheticReversion({ ...adpLike, divGrowth5y: 0.8 })).toBeNull(); // invraisemblable
+    expect(computeSyntheticReversion({ ...adpLike, divGrowth5y: null })).toBeNull();
+  });
+
+  it('garde-fou : moins de 36 points mensuels → null', () => {
+    expect(computeSyntheticReversion({ ...adpLike, monthly: mkMonthly(Array(20).fill(250)) })).toBeNull();
+    expect(computeSyntheticReversion({ ...adpLike, monthly: [] })).toBeNull();
+  });
+
+  it('EPS indisponible : le rendement est estimé mais pe_med_5y reste null (pas de faux signal P/E)', () => {
+    const r = computeSyntheticReversion({ ...adpLike, eps: null, epsGrowth5y: null });
+    expect(r).not.toBeNull();
+    expect(r.fair_value).toBeGreaterThan(0);
+    expect(r.pe_med_5y).toBeNull();
+  });
+
+  it('EPS en érosion : le P/E ne franchit pas le seuil de confirmation du double signal', () => {
+    // Bénéfice qui décline de 8%/an : le passé rétro-projeté a un EPS PLUS HAUT, donc
+    // des P/E passés plus bas — le P/E actuel ne ressort plus nettement sous sa médiane.
+    // Règle client (valorisation.js) : "under" exige pe_cur / pe_med_5y < 0.92.
+    const r = computeSyntheticReversion({
+      price: 220, annualDiv: 6.16, divGrowth5y: 0.05, eps: 9.9, epsGrowth5y: -0.08,
+      monthly: mkMonthly([...Array(48).fill(300), ...Array(12).fill(220)]),
+    });
+    expect(r).not.toBeNull();
+    const peRel = (220 / 9.9) / r.pe_med_5y;
+    expect(peRel).toBeGreaterThan(0.92); // pas de confirmation → le client reste neutre
   });
 });
 

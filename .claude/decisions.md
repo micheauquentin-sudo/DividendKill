@@ -155,3 +155,32 @@ Total suite : 91 tests verts.
 - Tests : priceProxy (cache frais servi sans refetch, secours périmé sur échec
   FMP 402, redatage après refetch réussi) + deal.js (sec_gap réel, s_div,
   concentration). Suite : 97 tests verts, e2e 10/10, bundle esbuild OK.
+
+## 2026-07-07 — Réversion synthétique par rétro-projection (valorisation)
+Objectif : les compounders décotés type ADP (P/E historiquement bas + rendement
+haut vs SON historique) doivent pouvoir ressortir "sous-évalués" alors qu'aucun
+historique de dividendes réel n'est accessible (FMP 402/Finnhub 403/TD 403).
+- Worker : computeSyntheticReversion (fonction PURE, exportée, testée) —
+  rétro-projette D(t-k) = D_actuel/(1+g_div)^k et EPS(t-k) = EPS/(1+g_eps)^k
+  (hints Finnhub dividendGrowthRate5Y/epsGrowth5Y, déjà en cache fh9) sur
+  l'historique de PRIX réel (FMP gratuit, extrait dans _fetchMonthlyCloses,
+  partagé avec la réversion réelle). Renvoie {avg_yield_5y, fair_value,
+  pe_med_5y}. Garde-fous : 0 < g_div ≤ 0.5 obligatoire (un cutter inventerait
+  un passé inexistant), ≥ 36 points mensuels, hints vérifiés AVANT l'appel FMP.
+- Branchée dans fetchYieldReversion quand divs < 4 (après la chaîne réelle).
+  Cache yr9 avec {estimated:true, pe_med_5y}, TTL 30j (vs ~120j réel — laisse
+  la place aux vraies données si un plan API s'ouvre). FV_VER 4→5 pour re-tenter
+  les tickers déjà _fv_tried. Résultat exposé au client : fv_estimated +
+  fv_pe_med_5y (fmpProxy + cron), mergeIntoAssets, CACHE_KEY v18→v19.
+- Client (valorisation.js) : pour method 'yield-est', bandes ÉLARGIES
+  (under<0.90, over>1.25 au lieu de 0.95/1.20) ET DOUBLE SIGNAL obligatoire —
+  pe_cur/pe_med_5y < 0.92 pour "under", > 1.10 pour "over", sinon neutre.
+  Un seul signal ne suffit jamais (élimine les value traps où l'EPS s'érode).
+  Tag "≈ estimation" affiché sous le badge + "(est.)" sur la jauge rendement.
+- fv_estimated est réécrit avec chaque fair_value côté client (pas seulement
+  posé) : si la réversion réelle devient dispo, le flag ne colle pas.
+- Tests (6) : compounder décoté (fair >> prix, pe_med >> pe_cur), rendement
+  compressé (fair < prix), garde-fous croissance/points, EPS absent (pas de
+  faux signal P/E), EPS en érosion (peRel > 0.92 → pas de confirmation).
+  Suite : 103 tests verts + e2e 10/10. NON vérifié live (sandbox sans réseau) :
+  à confirmer sur ADP après déploiement + Sync.

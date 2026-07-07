@@ -1,7 +1,9 @@
 import { Config } from './config.js';
 
 export const FmpData = (() => {
-  const CACHE_KEY = 'astra_fmp_cache_v18';
+  // v19 : réversion synthétique (fair_value estimée + fv_pe_med_5y) — force un refetch
+  // pour les entrées déjà marquées _fv_tried sous l'ancienne logique (fair_value null).
+  const CACHE_KEY = 'astra_fmp_cache_v19';
   const TTL       = 24 * 3600 * 1000; // 24 h
   const _cache    = {};
 
@@ -128,8 +130,11 @@ export const FmpData = (() => {
     if (f.debt_ebitda  != null) set('debt_ebitda',   f.debt_ebitda);
     if (f.debt_equity  != null) set('debt_equity',   f.debt_equity);
     if (f.interest_cov != null) set('interest_cov',  f.interest_cov);
-    if (f.fair_value   != null) set('fair_value',    f.fair_value);
+    // fv_estimated est réécrit (pas seulement posé) avec chaque fair_value : si la
+    // réversion réelle devient un jour disponible, le flag "estimé" ne doit pas coller.
+    if (f.fair_value   != null) { set('fair_value',  f.fair_value); a.fv_estimated = !!f.fv_estimated; }
     if (f.avg_yield_5y != null) set('avg_yield_5y',  f.avg_yield_5y);
+    if (f.fv_pe_med_5y != null) set('fv_pe_med_5y',  f.fv_pe_med_5y);
     if (f.dse2         != null) set('dse2',          f.dse2);
     set('d', f.annual_div); // funda annual div (sum of last 12 months) always wins when non-null
     if (f.name && !a.name) set('name', f.name);

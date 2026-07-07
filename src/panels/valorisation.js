@@ -28,6 +28,23 @@ export function renderValorisation(el) {
     // 1) Réversion du rendement (méthode privilégiée)
     if (a.fair_value && a.fair_value > 0 && d.price > 0) {
       var ratio = d.price / a.fair_value;
+
+      // 1b) Réversion ESTIMÉE (rétro-projection du dividende/EPS sur l'historique de
+      // prix, faute d'historique de dividendes réel — voir computeSyntheticReversion
+      // côté worker). Deux protections contre l'incertitude de l'estimation :
+      //  - bandes ÉLARGIES (0.90/1.25 au lieu de 0.95/1.20) ;
+      //  - DOUBLE SIGNAL : le P/E actuel doit confirmer face à sa propre médiane 5 ans
+      //    rétro-projetée (fv_pe_med_5y). Rendement haut + P/E bas = vraie décote ;
+      //    un seul des deux → neutre (élimine les value traps où l'EPS s'érode).
+      if (a.fv_estimated) {
+        var peRel = (pe_cur > 0 && a.fv_pe_med_5y > 0) ? pe_cur / a.fv_pe_med_5y : null;
+        var lblE = 'fair';
+        if      (ratio < 0.90 && peRel != null && peRel < 0.92) lblE = 'under';
+        else if (ratio > 1.25 && peRel != null && peRel > 1.10) lblE = 'over';
+        return {label: lblE, exp: Math.round(a.fair_value), fair_pe: 0, pe_cur: pe_cur,
+                method: 'yield-est', avg_yield_5y: a.avg_yield_5y || null};
+      }
+
       // Bandes asymétriques calées sur SSD : "may be undervalued" est un signal souple
       // (dès ~5% sous la fair value), "overvalued" plus exigeant (>20% au-dessus).
       var label1 = ratio < 0.95 ? 'under' : ratio > 1.20 ? 'over' : 'fair';
@@ -324,10 +341,10 @@ export function renderValorisation(el) {
          actuel à la moyenne 5 ans (rdt > moy = action moins chère = vert), et le
          sous-titre affiche cette moyenne. En mode fallback P/E, on garde vs fair PE. */
       var peDot, peFill, peLbl;
-      if (v.method === 'yield' && v.avg_yield_5y > 0) {
+      if ((v.method === 'yield' || v.method === 'yield-est') && v.avg_yield_5y > 0) {
         peDot  = yd >= v.avg_yield_5y ? '#22d47a' : '#f5a623';
         peFill = Math.min(100, yd / v.avg_yield_5y * 50);
-        peLbl  = 'rdt vs moy 5a ' + v.avg_yield_5y.toFixed(1) + '%';
+        peLbl  = 'rdt vs moy 5a ' + v.avg_yield_5y.toFixed(1) + '%' + (v.method === 'yield-est' ? ' (est.)' : '');
       } else {
         peDot  = (v.fair_pe > 0 && pe > 0) ? (pe <= v.fair_pe ? '#22d47a' : '#f5a623') : '#9ca3af';
         peFill = (v.fair_pe > 0 && pe > 0) ? Math.min(100, pe / v.fair_pe * 100) : 0;
@@ -346,6 +363,7 @@ export function renderValorisation(el) {
         + '</div></div>'
         + '<div style="text-align:right">'
         + '<span style="display:inline-block;padding:4px 10px;border-radius:7px;font-size:10.5px;font-weight:700;background:'+lc.bg+';color:'+lc.col+'">'+lc.txt+'</span>'
+        + (v.method === 'yield-est' ? '<div style="font-size:8.5px;color:var(--muted);margin-top:2px" title="Fair value estim\u00e9e par r\u00e9tro-projection (pas d\u2019historique de dividendes r\u00e9el disponible)">\u2248 estimation</div>' : '')
         + '<div style="font-size:10px;color:'+pC+';margin-top:4px;font-weight:600">'+(d.pnl>=0?'+':'')+Math.round(toE(d.pnl))+'\u20ac ('+(pp>=0?'+':'')+pp.toFixed(1)+'%)</div>'
         + '</div>'
         + '</div>'
