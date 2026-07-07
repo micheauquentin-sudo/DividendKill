@@ -1,6 +1,6 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-04 10:58] fix: revert PBKDF2 to 100k iterations, 600k blew Workers CPU budget -- worker/src/index.js -->
-<!-- interrupted: [2026-07-07 09:37] context: C'est poussé sur `main` (`9dd9a3c..fe9bf21`, fast-forward propre, 97 tests verts juste avant le push). Tout le travail d -->
+<!-- interrupted: [2026-07-07 09:45] context: Bonne cible — mais précisons d'abord un point : le badge « sous-évalué / surévalué » ne vient pas du score de safety (DS -->
 <!-- resume-from: files: (unknown) -->
 
 ## Current mission
