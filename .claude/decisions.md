@@ -120,3 +120,19 @@ Branche claude/dividendkill-repo-audit-8kbypn.
   NAV_EUR/PFU/YF_BASE de config.js. Calc.eu() simplifié en () => Config.EURUSD.
 - Vérifié : 40 tests unitaires + 10 e2e Playwright verts, build OK (bundle
   index 97.7→96.3 kB).
+
+## 2026-07-07 — Suite de tests worker (audit, suite)
+tests/worker.test.js (51 tests) : le worker n'avait AUCUNE couverture alors que
+c'est le code le plus sensible (auth + argent). Couvre : validateTx (types,
+ticker XSS, dates, bornes shares/price/amount), hashPassword/verifyPassword
+(round-trip, format legacy salt:hash, needsRehash sur itérations inférieures —
+hashes de référence générés via node:crypto pbkdf2Sync), signJWT/verifyJWT
+(expiration, signature altérée, payload forgé, mauvais secret),
+computeStreak/computeDivCAGR5y/extractPayMonths (tolérance 2%, années
+partielles), normalizeFunda/normalizeProfile (formats FMP confirmés),
+isRateLimited (fail-open vs fail-closed, KV en erreur), et dividendScore.js
+(bandes de score, entrée vide/garbage sans crash, profil sain → Safe+confiance
+haute, pénalités payout intenable, streakHint). Pour rendre ça testable :
+exports nommés ajoutés en fin de worker/src/index.js (sans effet runtime —
+Workers n'utilise que l'export default ; vérifié par esbuild --bundle).
+Total suite : 91 tests verts.

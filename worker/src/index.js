@@ -2894,3 +2894,11 @@ export default {
     ctx.waitUntil(handleScheduled(env));
   },
 };
+
+// Exports nommés pour les tests unitaires (tests/worker.test.js) — sans effet sur le
+// runtime Workers, qui n'utilise que l'export default ci-dessus.
+export {
+  validateTx, hashPassword, verifyPassword, signJWT, verifyJWT,
+  computeStreak, computeDivCAGR5y, extractPayMonths,
+  normalizeFunda, normalizeProfile, isRateLimited,
+};
