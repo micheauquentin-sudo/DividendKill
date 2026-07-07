@@ -24,7 +24,8 @@ export const Calc = (() => {
         p.shares       -= tx.quantity;
       } else if (tx.type === 'dividend') {
         p.totalDividends += tx.quantity * tx.price;
-        p.totalTaxPaid   += tx.tax_withheld;
+        // tax_withheld absent des transactions rechargées depuis D1 → NaN sans fallback
+        p.totalTaxPaid   += tx.tax_withheld || 0;
       }
     }
     const result = [];

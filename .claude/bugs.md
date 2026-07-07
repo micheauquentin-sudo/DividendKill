@@ -3,6 +3,19 @@
 ## Critical
 *(none currently open)*
 
+## Fixed (audit 2026-07-07, branche claude/dividendkill-repo-audit-8kbypn)
+- [x] **NaN sur les retenues fiscales** — les transactions dividende rechargées depuis
+  D1 (storage.js) n'avaient pas de champ `tax_withheld` → `totalTaxPaid += undefined`
+  = NaN dans calc.js, propagé au panneau Impôts. Fix : fallback `|| 0` + champ ajouté
+  au mapping D1.
+- [x] **Icône push cassée** — sw.js référençait `/icons/icon-192.png` alors que le
+  fichier est servi à la racine (`/icon-192.png`).
+- [x] **Injection possible dans les suggestions de recherche** — `r.symbol` (API FMP)
+  inséré brut dans un attribut onclick + HTML dans `_fabDoSearch` ; nom d'actif non
+  échappé dans `_fabOfflineSearch` ; `e.message` non échappé dans renderPanel.
+- [x] **Worker** : paramètre `days` de /api/prices/history non borné (NaN/négatif
+  interpolé dans le SQL) ; `amount` non validé dans validateTx.
+
 ## Medium
 - **Skeleton/blank states during boot** — panels show empty while prices + funda load
   → No loading indicator; user sees zeros until both promises resolve

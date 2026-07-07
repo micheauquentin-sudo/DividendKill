@@ -2004,6 +2004,7 @@ function validateTx(tx) {
   if (!tx.date || !/^\d{4}-\d{2}-\d{2}$/.test(tx.date)) return 'date invalide (YYYY-MM-DD)';
   if (tx.shares != null && (isNaN(tx.shares) || +tx.shares <= 0)) return 'shares invalide';
   if (tx.price  != null && (isNaN(tx.price)  || +tx.price  <  0)) return 'prix invalide';
+  if (tx.amount != null && (isNaN(tx.amount) || +tx.amount <  0)) return 'montant invalide';
   if (tx.currency != null && (typeof tx.currency !== 'string' || tx.currency.length > 8)) return 'devise invalide';
   return null;
 }
@@ -2710,7 +2711,10 @@ async function priceHistoryProxy(req, env) {
   const url = new URL(req.url);
   const tickers = (url.searchParams.get('tickers') || '')
     .split(',').map(t => t.trim().toUpperCase()).filter(Boolean).slice(0, 30);
-  const days = Math.min(parseInt(url.searchParams.get('days') || '365', 10), 730);
+  // Borne [1, 730] + fallback 365 : un `days` non numérique ou négatif serait interpolé
+  // tel quel dans le date('now', '-N days') SQL et rendrait la clause muette (NaN/négatif).
+  const daysRaw = parseInt(url.searchParams.get('days') || '365', 10);
+  const days = Math.min(Math.max(Number.isFinite(daysRaw) ? daysRaw : 365, 1), 730);
   if (!tickers.length || !env.DB) return json({ prices: {} });
 
   const placeholders = tickers.map(() => '?').join(',');

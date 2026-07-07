@@ -230,7 +230,7 @@ async function renderPanel(pid, el) {
         _panelMods.val.renderNews(el); return;
     }
   } catch(e) {
-    el.innerHTML = `<div style="padding:20px;color:#f43f5e;font-size:12px;font-family:monospace">Erreur [${pid}]: ${e.message}</div>`;
+    el.innerHTML = `<div style="padding:20px;color:#f43f5e;font-size:12px;font-family:monospace">Erreur [${pid}]: ${_esc(e.message)}</div>`;
   }
 }
 
@@ -1480,11 +1480,14 @@ async function _fabDoSearch(q) {
       // Le nom n'est qu'un libellé d'affichage, cette normalisation est sans perte utile.
       var nameSafe = (r.name || r.symbol).replace(/[<>"'`\\]/g, ' ');
       var exchSafe = (r.exchangeShortName || '').replace(/[<>"'`\\]/g, '');
+      // Même règle que nameSafe : le symbole vient d'une API externe et entre dans
+      // un attribut onclick — on n'y autorise que les caractères d'un ticker valide.
+      var symSafe = String(r.symbol || '').replace(/[^A-Za-z0-9.\-^=]/g, '');
       return '<div class="fab-sug-item" onclick="fabSelectTicker(\''
-        + r.symbol + '\',\'' + nameSafe + '\',\'' + exchSafe + '\')">'
-        + _logo(r.symbol, 24)
+        + symSafe + '\',\'' + nameSafe + '\',\'' + exchSafe + '\')">'
+        + _logo(symSafe, 24)
         + '<div style="flex:1;min-width:0;margin-left:8px">'
-        + '<span class="fab-sug-tk">' + r.symbol + '</span>'
+        + '<span class="fab-sug-tk">' + _esc(symSafe) + '</span>'
         + '<span class="fab-sug-name">' + _esc(r.name || '') + '</span>'
         + '</div>'
         + '<div class="fab-sug-right"><span class="fab-sug-flag">' + flag + '</span></div>'
@@ -1529,12 +1532,14 @@ function _fabOfflineSearch(q, el) {
   el.innerHTML = matches.map(function(t) {
     var a = Data.assets[t] || {};
     var name = a.name || '';
-    var nameSafe = name.replace(/'/g, '&#39;');
+    // Même normalisation que la recherche en ligne : le nom entre dans un onclick
+    // ET dans le HTML — on retire tout caractère capable de sortir d'un des deux contextes.
+    var nameSafe = name.replace(/[<>"'`\\]/g, ' ');
     return '<div class="fab-sug-item" onclick="fabSelectTicker(\'' + t + '\',\'' + nameSafe + '\',\'NMS\')">'
       + _logo(t, 24)
       + '<div style="flex:1;min-width:0;margin-left:8px">'
       + '<span class="fab-sug-tk">' + t + '</span>'
-      + '<span class="fab-sug-name">' + name + '</span>'
+      + '<span class="fab-sug-name">' + _esc(name) + '</span>'
       + '</div>'
       + '<div class="fab-sug-right"><span class="fab-sug-flag">🇺🇸</span></div>'
       + '</div>';

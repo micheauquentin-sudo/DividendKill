@@ -242,6 +242,7 @@ const Storage = (() => {
           quantity:  tx.shares  || 0,
           price:     tx.price   || 0,
           fees:      0,
+          tax_withheld: 0,
           currency:  tx.currency || 'USD',
           amount:    tx.amount  || 0,
           date:      tx.date,
