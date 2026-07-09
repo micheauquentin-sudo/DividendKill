@@ -1,9 +1,9 @@
 import { Config } from './config.js';
 
 export const FmpData = (() => {
-  // v20 : échec transitoire (429 FMP) sur la réversion figé sous v19 — voir FV_VER v6
-  // côté worker ; le check _fv_ver exact ci-dessous rend les prochains bumps inutiles.
-  const CACHE_KEY = 'astra_fmp_cache_v20';
+  // v21 : incident 2026-07-09 (voir FV_VER v7 + FALLBACK_VER côté worker) — bump pour
+  // repartir d'un état propre après l'épuisement de quota FMP/Finnhub côté prod.
+  const CACHE_KEY = 'astra_fmp_cache_v21';
   const TTL       = 24 * 3600 * 1000; // 24 h
   const _cache    = {};
 
@@ -17,9 +17,15 @@ export const FmpData = (() => {
   // suffit désormais, sans vider tout le cache local des autres tickers/champs.
   const EXPECTED_DSE2_VER = 4;
   // Même mécanisme pour la réversion (fair_value) — synchronisé avec FV_VER du worker.
-  // Le worker ne pose PAS _fv_ver sur un échec transitoire (quota FMP) : l'entrée reste
-  // donc "incomplète" ici et chaque Sync retente, au lieu de figer l'échec 24h.
-  const EXPECTED_FV_VER = 6;
+  // Le worker pose TOUJOURS _fv_ver après une tentative (succès, échec structurel ou
+  // transitoire) ; un échec transitoire est retenté au prochain cycle de 24h côté
+  // serveur, pas à chaque Sync — voir l'incident documenté sur FV_VER v7 côté worker.
+  const EXPECTED_FV_VER = 7;
+  // Idem pour le fallback P/E/payout (Finnhub/Twelve Data) — sans ce numéro,
+  // `pe_cur == null` seul forçait un refetch à CHAQUE Sync pour tout ticker sans P/E
+  // résoluble, même si le serveur venait de confirmer l'absence de données (voir
+  // FALLBACK_VER côté worker).
+  const EXPECTED_FALLBACK_VER = 1;
 
   function _save() {
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(_cache)); } catch(e) {}
@@ -44,7 +50,7 @@ export const FmpData = (() => {
   // débloquait. Désormais, tant qu'un champ manque, chaque Sync retente automatiquement.
   function _isIncomplete(d) {
     return !d || (
-      d.pe_cur == null ||
+      (d.pe_cur == null && d._fallback_ver !== EXPECTED_FALLBACK_VER) ||
       (d.annual_div > 0 && d.fair_value == null && d._fv_ver !== EXPECTED_FV_VER) ||
       d._dse2_ver !== EXPECTED_DSE2_VER
     );

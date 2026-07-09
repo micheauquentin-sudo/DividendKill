@@ -3,6 +3,35 @@
 ## Critical
 *(none currently open)*
 
+## Fixed (incident 2026-07-09 — épuisement quota FMP/Finnhub, tout le portefeuille dégradé)
+- [x] **Régression auto-infligée (commit 4b1bf72, "fix transitoire" du 2026-07-08)** :
+  en ne posant plus `_fv_ver` sur un échec transitoire de la réversion, j'ai créé un
+  bug bien pire que celui que je corrigeais — `_fv_ver` gate TOUT le pipeline
+  `fmpProxy` (profil FMP + Finnhub + réversion + score), pas seulement la réversion.
+  Tant que l'historique de prix FMP échouait pour un ticker (quota), CHAQUE requête
+  `/api/funda` re-déclenchait le pipeline complet au lieu d'attendre le TTL prévu
+  (24h). Combiné aux retries déjà ajoutés sur cet appel, ça a épuisé le quota
+  FMP+Finnhub en quelques Sync → P/E N/A, payout N/A, DSE effondré à 25 ("Danger"),
+  fair_value N/A (même le fallback P/E sectoriel a cessé de produire une cible) —
+  sur TOUT le portefeuille (ADP, UNM, ACN…), pas juste le ticker visé au départ.
+  → Fix : revenu à `_fv_ver` TOUJOURS posé (succès/structurel/transitoire) ; le TTL
+  "fvPending" (24h, déjà existant) est le mécanisme de retry voulu, pas l'absence
+  de version. FV_VER 6→7.
+- [x] **Bug préexistant du même type, jamais corrigé** (noté "Moyenne priorité" dans
+  l'audit initial) : `cached.pe_cur == null` seul, sans aucun marqueur de version,
+  forçait un refetch complet à chaque requête pour tout ticker sans P/E résoluble
+  (Finnhub ET Twelve Data sans donnée) — sans jamais respecter le TTL de 6h déjà
+  calculé pour ce cas. A amplifié l'incident ci-dessus. → Fix : nouveau marqueur
+  `_fallback_ver` (FALLBACK_VER=1), posé systématiquement après `fillFundaFallback`
+  (trouvé ou non), même mécanisme que `_fv_ver`/`_dse2_ver`.
+- Client (`fmpData.js`) : `_isIncomplete` mis à jour en miroir (EXPECTED_FV_VER=7,
+  EXPECTED_FALLBACK_VER=1), CACHE_KEY v20→v21 pour repartir d'un état propre.
+- Leçon retenue : un champ de version qui gate un pipeline entier ne doit JAMAIS
+  rester non posé sur un échec, même "pour retenter plus vite" — le TTL est le bon
+  levier de cadence de retry, pas la présence/absence de la version.
+
+## Fixed (audit 2026-07-07, branche claude/dividendkill-repo-audit-8kbypn)
+
 ## Fixed (audit 2026-07-07, branche claude/dividendkill-repo-audit-8kbypn)
 - [x] **NaN sur les retenues fiscales** — les transactions dividende rechargées depuis
   D1 (storage.js) n'avaient pas de champ `tax_withheld` → `totalTaxPaid += undefined`

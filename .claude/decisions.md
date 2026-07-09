@@ -206,3 +206,41 @@ moteur marche : UNM affichait une cible 79$ (réversion estimée) au même momen
   (hints, monthly_count — null = échec HTTP FMP, syn) en bypassant les caches.
 - Tests (3) : 429 → {fail:'transient'} ; pas de croissance → null SANS appel FMP ;
   succès → estimation + cache yr9. Suite : 106 tests verts, e2e 10/10.
+
+## 2026-07-09 — INCIDENT : régression du fix ci-dessus, quota FMP/Finnhub épuisé
+Rapporté par l'utilisateur (screenshot) : plus AUCUN prix cible, DSE effondré à
+25/100 "Danger" sur ADP ET UNM ET ACN (tout le portefeuille), P/E et payout N/A.
+Diagnostic : la décision du 2026-07-08 ci-dessus ("ne plus poser _fv_ver sur échec
+transitoire") était mal ciblée — `_fv_ver` ne gate pas QUE la réversion, il gate
+tout `fmpProxy` (`const incomplete = ... || cached._fv_ver !== FV_VER`). Tant que
+l'historique de prix FMP échouait (quota), chaque requête /api/funda re-lançait
+le pipeline ENTIER (profil FMP + Finnhub + réversion + score) au lieu d'attendre
+le TTL "fvPending" de 24h qui existait déjà et qui était le bon mécanisme de
+retry. Combiné aux retries fetchRetry ajoutés la veille sur ce même appel,
+quelques Sync ont suffi à épuiser le quota FMP ET Finnhub, faisant s'effondrer
+pe_cur/payout/DSE pour tout ticker touché — pas seulement ADP.
+En creusant, un second bug de la MÊME famille existait déjà (noté "Moyenne" dans
+l'audit initial, jamais corrigé) : `cached.pe_cur == null` seul, sans version,
+forçait aussi un refetch complet à chaque requête pour tout ticker sans P/E
+résoluble — même TTL de 6h déjà calculé et jamais respecté par ce chemin.
+Fix (retour à la conception initiale, qui était correcte) :
+- `_fv_ver` est de nouveau TOUJOURS posé après une tentative de réversion (succès,
+  échec structurel OU transitoire). Le TTL fvPending (86400s) est le mécanisme de
+  retry voulu — un champ de version qui gate un pipeline entier ne doit jamais
+  rester non posé sur échec. FV_VER 6→7.
+- Nouveau marqueur `_fallback_ver` (FALLBACK_VER=1) posé systématiquement après
+  fillFundaFallback (pe_cur trouvé ou non), même mécanisme — corrige le bug
+  préexistant de la même famille.
+- fetchRetry sur _fetchMonthlyCloses conservé (sans risque désormais : au plus
+  une tentative par cycle TTL de 24h, plus par requête).
+- Client (fmpData.js) : EXPECTED_FV_VER→7, nouveau EXPECTED_FALLBACK_VER=1,
+  _isIncomplete miroir exact du worker, CACHE_KEY v20→v21.
+- Suite existante inchangée et toujours verte (106 tests) — la valeur de retour
+  de fetchYieldReversion elle-même n'a pas changé, seul l'appelant. Pas de test
+  automatisé de synchronisation croisée client/worker des constantes de version
+  (nécessiterait de restructurer l'IIFE de fmpData.js) — risque résiduel accepté,
+  documenté ici pour la prochaine session.
+Leçon : distinguer "transitoire" de "structurel" était une bonne intuition, mais
+l'implémentation a confondu deux granularités différentes — la version d'UN
+sous-résultat (réversion) et le TTL du CACHE ENTIER qu'elle gate. Le TTL existant
+était déjà le bon outil ; il ne fallait rien changer au niveau de la version.

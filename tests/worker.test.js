@@ -409,9 +409,13 @@ describe('computeSyntheticReversion', () => {
 });
 
 // ── fetchYieldReversion : échec transitoire vs structurel ────
-// Vu en prod (ADP) : un 429 quota FMP sur l'historique de prix faisait échouer la
-// réversion, et l'échec était figé 24h via _fv_ver. Désormais l'échec transitoire
-// est signalé ({fail:'transient'}) pour que l'appelant ne pose PAS la version.
+// fetchYieldReversion distingue toujours les deux cas dans SA valeur de retour
+// ({fail:'transient'} vs null) — utile pour les logs/diagnostic (?yrlive=1). Mais
+// depuis l'incident du 2026-07-09, l'APPELANT (fmpProxy/cron) pose _fv_ver dans
+// les deux cas : un échec transitoire est retenté au prochain cycle TTL (24h),
+// pas en re-déclenchant tout le pipeline fmpProxy à chaque requête (c'est ce
+// dernier comportement — version non posée — qui avait épuisé le quota FMP+Finnhub
+// en quelques Sync et fait s'effondrer pe_cur/DSE pour tout le portefeuille).
 describe('fetchYieldReversion (transient vs structurel)', () => {
   const FH9_OK = JSON.stringify({
     eps: 10.73, payout_ratio: 0.59, beta: 0.84, annual_div: 6.37,

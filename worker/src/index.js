@@ -890,7 +890,7 @@ async function fmpProxy(req, env) {
       // jamais été calculé sous la version courante (_dse2_ver absent = entrée mise en
       // cache avant l'ajout de dse2 — sans ce check elle resterait figée ~120 jours).
       const incomplete = cached && (
-        cached.pe_cur == null ||
+        (cached.pe_cur == null && cached._fallback_ver !== FALLBACK_VER) ||
         (cached.annual_div > 0 && cached.fair_value == null && cached._fv_ver !== FV_VER) ||
         cached._dse2_ver !== DSE2_VER
       );
@@ -962,6 +962,7 @@ async function fmpProxy(req, env) {
       price = cachedPrice?.regularMarketPrice || null;
     }
     await fillFundaFallback(result, symbol, env, price);
+    result._fallback_ver = FALLBACK_VER; // toujours posé (pe_cur trouvé ou non) — voir incomplete-check
     // Valorisation par réversion du rendement (fair value vs prix courant) — Simply Safe Dividends
     if (price > 0 && result.annual_div > 0) {
       const yr = await fetchYieldReversion(symbol, price, result.annual_div, rawDivs, env);
@@ -972,9 +973,12 @@ async function fmpProxy(req, env) {
         if (yr.estimated) { result.fv_estimated = true; result.fv_pe_med_5y = yr.pe_med_5y ?? null; }
       }
       result._fv_tried = true; // marqueur : évite de re-fetcher en boucle si la réversion échoue
-      // Échec TRANSITOIRE (quota FMP sur l'historique de prix) : version NON posée →
-      // l'incomplete-check re-tente au prochain Sync au lieu de figer l'échec 24h.
-      if (!(yr && yr.fail === 'transient')) result._fv_ver = FV_VER;
+      // TOUJOURS posé (succès, échec structurel OU transitoire) — voir incomplete-check.
+      // Un échec transitoire (quota FMP) sera retenté au prochain cycle grâce au TTL
+      // "fvPending" (24h, ci-dessous), PAS en re-déclenchant tout le pipeline à chaque
+      // requête : c'est ce dernier comportement (version non posée) qui a provoqué un
+      // incident en prod (quota FMP+Finnhub épuisé en quelques Sync, 2026-07-09).
+      result._fv_ver = FV_VER;
     }
     // Dividend Safety Score V2 — remplace l'ancien calcul client (src/dividendSafety.js)
     // par un moteur serveur plus riche (états financiers FMP + Finnhub + volatilité prix
@@ -1644,8 +1648,26 @@ const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
 // marqués _fv_tried sous v4 (fair_value restée null) doivent être re-tentés.
 // v6 : des entrées v5 ont figé un échec TRANSITOIRE (429 quota FMP sur l'historique de
 // prix, vu en prod sur ADP) comme si la réversion avait été tentée pour de bon — le
-// bump les re-tente ; désormais un échec transitoire ne pose plus _fv_ver du tout.
-const FV_VER = 6;
+// bump les re-tente.
+// v7 : INCIDENT (2026-07-09) — le v6 ci-dessus ne posait PLUS _fv_ver du tout sur un
+// échec transitoire, dans l'intention de "retenter plus vite". Mauvaise idée : ce même
+// champ gate TOUT le pipeline fmpProxy (profil FMP + Finnhub + réversion + score), pas
+// seulement la réversion — tant que l'historique de prix échouait, CHAQUE requête
+// re-déclenchait tout le pipeline au lieu d'attendre le TTL "fvPending" déjà prévu
+// (86400s = 24h, cf. plus bas), épuisant le quota FMP+Finnhub en quelques Sync et
+// faisant s'effondrer pe_cur/payout/DSE pour TOUT le portefeuille. Revenu à la version
+// TOUJOURS posée (succès, échec structurel OU transitoire) : un échec transitoire est
+// simplement retenté au prochain cycle de 24h, sans jamais re-marteler les APIs à
+// chaque requête. Le TTL de 24h EST le mécanisme de retry voulu ici, pas une version
+// non posée.
+const FV_VER = 7;
+
+// Marqueur "fallback tenté" (Finnhub/Twelve Data pour pe_cur/payout_ratio) — même
+// mécanisme et même incident que ci-dessus : `cached.pe_cur == null` seul (sans
+// version) forçait un refetch complet à CHAQUE requête pour tout ticker sans P/E
+// résoluble, TTL ou pas. Posé systématiquement après fillFundaFallback (trouvé ou
+// non) ; le TTL "stillIncomplete" (21600s = 6h, cf. plus bas) fait le reste.
+const FALLBACK_VER = 1;
 
 // Marqueur de version pour le Dividend Safety Score V2 (dividendScore.js) — même
 // mécanisme que FV_VER : les entrées funda9 déjà en cache (créées avant l'ajout de
@@ -1717,10 +1739,9 @@ function computeSyntheticReversion({ price, annualDiv, divGrowth5y, eps, epsGrow
 
 // Historique de prix FMP → un point par mois (le plus récent du mois, adjClose).
 // Partagé entre la réversion réelle et la réversion synthétique.
-// fetchRetry : confirmé en prod (ADP, 2026-07-07) qu'un 429 quota ponctuel sur CET
-// appel faisait échouer toute la réversion — et l'échec était ensuite figé 24h par
-// _fv_ver. Retry + backoff absorbe les 429 passagers ; l'échec définitif est signalé
-// comme TRANSITOIRE à l'appelant (fetchYieldReversion) pour ne pas figer la version.
+// fetchRetry absorbe un 429/5xx passager (jusqu'à 3 tentatives) — sans risque de
+// martèlement puisque fetchYieldReversion n'est appelée qu'une fois par cycle TTL
+// (24h, voir FV_VER v7) et non plus à chaque requête sur échec.
 async function _fetchMonthlyCloses(symbol, env) {
   const from = new Date(Date.now() - 5 * 365 * 86400000).toISOString().slice(0, 10);
   const url = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&from=${from}&apikey=${env.FMP_KEY}`;
@@ -1868,6 +1889,7 @@ async function handleScheduled(env) {
         price = cachedPrice?.regularMarketPrice || null;
       }
       await fillFundaFallback(normalized, symbol, env, price);
+      normalized._fallback_ver = FALLBACK_VER;
       // Valorisation par réversion du rendement (fair value) — Simply Safe Dividends
       if (price > 0 && normalized.annual_div > 0) {
         const yr = await fetchYieldReversion(symbol, price, normalized.annual_div, divsData, env);
@@ -1876,7 +1898,7 @@ async function handleScheduled(env) {
           if (yr.estimated) { normalized.fv_estimated = true; normalized.fv_pe_med_5y = yr.pe_med_5y ?? null; }
         }
         normalized._fv_tried = true;
-        if (!(yr && yr.fail === 'transient')) normalized._fv_ver = FV_VER;
+        normalized._fv_ver = FV_VER; // toujours posé — voir commentaire dans fmpProxy
       }
       try {
         normalized.dse2 = await buildDividendScoreV2(symbol, env, normalized, price);
