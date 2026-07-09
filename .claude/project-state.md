@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-04 10:58] fix: revert PBKDF2 to 100k iterations, 600k blew Workers CPU budget -- worker/src/index.js -->
-<!-- interrupted: [2026-07-09 09:18] context: Le correctif est sur `main` (`4b1bf72`), le déploiement part automatiquement. -->
-<!-- resume-from: files: src/fmpData.js, tests/worker.test.js, worker/src/index.js -->
+<!-- interrupted: [2026-07-09 12:04] context: Le correctif d'urgence est poussé sur `main` (`aa1da43`) et sur la branche d'audit, le déploiement Cloudflare part imméd -->
+<!-- resume-from: files: .claude/bugs.md, .claude/decisions.md -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
