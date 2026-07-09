@@ -1,7 +1,7 @@
 # PROJECT STATE
 <!-- last-commit: [2026-07-04 10:58] fix: revert PBKDF2 to 100k iterations, 600k blew Workers CPU budget -- worker/src/index.js -->
-<!-- interrupted: [2026-07-07 14:05] context: C'est fait — la réversion synthétique est commitée (`1ce404e`), poussée sur la branche **et sur `main`** (fast-forward p -->
-<!-- resume-from: files: (unknown) -->
+<!-- interrupted: [2026-07-09 09:18] context: Le correctif est sur `main` (`4b1bf72`), le déploiement part automatiquement. -->
+<!-- resume-from: files: src/fmpData.js, tests/worker.test.js, worker/src/index.js -->
 
 ## Current mission
 Roadmap Phase 3/4 UX improvements, resumed after the dividend safety scoring
