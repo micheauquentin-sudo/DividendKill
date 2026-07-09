@@ -184,3 +184,25 @@ historique de dividendes réel n'est accessible (FMP 402/Finnhub 403/TD 403).
   faux signal P/E), EPS en érosion (peRel > 0.92 → pas de confirmation).
   Suite : 103 tests verts + e2e 10/10. NON vérifié live (sandbox sans réseau) :
   à confirmer sur ADP après déploiement + Sync.
+
+## 2026-07-08 — Fix : échec transitoire de la réversion figé 24h (vu en prod sur ADP)
+Diagnostic depuis /api/debug/funda?symbol=ADP : kv_fv_ver:5 (le code v5 a tourné),
+hints Finnhub présents (dividend_growth_5y 0.1162), DSE V2 complet — mais
+yr9_hit:false et fair_value:null. L'appel FMP historical-price-eod a échoué au
+moment du calcul (très probablement 429 quota — l'appel était en fetch() nu, sans
+retry), et _fv_ver:5 a figé cet échec comme "tenté" pendant 24h. Preuve que le
+moteur marche : UNM affichait une cible 79$ (réversion estimée) au même moment.
+- _fetchMonthlyCloses passe sur fetchRetry (429/5xx retentés avec backoff).
+- fetchYieldReversion distingue désormais échec TRANSITOIRE ({fail:'transient'} :
+  historique de prix indisponible, exception réseau) d'échec STRUCTUREL (null :
+  pas de croissance du dividende, pas assez de points) — les appelants ne posent
+  _fv_ver QUE si l'échec n'est pas transitoire. FV_VER 5→6 pour dégeler les
+  entrées déjà figées sous v5.
+- Client : _isIncomplete compare _fv_ver !== EXPECTED_FV_VER (6) au lieu de
+  !_fv_tried (même mécanisme que EXPECTED_DSE2_VER — plus besoin de bump
+  CACHE_KEY pour les futures évolutions de la réversion). CACHE_KEY v19→v20
+  (une dernière fois, pour purger les entrées figées).
+- Debug : /api/debug/funda?symbol=X&yrlive=1 rejoue la réversion étape par étape
+  (hints, monthly_count — null = échec HTTP FMP, syn) en bypassant les caches.
+- Tests (3) : 429 → {fail:'transient'} ; pas de croissance → null SANS appel FMP ;
+  succès → estimation + cache yr9. Suite : 106 tests verts, e2e 10/10.

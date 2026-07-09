@@ -5,7 +5,7 @@ import {
   validateTx, hashPassword, verifyPassword, signJWT, verifyJWT,
   computeStreak, computeDivCAGR5y, extractPayMonths,
   normalizeFunda, normalizeProfile, isRateLimited, priceProxy,
-  computeSyntheticReversion,
+  computeSyntheticReversion, fetchYieldReversion,
 } from '../worker/src/index.js';
 
 import {
@@ -405,6 +405,63 @@ describe('computeSyntheticReversion', () => {
     expect(r).not.toBeNull();
     const peRel = (220 / 9.9) / r.pe_med_5y;
     expect(peRel).toBeGreaterThan(0.92); // pas de confirmation → le client reste neutre
+  });
+});
+
+// ── fetchYieldReversion : échec transitoire vs structurel ────
+// Vu en prod (ADP) : un 429 quota FMP sur l'historique de prix faisait échouer la
+// réversion, et l'échec était figé 24h via _fv_ver. Désormais l'échec transitoire
+// est signalé ({fail:'transient'}) pour que l'appelant ne pose PAS la version.
+describe('fetchYieldReversion (transient vs structurel)', () => {
+  const FH9_OK = JSON.stringify({
+    eps: 10.73, payout_ratio: 0.59, beta: 0.84, annual_div: 6.37,
+    eps_growth_5y: 0.1186, dividend_growth_5y: 0.1162, _fh9_ver: 2,
+  });
+  const FH9_NO_GROWTH = JSON.stringify({ eps: 10.73, dividend_growth_5y: null, _fh9_ver: 2 });
+
+  async function run(fh9Json, fetchImpl) {
+    const kv = mkKV();
+    kv._raw.set('fh9:ADP', fh9Json);
+    const env = { FMP_KEY: 'test-key', PRICES_KV: kv };
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = fetchImpl;
+    try { return await fetchYieldReversion('ADP', 248, 6.64, null, env); }
+    finally { globalThis.fetch = origFetch; }
+  }
+
+  it('quota FMP (429) sur l’historique de prix → {fail:"transient"}, pas null', async () => {
+    const r = await run(FH9_OK, async () => new Response('quota', { status: 429 }));
+    expect(r).toEqual({ fail: 'transient' });
+  }, 15000); // fetchRetry retente les 429 avec backoff avant d'abandonner
+
+  it('pas de croissance du dividende (structurel) → null, sans appel FMP', async () => {
+    let fetchCalls = 0;
+    const r = await run(FH9_NO_GROWTH, async () => { fetchCalls++; return new Response('[]', { status: 200 }); });
+    expect(r).toBeNull();
+    expect(fetchCalls).toBe(0); // le garde-fou évite de payer l'appel d'historique
+  });
+
+  it('historique de prix OK → estimation complète, cachée dans yr9', async () => {
+    // 60 mois de closes : 300$ sur 4 ans puis 220$ la dernière année (profil ADP décoté)
+    const hist = [];
+    for (let i = 0; i < 60; i++) {
+      const d = new Date(Date.now() - i * 30.44 * 86400000).toISOString().slice(0, 10);
+      hist.push({ date: d, close: i < 12 ? 220 : 300 }); // FMP = plus récent d'abord
+    }
+    const kv = mkKV();
+    kv._raw.set('fh9:ADP', FH9_OK);
+    const env = { FMP_KEY: 'test-key', PRICES_KV: kv };
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify(hist), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    let r;
+    try { r = await fetchYieldReversion('ADP', 220, 6.64, null, env); }
+    finally { globalThis.fetch = origFetch; }
+    expect(r.estimated).toBe(true);
+    expect(r.fair_value).toBeGreaterThan(220 * 1.1);
+    expect(r.pe_med_5y).toBeGreaterThan(0);
+    const cached = await kv.get('yr9:ADP', { type: 'json' });
+    expect(cached.estimated).toBe(true);
+    expect(cached.avg_yield_5y).toBeGreaterThan(0);
   });
 });
 

@@ -1,9 +1,9 @@
 import { Config } from './config.js';
 
 export const FmpData = (() => {
-  // v19 : réversion synthétique (fair_value estimée + fv_pe_med_5y) — force un refetch
-  // pour les entrées déjà marquées _fv_tried sous l'ancienne logique (fair_value null).
-  const CACHE_KEY = 'astra_fmp_cache_v19';
+  // v20 : échec transitoire (429 FMP) sur la réversion figé sous v19 — voir FV_VER v6
+  // côté worker ; le check _fv_ver exact ci-dessous rend les prochains bumps inutiles.
+  const CACHE_KEY = 'astra_fmp_cache_v20';
   const TTL       = 24 * 3600 * 1000; // 24 h
   const _cache    = {};
 
@@ -16,6 +16,10 @@ export const FmpData = (() => {
   // nouveau fetch. En comparant la version exacte ici, un simple bump de ce nombre
   // suffit désormais, sans vider tout le cache local des autres tickers/champs.
   const EXPECTED_DSE2_VER = 4;
+  // Même mécanisme pour la réversion (fair_value) — synchronisé avec FV_VER du worker.
+  // Le worker ne pose PAS _fv_ver sur un échec transitoire (quota FMP) : l'entrée reste
+  // donc "incomplète" ici et chaque Sync retente, au lieu de figer l'échec 24h.
+  const EXPECTED_FV_VER = 6;
 
   function _save() {
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(_cache)); } catch(e) {}
@@ -41,7 +45,7 @@ export const FmpData = (() => {
   function _isIncomplete(d) {
     return !d || (
       d.pe_cur == null ||
-      (d.annual_div > 0 && d.fair_value == null && !d._fv_tried) ||
+      (d.annual_div > 0 && d.fair_value == null && d._fv_ver !== EXPECTED_FV_VER) ||
       d._dse2_ver !== EXPECTED_DSE2_VER
     );
   }

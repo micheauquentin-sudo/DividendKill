@@ -965,14 +965,16 @@ async function fmpProxy(req, env) {
     // Valorisation par réversion du rendement (fair value vs prix courant) — Simply Safe Dividends
     if (price > 0 && result.annual_div > 0) {
       const yr = await fetchYieldReversion(symbol, price, result.annual_div, rawDivs, env);
-      if (yr) {
+      if (yr && yr.fair_value) {
         result.fair_value = yr.fair_value; result.avg_yield_5y = yr.avg_yield_5y;
         // Réversion estimée (rétro-projection) : le client élargit les bandes et exige
         // la confirmation du P/E vs sa propre médiane 5 ans (fv_pe_med_5y).
         if (yr.estimated) { result.fv_estimated = true; result.fv_pe_med_5y = yr.pe_med_5y ?? null; }
       }
       result._fv_tried = true; // marqueur : évite de re-fetcher en boucle si la réversion échoue
-      result._fv_ver = FV_VER;
+      // Échec TRANSITOIRE (quota FMP sur l'historique de prix) : version NON posée →
+      // l'incomplete-check re-tente au prochain Sync au lieu de figer l'échec 24h.
+      if (!(yr && yr.fail === 'transient')) result._fv_ver = FV_VER;
     }
     // Dividend Safety Score V2 — remplace l'ancien calcul client (src/dividendSafety.js)
     // par un moteur serveur plus riche (états financiers FMP + Finnhub + volatilité prix
@@ -1640,7 +1642,10 @@ const ttlFunda = () => 10368000 + Math.floor((Math.random() - 0.5) * 2592000);
 // v5 : réversion SYNTHÉTIQUE par rétro-projection (computeSyntheticReversion) quand
 // aucun historique de dividendes réel n'est accessible — les tickers type ADP déjà
 // marqués _fv_tried sous v4 (fair_value restée null) doivent être re-tentés.
-const FV_VER = 5;
+// v6 : des entrées v5 ont figé un échec TRANSITOIRE (429 quota FMP sur l'historique de
+// prix, vu en prod sur ADP) comme si la réversion avait été tentée pour de bon — le
+// bump les re-tente ; désormais un échec transitoire ne pose plus _fv_ver du tout.
+const FV_VER = 6;
 
 // Marqueur de version pour le Dividend Safety Score V2 (dividendScore.js) — même
 // mécanisme que FV_VER : les entrées funda9 déjà en cache (créées avant l'ajout de
@@ -1712,11 +1717,15 @@ function computeSyntheticReversion({ price, annualDiv, divGrowth5y, eps, epsGrow
 
 // Historique de prix FMP → un point par mois (le plus récent du mois, adjClose).
 // Partagé entre la réversion réelle et la réversion synthétique.
+// fetchRetry : confirmé en prod (ADP, 2026-07-07) qu'un 429 quota ponctuel sur CET
+// appel faisait échouer toute la réversion — et l'échec était ensuite figé 24h par
+// _fv_ver. Retry + backoff absorbe les 429 passagers ; l'échec définitif est signalé
+// comme TRANSITOIRE à l'appelant (fetchYieldReversion) pour ne pas figer la version.
 async function _fetchMonthlyCloses(symbol, env) {
   const from = new Date(Date.now() - 5 * 365 * 86400000).toISOString().slice(0, 10);
   const url = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&from=${from}&apikey=${env.FMP_KEY}`;
-  const r = await fetch(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
-  if (!r.ok) { console.warn('[YieldRev] histo HTTP', r.status, symbol); return null; }
+  const r = await fetchRetry(url, { headers: { Accept: 'application/json', 'User-Agent': 'DividendKill/1.0' } });
+  if (!r || !r.ok) { console.warn('[YieldRev] histo HTTP', r ? r.status : 'no-response', symbol); return null; }
   const data = await r.json();
   const hist = Array.isArray(data) ? data : (data.historical || []);
   const monthly = {};
@@ -1784,7 +1793,10 @@ async function fetchYieldReversion(symbol, price, annualDiv, rawDivs, env) {
   }
   try {
     const monthly = await _fetchMonthlyCloses(symbol, env);
-    if (!monthly) return null;
+    // Échec TRANSITOIRE (quota 429 / panne FMP malgré le retry) — distingué du "pas de
+    // données" structurel : l'appelant ne doit PAS poser _fv_ver, sinon l'échec est
+    // figé 24h alors qu'un simple Sync ultérieur suffirait (vu en prod sur ADP).
+    if (!monthly) return { fail: 'transient' };
 
     if (synthetic) {
       const syn = computeSyntheticReversion({
@@ -1822,7 +1834,11 @@ async function fetchYieldReversion(symbol, price, annualDiv, rawDivs, env) {
     if (env.PRICES_KV) await env.PRICES_KV.put(cacheKey, JSON.stringify({ avg_yield_5y }), { expirationTtl: ttlFunda() });
     console.log(`[YieldRev] ${symbol} rdt_médian_5a=${avg_yield_5y}% fair=${fair_value}`);
     return { fair_value, avg_yield_5y };
-  } catch(e) { console.warn('[YieldRev] erreur', symbol, e.message); return null; }
+  } catch(e) {
+    // Exception réseau/parsing : transitoire aussi — même traitement que ci-dessus.
+    console.warn('[YieldRev] erreur', symbol, e.message);
+    return { fail: 'transient' };
+  }
 }
 
 async function handleScheduled(env) {
@@ -1855,12 +1871,12 @@ async function handleScheduled(env) {
       // Valorisation par réversion du rendement (fair value) — Simply Safe Dividends
       if (price > 0 && normalized.annual_div > 0) {
         const yr = await fetchYieldReversion(symbol, price, normalized.annual_div, divsData, env);
-        if (yr) {
+        if (yr && yr.fair_value) {
           normalized.fair_value = yr.fair_value; normalized.avg_yield_5y = yr.avg_yield_5y;
           if (yr.estimated) { normalized.fv_estimated = true; normalized.fv_pe_med_5y = yr.pe_med_5y ?? null; }
         }
         normalized._fv_tried = true;
-        normalized._fv_ver = FV_VER;
+        if (!(yr && yr.fail === 'transient')) normalized._fv_ver = FV_VER;
       }
       try {
         normalized.dse2 = await buildDividendScoreV2(symbol, env, normalized, price);
@@ -2261,7 +2277,37 @@ async function debugFunda(req, env) {
   const tdlive = url.searchParams.get('tdlive') === '1';
   const fhdivlive = url.searchParams.get('fhdivlive') === '1';
   const tddivlive = url.searchParams.get('tddivlive') === '1';
+  const yrlive = url.searchParams.get('yrlive') === '1';
   const out    = { symbol, kv_key: `funda9:${symbol}`, ts: new Date().toISOString() };
+
+  // ?yrlive=1 : rejoue la réversion synthétique étape par étape, en bypassant les
+  // caches yr9/funda9 — montre exactement OÙ ça échoue (hints Finnhub absents,
+  // historique de prix FMP en 429/402, pas assez de points…). Consomme 1 appel FMP.
+  if (yrlive) {
+    const yrOut = {};
+    try {
+      const fh = await fetchFinnhubMetrics(symbol, env);
+      yrOut.fh9_hit            = !!fh;
+      yrOut.dividend_growth_5y = fh?.dividend_growth_5y ?? null;
+      yrOut.eps                = fh?.eps ?? null;
+      yrOut.eps_growth_5y      = fh?.eps_growth_5y ?? null;
+      const monthly = await _fetchMonthlyCloses(symbol, env);
+      yrOut.monthly_count = monthly ? monthly.length : null; // null = échec HTTP FMP (voir logs [YieldRev])
+      if (monthly && fh) {
+        const priceKv   = env.PRICES_KV ? await env.PRICES_KV.get(`p:${symbol}`, { type: 'json' }) : null;
+        const fundaKv   = env.PRICES_KV ? await env.PRICES_KV.get(`funda9:${symbol}`, { type: 'json' }) : null;
+        const price     = priceKv?.regularMarketPrice || null;
+        const annualDiv = fundaKv?.annual_div || fh.annual_div || null;
+        yrOut.price = price; yrOut.annual_div = annualDiv;
+        yrOut.syn = computeSyntheticReversion({
+          price, annualDiv,
+          divGrowth5y: fh.dividend_growth_5y, eps: fh.eps, epsGrowth5y: fh.eps_growth_5y,
+          monthly,
+        });
+      }
+    } catch(e) { yrOut.error = e.message; }
+    out.yr_live = yrOut;
+  }
 
   // Statut de la clé secrète TWELVEDATA_KEY — jamais la valeur elle-même, juste
   // présence/longueur. Permet de vérifier si le secret ajouté via le dashboard
@@ -3027,5 +3073,5 @@ export {
   validateTx, hashPassword, verifyPassword, signJWT, verifyJWT,
   computeStreak, computeDivCAGR5y, extractPayMonths,
   normalizeFunda, normalizeProfile, isRateLimited, priceProxy,
-  computeSyntheticReversion,
+  computeSyntheticReversion, fetchYieldReversion,
 };
